@@ -4,8 +4,8 @@
 
 ```
 .
-├── external
-├── managed
+├── external/
+├── managed/
 └── home.nix
 ```
 
