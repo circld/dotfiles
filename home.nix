@@ -1,11 +1,10 @@
-# https://nix-community.github.io/home-manager/index.xhtml#ch-usage
-#
 # TODO
+# [ ] move programs statements to `managed/`
 # [ ] add fish config
-# [ ] add neovim config (circld/kickstart.nvim) w/config managed outside of home manager
+# [ ] add neovim config (circld/kickstart.nvim)
 #     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
 #     and https://github.com/supermarin/dotfiles/blob/7b7910717b4c63031e29f94988181c215cfec075/neovim.nix
-# [ ] how to split personal + work configurations?
+# [ ] figure out how best to separate personal & work configurations while sharing core
 { config, pkgs, ... }:
 let
   dotfiles = "${config.home.homeDirectory}/dotfiles";
