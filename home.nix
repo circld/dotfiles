@@ -42,7 +42,7 @@ in
   # Configure HM-managed programs & configuration
   programs.home-manager.enable = true;
   imports = [
-    ./managed/programs.nix
+    ./managed/no_config.nix
     ./managed/atuin.nix
     ./managed/fish.nix
     ./managed/git.nix
