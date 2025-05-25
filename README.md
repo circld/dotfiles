@@ -1,10 +1,13 @@
 # dotfiles
 
 ## directory structure
+
+```
 .
 ├── external
 ├── managed
 └── home.nix
+```
 
 ## design
 
