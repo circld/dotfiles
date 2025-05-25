@@ -1,17 +1,16 @@
 # https://nix-community.github.io/home-manager/index.xhtml#ch-usage
 #
 # TODO
-# [x] add packages from https://github.com/circld/Prefs/blob/master/.config/nixpkgs/config.nix
-# [x] move packages out of home.packages for infrequently changing configs
-# [ ] create new dotfiles repo w/home.nix & other configuration files
-# [ ] add ghostty config
-# [ ] make fish default shell (from ghostty)
+# [ ] add fish config
 # [ ] add neovim config (circld/kickstart.nvim) w/config managed outside of home manager
 #     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
 #     and https://github.com/supermarin/dotfiles/blob/7b7910717b4c63031e29f94988181c215cfec075/neovim.nix
 # [ ] how to split personal + work configurations?
 { config, pkgs, ... }:
-
+let
+  dotfiles = "${config.home.homeDirectory}/dotfiles";
+  ln = file: config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${file}";
+in
 {
   # Home Manager needs a bit of information about you and the paths it should
   # manage.
@@ -65,6 +64,9 @@
     #   org.gradle.daemon.idletimeout=3600000
     # '';
   };
+  xdg.configFile = {
+    "ghostty".source = ln "external/ghostty";
+  };
 
   # Home Manager can also manage your environment variables through
   # 'home.sessionVariables'. These will be explicitly sourced when using a
@@ -95,6 +97,9 @@
     enable = true;
     enableFishIntegration = true;
     flags = [ "--disable-up-arrow" ];
+  };
+  programs.bash = {
+    enable = true;
   };
   programs.bat = {
     enable = true;
@@ -192,6 +197,9 @@
     enable = true;
   };
   programs.tmux = {
+    enable = true;
+  };
+  programs.zsh = {
     enable = true;
   };
 }
