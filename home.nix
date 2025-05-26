@@ -1,4 +1,5 @@
 # TODO
+# [x] make fish default shell for ghostty
 # [ ] add fish config
 # [ ] add neovim config (circld/kickstart.nvim)
 #     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
@@ -48,6 +49,7 @@ in
     ./managed/git.nix
     ./managed/neovim.nix
     ./managed/ripgrep.nix
+    ./managed/zsh.nix
   ];
 
   # Link to externally managed configuration from XDG_CONFIG_HOME

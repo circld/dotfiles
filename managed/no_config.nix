@@ -28,7 +28,4 @@
   programs.tmux = {
     enable = true;
   };
-  programs.zsh = {
-    enable = true;
-  };
 }

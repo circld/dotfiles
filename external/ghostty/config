@@ -1,6 +1,6 @@
-# provide *login* shell
 command = $HOME/.nix-profile/bin/zsh
 cursor-style = block
 cursor-style-blink = true
+shell-integration = fish
 shell-integration-features = no-cursor
 font-family = "Hasklug Nerd Font Mono"
