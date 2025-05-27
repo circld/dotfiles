@@ -4,3 +4,4 @@ cursor-style-blink = true
 shell-integration = fish
 shell-integration-features = no-cursor
 font-family = "Hasklug Nerd Font Mono"
+theme = space-vim-dark

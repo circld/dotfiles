@@ -20,15 +20,13 @@
 
       # custom key bindings
       fish_user_key_bindings
+
+      # set theme
+      fish_config theme choose custom
     '';
     shellAbbrs = {
       l = "ls -al";
       c = "clear";
     };
-    shellInitLast = ''
-      # re-source to override for custom prompt
-      source "$HOME/.config/fish/functions/fish_mode_prompt.fish"
-      source "$HOME/.config/fish/functions/fish_prompt.fish"
-    '';
   };
 }

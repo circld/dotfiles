@@ -1,8 +1,9 @@
 # TODO
-# [x] get fish_mode_prompt working; fresh instance doesn't see `fish_mode_prompt`, `fish_prompt` does nothing; try defining them in HM (what's the philosophical reason to manage it externally?)
+# [x] theming (ghostty, fish, & starship)
 # [ ] add neovim config (circld/kickstart.nvim)
 #     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
 #     and https://github.com/supermarin/dotfiles/blob/7b7910717b4c63031e29f94988181c215cfec075/neovim.nix
+# [ ] replace tmux w/zellij (https://github.com/zellij-org/awesome-zellij)
 # [ ] figure out how best to separate personal & work configurations while sharing core
 # 
 # see template & docs:
@@ -48,12 +49,14 @@ in
     ./managed/git.nix
     ./managed/neovim.nix
     ./managed/ripgrep.nix
+    ./managed/starship.nix
     ./managed/zsh.nix
   ];
 
   # Link to externally managed configuration from XDG_CONFIG_HOME
   xdg.configFile = {
     "fish/functions".source = ln "external/fish/functions";
+    "fish/themes".source = ln "external/fish/themes";
     # ghostty must be manually installed & managed until derivation is no longer marked as broken
     "ghostty".source = ln "external/ghostty";
     "nvim".source = ln "external/nvim";
