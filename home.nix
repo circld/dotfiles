@@ -1,6 +1,5 @@
 # TODO
-# [x] configure direnv (nix-direnv)
-# [*] add fish config
+# [x] get fish_mode_prompt working; fresh instance doesn't see `fish_mode_prompt`, `fish_prompt` does nothing; try defining them in HM (what's the philosophical reason to manage it externally?)
 # [ ] add neovim config (circld/kickstart.nvim)
 #     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
 #     and https://github.com/supermarin/dotfiles/blob/7b7910717b4c63031e29f94988181c215cfec075/neovim.nix
@@ -24,7 +23,6 @@ in
   home.stateVersion = "25.05";
 
   # Install Nix-managed packages into your environment.
-  # TODO python3.withPackages supported?
   home.packages = [
     pkgs.entr
     pkgs.tldr
