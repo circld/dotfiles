@@ -1,6 +1,6 @@
 # TODO
-# [x] make fish default shell for ghostty
-# [ ] add fish config
+# [x] configure direnv (nix-direnv)
+# [*] add fish config
 # [ ] add neovim config (circld/kickstart.nvim)
 #     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
 #     and https://github.com/supermarin/dotfiles/blob/7b7910717b4c63031e29f94988181c215cfec075/neovim.nix
@@ -45,6 +45,7 @@ in
   imports = [
     ./managed/no_config.nix
     ./managed/atuin.nix
+    ./managed/direnv.nix
     ./managed/fish.nix
     ./managed/git.nix
     ./managed/neovim.nix
@@ -54,6 +55,7 @@ in
 
   # Link to externally managed configuration from XDG_CONFIG_HOME
   xdg.configFile = {
+    "fish/functions".source = ln "external/fish/functions";
     # ghostty must be manually installed & managed until derivation is no longer marked as broken
     "ghostty".source = ln "external/ghostty";
     "nvim".source = ln "external/nvim";
