@@ -19,7 +19,4 @@
   programs.jq = {
     enable = true;
   };
-  programs.tmux = {
-    enable = true;
-  };
 }

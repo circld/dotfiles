@@ -1,5 +1,4 @@
 # TODO
-# [x] theming (ghostty, fish, & starship)
 # [ ] add neovim config (circld/kickstart.nvim)
 #     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
 #     and https://github.com/supermarin/dotfiles/blob/7b7910717b4c63031e29f94988181c215cfec075/neovim.nix
@@ -50,6 +49,7 @@ in
     ./managed/neovim.nix
     ./managed/ripgrep.nix
     ./managed/starship.nix
+    ./managed/zellij.nix
     ./managed/zsh.nix
   ];
 
