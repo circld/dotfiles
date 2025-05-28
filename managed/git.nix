@@ -53,7 +53,7 @@
         ui = true;
 	pager = true;
       };
-      init = { defaultBranc = "main"; };
+      init = { defaultBranch = "main"; };
     };
     ignores = [
       ".DS_Store"
