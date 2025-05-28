@@ -45,8 +45,6 @@
     };
     extraConfig = {
       core = {
-	# TODO add this to home.file
-        # excludesfile = "${config.home.homeDirectory}/.gitignore_global";
         editor = "nvim";
       };
       color = {
