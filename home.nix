@@ -1,7 +1,13 @@
 # TODO
-# [*] add neovim config (circld/kickstart.nvim)
+# [x] add neovim plugins (circld/kickstart.nvim)
 #     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
 #     and https://github.com/supermarin/dotfiles/blob/7b7910717b4c63031e29f94988181c215cfec075/neovim.nix
+# [x] neovim: add colorscheme
+# [x] neovim: add basic options & keymaps from kickstart
+# [x] neovim: configure flash, which-key, telescope
+# [ ] neovim: add options & keymaps from https://github.com/circld/Prefs/blob/ac440008169ef569cc396baacb461e7363ba6907/.spacevim
+# [ ] neovim: configure plugins
+# [ ] break init.lua sections into separate files
 # [ ] figure out how best to separate personal & work configurations while sharing core
 # 
 # see template & docs:

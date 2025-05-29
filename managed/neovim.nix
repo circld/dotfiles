@@ -1,4 +1,3 @@
-# Adding space-vim-dark: https://gist.github.com/nat-418/d76586da7a5d113ab90578ed56069509
 {
   pkgs,
   config,
