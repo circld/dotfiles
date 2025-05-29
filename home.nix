@@ -1,5 +1,5 @@
 # TODO
-# [ ] add neovim config (circld/kickstart.nvim)
+# [*] add neovim config (circld/kickstart.nvim)
 #     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
 #     and https://github.com/supermarin/dotfiles/blob/7b7910717b4c63031e29f94988181c215cfec075/neovim.nix
 # [ ] figure out how best to separate personal & work configurations while sharing core
