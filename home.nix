@@ -1,5 +1,4 @@
 # TODO
-# [x] add fish utility functions from Prefs
 # [ ] neovim: add options & keymaps from https://github.com/circld/Prefs/blob/ac440008169ef569cc396baacb461e7363ba6907/.spacevim
 # [ ] neovim: configure plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
 # [ ] attempt to integrate with lazy.nvim: https://nixalted.com/

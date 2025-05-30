@@ -74,11 +74,50 @@ vim.opt.scrolloff = 10
 vim.opt.confirm = true
 
 -- [[ Plugin configuration ]]
+
+-- https://cmp.saghen.dev/configuration/reference.html
+require("blink-cmp").setup {
+  keymap = {
+    preset = 'default',
+    ['<S-Tab>'] = { 'select_prev', 'fallback' },
+    ['<Tab>'] = { 'select_next', 'fallback' },
+    ['<Enter>'] = { 'accept', 'fallback' },
+  },
+}
+
 -- https://github.com/folke/flash.nvim?tab=readme-ov-file#%EF%B8%8F-configuration
 local flash = require("flash").setup {
   modes = { char = { enabled = false } },
   highlight = { matches = false },
 }
+
+-- https://github.com/echasnovski/mini.surround?tab=readme-ov-file#default-config
+-- sa (add)
+-- sd (delete)
+-- sr (replace)
+require("mini.surround").setup {}
+
+-- https://github.com/nvim-telescope/telescope.nvim?tab=readme-ov-file#customization
+require("telescope").setup {
+  defaults = {
+    file_ignore_patterns = { ".git/[^h]" },
+  },
+  extensions = {
+    ['ui-select'] = {
+      require('telescope.themes').get_dropdown(),
+    },
+  },
+  pickers = {
+    find_files = {
+      hidden = true;
+    }
+  },
+}
+pcall(require('telescope').load_extension, 'fzf')
+pcall(require('telescope').load_extension, 'ui-select')
+
+-- https://github.com/Tummetott/unimpaired.nvim
+require("unimpaired").setup {}
 
 -- https://github.com/folke/which-key.nvim?tab=readme-ov-file#%EF%B8%8F-configuration
 require("which-key").setup {
@@ -130,44 +169,31 @@ require("which-key").setup {
   },
 }
 
--- https://github.com/nvim-telescope/telescope.nvim?tab=readme-ov-file#customization
-require("telescope").setup {
-  defaults = {
-    file_ignore_patterns = { ".git/[^h]" },
-  },
-  extensions = {
-    ['ui-select'] = {
-      require('telescope.themes').get_dropdown(),
-    },
-  },
-  pickers = {
-    find_files = {
-      hidden = true;
-    }
-  },
-}
-pcall(require('telescope').load_extension, 'fzf')
-pcall(require('telescope').load_extension, 'ui-select')
-
--- https://cmp.saghen.dev/configuration/reference.html
-require("blink-cmp").setup {
-  keymap = {
-    preset = 'default',
-    ['<S-Tab>'] = { 'select_prev', 'fallback' },
-    ['<Tab>'] = { 'select_next', 'fallback' },
-    ['<Enter>'] = { 'accept', 'fallback' },
-  },
-}
-
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
+
+-- More intuitive behaviors
+vim.keymap.set("n", "Y", "v$hy")
+vim.keymap.set("n", "vv", "vV")
+vim.keymap.set("n", "V", "v$h")
 
 -- Use Enter for EX commands
 vim.keymap.set('n', '<CR>', ':')
 
+-- Preferred navigation shortcuts
+vim.keymap.set("n", "<BS>", "<C-O>")
+vim.keymap.set("n", "<Esc>", "<C-I>")
+
+-- remap S to something more useful
+vim.keymap.set("v", "S", "sa")
+
+-- simple diffing of buffers
+vim.keymap.set("n", "]d", "<cmd>windo diffthis<CR>")
+vim.keymap.set("n", "[d", "<cmd>windo diffoff<CR>")
+
 -- Clear highlights on search when pressing <Esc> in normal mode
 --  See `:help hlsearch`
-vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
+vim.keymap.set('n', '<Tab>', '<cmd>nohlsearch<CR><Tab>')
 
 -- Diagnostic keymaps
 vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
@@ -251,6 +277,8 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 
 -- [[ Theming ]]
 vim.cmd.colorscheme "space-vim-dark"
+
+-- TODO fix diff view colors!
 
 vim.cmd([[
   " flash labels

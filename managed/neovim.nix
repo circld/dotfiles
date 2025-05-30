@@ -32,14 +32,17 @@ in
     plugins = with pkgs.vimPlugins; [
       blink-cmp
       conform-nvim
+      diffview-nvim
       flash-nvim
       gitsigns-nvim
       lazydev-nvim
       mini-nvim
       nvim-lspconfig
       nvim-treesitter
+      nvim-web-devicons
       telescope-nvim
       todo-comments-nvim
+      unimpaired-nvim
       vim-sleuth
       which-key-nvim
       (fromGitHub { repo = "liuchengxu/space-vim-dark"; rev = "0ab698bd2a3959e3bed7691ac55ba4d8abefd143"; })
