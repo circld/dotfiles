@@ -7,9 +7,6 @@
   programs.bash = {
     enable = true;
   };
-  programs.bat = {
-    enable = true;
-  };
   programs.fd = {
     enable = true;
   };
