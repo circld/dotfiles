@@ -9,7 +9,7 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
 -- Set to true if you have a Nerd Font installed and selected in the terminal
-vim.g.have_nerd_font = false
+vim.g.have_nerd_font = true
 
 -- Make line numbers default
 vim.opt.number = true
@@ -74,10 +74,13 @@ vim.opt.scrolloff = 10
 vim.opt.confirm = true
 
 -- [[ Plugin configuration ]]
+-- https://github.com/folke/flash.nvim?tab=readme-ov-file#%EF%B8%8F-configuration
 local flash = require("flash").setup {
   modes = { char = { enabled = false } },
   highlight = { matches = false },
 }
+
+-- https://github.com/folke/which-key.nvim?tab=readme-ov-file#%EF%B8%8F-configuration
 require("which-key").setup {
   -- delay between pressing a key and opening which-key (milliseconds)
   -- this setting is independent of vim.opt.timeoutlen
@@ -118,7 +121,6 @@ require("which-key").setup {
       F12 = '<F12>',
     },
   },
-
   -- Document existing key chains
   spec = {
     { '<leader>s', group = '[S]earch' },
@@ -127,6 +129,8 @@ require("which-key").setup {
     -- { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
   },
 }
+
+-- https://github.com/nvim-telescope/telescope.nvim?tab=readme-ov-file#customization
 require("telescope").setup {
   defaults = {
     file_ignore_patterns = { ".git/[^h]" },
@@ -144,6 +148,16 @@ require("telescope").setup {
 }
 pcall(require('telescope').load_extension, 'fzf')
 pcall(require('telescope').load_extension, 'ui-select')
+
+-- https://cmp.saghen.dev/configuration/reference.html
+require("blink-cmp").setup {
+  keymap = {
+    preset = 'default',
+    ['<S-Tab>'] = { 'select_prev', 'fallback' },
+    ['<Tab>'] = { 'select_next', 'fallback' },
+    ['<Enter>'] = { 'accept', 'fallback' },
+  },
+}
 
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
