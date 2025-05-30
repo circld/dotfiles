@@ -181,8 +181,8 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 -- [[ Theming ]]
 vim.cmd.colorscheme "space-vim-dark"
 
--- flash labels
 vim.cmd([[
+  " flash labels
   hi! FlashBackdrop guifg=#5C6370 ctermfg=59
   hi FlashMatch guifg=#8a6716 guibg=#292b2e
   hi FlashCurrent guifg=#292b2e guibg=#8a6716 

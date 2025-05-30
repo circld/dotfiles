@@ -1,15 +1,12 @@
 # TODO
-# [x] add neovim plugins (circld/kickstart.nvim)
-#     see https://discourse.nixos.org/t/how-to-manage-dotfiles-with-home-manager/30576/3
-#     and https://github.com/supermarin/dotfiles/blob/7b7910717b4c63031e29f94988181c215cfec075/neovim.nix
-# [x] neovim: add colorscheme
-# [x] neovim: add basic options & keymaps from kickstart
-# [x] neovim: configure flash, which-key, telescope
+# [ ] figure out why telescope settings not showing up in which-key w/o sourcing init.lua
+# [ ] add fish utility functions from Prefs
 # [ ] neovim: add options & keymaps from https://github.com/circld/Prefs/blob/ac440008169ef569cc396baacb461e7363ba6907/.spacevim
-# [ ] neovim: configure plugins
+# [ ] neovim: configure plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
+# [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 # [ ] break init.lua sections into separate files
 # [ ] figure out how best to separate personal & work configurations while sharing core
-# 
+
 # see template & docs:
 # - https://github.com/nix-community/home-manager/blob/901f8fef7f349cf8a8e97b3230b22fd592df9160/tests/integration/standalone/alice-home-init.nix#L8
 # - https://nix-community.github.io/home-manager/
@@ -30,6 +27,7 @@ in
   # Install Nix-managed packages into your environment.
   home.packages = [
     pkgs.entr
+    pkgs.nerd-fonts.hasklug
     pkgs.tldr
     pkgs.tree
   ];
