@@ -185,7 +185,7 @@ vim.keymap.set("n", "<BS>", "<C-O>")
 vim.keymap.set("n", "<Esc>", "<C-I>")
 
 -- remap S to something more useful
-vim.keymap.set("v", "S", "sa")
+vim.keymap.set('x', 'S', [[:<C-u>lua MiniSurround.add('visual')<CR>]], { desc = "Surround highlighted text with input", silent = true })
 
 -- simple diffing of buffers
 vim.keymap.set("n", "]d", "<cmd>windo diffthis<CR>")
