@@ -73,6 +73,9 @@ vim.opt.scrolloff = 10
 -- See `:help 'confirm'`
 vim.opt.confirm = true
 
+-- added for diagnostic hover window
+vim.o.updatetime = 250
+
 -- [[ Plugin configuration ]]
 
 -- https://cmp.saghen.dev/configuration/reference.html
@@ -89,6 +92,12 @@ require("blink-cmp").setup {
 local flash = require("flash").setup {
   modes = { char = { enabled = false } },
 }
+
+-- https://github.com/lewis6991/gitsigns.nvim
+require("gitsigns").setup {}
+
+-- https://github.com/neovim/nvim-lspconfig
+vim.lsp.enable('pyright')
 
 -- https://github.com/echasnovski/mini.surround?tab=readme-ov-file#default-config
 -- sa (add)
@@ -212,8 +221,6 @@ vim.keymap.set('n', '<up>', '<cmd>3wincmd +<CR>')
 vim.keymap.set('n', '<down>', '<cmd>3wincmd -<CR>')
 
 -- Keybinds to make split navigation easier.
---  Use CTRL+<hjkl> to switch between windows
---
 --  See `:help wincmd` for a list of all window commands
 vim.keymap.set('n', '<C-h>', '<C-w><C-h>', { desc = 'Move focus to the left window' })
 vim.keymap.set('n', '<C-l>', '<C-w><C-l>', { desc = 'Move focus to the right window' })
@@ -222,6 +229,14 @@ vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper win
 
 -- replace default f behavior with flash jump
 vim.keymap.set("n", "f", function() require("flash").jump() end)
+
+-- lsp
+-- https://stackoverflow.com/a/79435977/3726041
+vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
+   callback = function()
+     vim.diagnostic.open_float(nil, { focus = false })
+   end
+})
 
 -- telescope
 -- See `:help telescope.builtin`
@@ -275,6 +290,8 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 })
 
 -- [[ Theming ]]
+
+-- colors
 vim.cmd.colorscheme "space-vim-dark"
 
 vim.cmd([[
@@ -303,3 +320,22 @@ vim.cmd([[
   hi FlashCurrent guifg=#292b2e guibg=#8a6716 
   hi FlashLabel gui=bold guifg=#fabd2f
 ]])
+
+-- lsp display configuration
+vim.diagnostic.config({
+  float = true,
+  signs = {
+    text = {
+      [vim.diagnostic.severity.ERROR] = " ",
+      [vim.diagnostic.severity.WARN] = " ",
+      [vim.diagnostic.severity.INFO] = "󰋼 ",
+      [vim.diagnostic.severity.HINT] = "󰌵 ",
+    },
+    numhl = {
+      [vim.diagnostic.severity.ERROR] = "",
+      [vim.diagnostic.severity.WARN] = "",
+      [vim.diagnostic.severity.HINT] = "",
+      [vim.diagnostic.severity.INFO] = "",
+    },
+  },
+})
