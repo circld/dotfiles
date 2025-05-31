@@ -1,7 +1,7 @@
 # TODO
-# [x] neovim: configure language servers
+# [x] translate utility functions from vimscript to lua
+# [ ] figure out how to use mouse to copy text within zellij session
 # [ ] neovim: configure formatters/linters
-# [ ] translate utility functions from vimscript to lua
 # [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
 # [ ] neovim: add undotree replacement
 # [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
@@ -26,6 +26,7 @@ in
   home.stateVersion = "25.05";
 
   # Install Nix-managed packages into your environment.
+  # https://search.nixos.org/packages
   home.packages = [
     pkgs.entr
     pkgs.nerd-fonts.hasklug
@@ -44,6 +45,7 @@ in
 
   # Configure HM-managed programs & configuration
   programs.home-manager.enable = true;
+
   imports = [
     ./managed/no_config.nix
     ./managed/atuin.nix
