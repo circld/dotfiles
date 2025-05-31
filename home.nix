@@ -1,6 +1,10 @@
 # TODO
-# [ ] neovim: add options & keymaps from https://github.com/circld/Prefs/blob/ac440008169ef569cc396baacb461e7363ba6907/.spacevim
-# [ ] neovim: configure plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
+# [x] neovim: add options & keymaps from https://github.com/circld/Prefs/blob/ac440008169ef569cc396baacb461e7363ba6907/.spacevim
+# [ ] translate utility functions from vimscript to lua
+# [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
+# [ ] neovim: add undotree replacement
+# [ ] neovim: configure formatters/linters
+# [ ] neovim: configure language servers
 # [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 # [ ] break init.lua sections into separate files
 # [ ] figure out how best to separate personal & work configurations while sharing core

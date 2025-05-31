@@ -88,7 +88,6 @@ require("blink-cmp").setup {
 -- https://github.com/folke/flash.nvim?tab=readme-ov-file#%EF%B8%8F-configuration
 local flash = require("flash").setup {
   modes = { char = { enabled = false } },
-  highlight = { matches = false },
 }
 
 -- https://github.com/echasnovski/mini.surround?tab=readme-ov-file#default-config
@@ -207,10 +206,10 @@ vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagn
 vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
 
 -- Disable arrow keys in normal mode
-vim.keymap.set('n', '<left>', '<cmd>echo "Use h to move!!"<CR>')
-vim.keymap.set('n', '<right>', '<cmd>echo "Use l to move!!"<CR>')
-vim.keymap.set('n', '<up>', '<cmd>echo "Use k to move!!"<CR>')
-vim.keymap.set('n', '<down>', '<cmd>echo "Use j to move!!"<CR>')
+vim.keymap.set('n', '<left>', '<cmd>3wincmd <<CR>')
+vim.keymap.set('n', '<right>', '<cmd>3wincmd ><CR>')
+vim.keymap.set('n', '<up>', '<cmd>3wincmd +<CR>')
+vim.keymap.set('n', '<down>', '<cmd>3wincmd -<CR>')
 
 -- Keybinds to make split navigation easier.
 --  Use CTRL+<hjkl> to switch between windows
@@ -278,9 +277,26 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 -- [[ Theming ]]
 vim.cmd.colorscheme "space-vim-dark"
 
--- TODO fix diff view colors!
-
 vim.cmd([[
+  " improved aesthetics
+  hi LineNr ctermbg=NONE ctermfg=243 guibg=NONE guifg=#767676
+  hi SpecialComment ctermfg=38 guifg=#0087d7
+  hi Error      gui=None guifg=#ff5e86
+  hi ErrorMsg   gui=bold guifg=#ff5e86
+  hi Warning    gui=NONE guifg=#fabd2f
+  hi WarningMsg gui=bold guifg=#fabd2f
+  hi Todo       gui=bold guifg=#d697e6
+  hi DiffAdd    gui=NONE guifg=#a4e93e guibg=#3a3a3a
+  hi DiffChange gui=NONE guifg=#fabd2f guibg=#3a3a3a
+  hi DiffDelete gui=NONE guifg=#ff5e86 guibg=#3a3a3a
+  hi DiffText   gui=NONE guifg=#fabd2f guibg=#827400
+  hi! link diffAdded DiffAdd
+  hi! link diffChanged DiffChange
+  hi! link diffRemoved DiffDelete
+  hi! link GitGutterAdd DiffAdd
+  hi! link GitGutterChange DiffChange
+  hi! link GitGutterDelete DiffDelete
+  hi CurrentWordTwins cterm=bold,underline ctermfg=40 ctermbg=234 gui=bold,underline guifg=#00ff00
   " flash labels
   hi! FlashBackdrop guifg=#5C6370 ctermfg=59
   hi FlashMatch guifg=#8a6716 guibg=#292b2e
