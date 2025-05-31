@@ -190,7 +190,8 @@ function FollowRoutePath()
   local is_image = vim.tbl_contains({ "jpeg", "jpg", "png" }, ext)
 
   if is_project_file then
-    target_path = string.sub(target_path, 2)
+    -- remove leading /
+    target_path = string.sub(target_path, 1)
   end
 
   if is_image then
