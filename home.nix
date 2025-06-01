@@ -1,11 +1,12 @@
 # TODO
-# [x] figure out how to use mouse to copy text within zellij session
+# [x] neovim: lsp should show docstring during completion
 # [ ] neovim: configure formatters/linters
 # [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
+# [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer
 # [ ] neovim: add undotree replacement
-# [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 # [ ] break init.lua sections into separate files
 # [ ] figure out how best to separate personal & work configurations while sharing core
+# [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 
 # see template & docs:
 # - https://github.com/nix-community/home-manager/blob/901f8fef7f349cf8a8e97b3230b22fd592df9160/tests/integration/standalone/alice-home-init.nix#L8

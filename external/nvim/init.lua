@@ -80,11 +80,30 @@ vim.o.updatetime = 250
 
 -- https://cmp.saghen.dev/configuration/reference.html
 require("blink-cmp").setup {
+  completion = {
+    -- TODO figure out how to avoid documentation from getting cut off near bottom of window
+    documentation = {
+      auto_show = true,
+      window = {
+        max_height = 50,
+        direction_priority = {
+          menu_north = { 'e', 'w', 'n', 's' },
+          menu_south = { 'e', 'w', 's', 'n' },
+        },
+      },
+    },
+  },
   keymap = {
     preset = 'default',
     ['<S-Tab>'] = { 'select_prev', 'fallback' },
     ['<Tab>'] = { 'select_next', 'fallback' },
     ['<Enter>'] = { 'accept', 'fallback' },
+  },
+  signature = {
+    enabled = true,
+    window = {
+      max_height = 50,
+    },
   },
 }
 
@@ -97,6 +116,27 @@ local flash = require("flash").setup {
 require("gitsigns").setup {}
 
 -- https://github.com/neovim/nvim-lspconfig
+-- nvim-lspconfig setup for Pyright
+local lspconfig = require('lspconfig')
+
+-- Configure Pyright as the LSP server for Python
+lspconfig.pyright.setup{
+  on_attach = function(client, bufnr)
+    -- Enable signature help if supported by the LSP server
+    if client.server_capabilities.signatureHelp then
+      vim.lsp.handlers["textDocument/signatureHelp"] = vim.lsp.with(vim.lsp.handlers.signature_help, {
+        border = "rounded",  -- Optional: Adds a rounded border to signature help popups
+      })
+    end
+  end,
+  settings = {
+    python = {
+      analysis = {
+        typeCheckingMode = "basic",  -- Can adjust this to "strict" or "off"
+      },
+    },
+  },
+}
 vim.lsp.enable({
   'pyright',
 })
@@ -299,7 +339,9 @@ vim.keymap.set("n", "f", function() require("flash").jump() end)
 -- https://stackoverflow.com/a/79435977/3726041
 vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
    callback = function()
-     vim.diagnostic.open_float(nil, { focus = false })
+     if vim.fn.mode() == "n" then
+       vim.diagnostic.open_float(nil, { focus = false })
+     end
    end
 })
 
@@ -375,9 +417,6 @@ vim.cmd([[
   hi! link diffAdded DiffAdd
   hi! link diffChanged DiffChange
   hi! link diffRemoved DiffDelete
-  hi! link GitGutterAdd DiffAdd
-  hi! link GitGutterChange DiffChange
-  hi! link GitGutterDelete DiffDelete
   hi CurrentWordTwins cterm=bold,underline ctermfg=40 ctermbg=234 gui=bold,underline guifg=#00ff00
   " flash labels
   hi! FlashBackdrop guifg=#5C6370 ctermfg=59
