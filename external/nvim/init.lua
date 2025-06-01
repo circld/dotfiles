@@ -107,6 +107,13 @@ require("blink-cmp").setup {
   },
 }
 
+-- https://github.com/stevearc/conform.nvim
+require("conform").setup({
+  formatters_by_ft = {
+    python = { "ruff_organize_imports", "ruff_format", "ruff_fix" },
+  },
+})
+
 -- https://github.com/folke/flash.nvim?tab=readme-ov-file#%EF%B8%8F-configuration
 local flash = require("flash").setup {
   modes = { char = { enabled = false } },
@@ -384,6 +391,14 @@ end, { desc = '[S]earch [N]eovim files' })
 
 -- [[ Basic Autocommands ]]
 --  See `:help lua-guide-autocommands`
+
+-- conform-nvim: Format on save
+vim.api.nvim_create_autocmd("BufWritePre", {
+  pattern = "*",
+  callback = function(args)
+    require("conform").format({ bufnr = args.buf })
+  end,
+})
 
 -- Highlight when yanking (copying) text
 --  Try it with `yap` in normal mode
