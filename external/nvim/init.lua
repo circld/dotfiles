@@ -438,6 +438,10 @@ vim.cmd([[
   hi FlashMatch guifg=#8a6716 guibg=#292b2e
   hi FlashCurrent guifg=#292b2e guibg=#8a6716 
   hi FlashLabel gui=bold guifg=#fabd2f
+  " gitsigns gutter colors
+  hi! link GitSignsAdd DiffAdd
+  hi! link GitSignsChange DiffChange
+  hi! link GitSignsDelete DiffDelete
 ]])
 
 -- lsp display configuration
