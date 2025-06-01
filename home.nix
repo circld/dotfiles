@@ -1,6 +1,5 @@
 # TODO
-# [x] translate utility functions from vimscript to lua
-# [ ] figure out how to use mouse to copy text within zellij session
+# [x] figure out how to use mouse to copy text within zellij session
 # [ ] neovim: configure formatters/linters
 # [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
 # [ ] neovim: add undotree replacement

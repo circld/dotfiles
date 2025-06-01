@@ -9,6 +9,7 @@
     # https://zellij.dev/documentation/configuration.html
     settings = {
       default_shell = "fish";
+      mouse_mode = true;
       theme = "space-vim-dark";
     };
     themes = {
