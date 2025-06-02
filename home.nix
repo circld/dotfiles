@@ -1,7 +1,7 @@
 # TODO
-# [x] rebind <C-G> in zellij (interfering w/search in vim)
 # [ ] add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 # [ ] fix highlight color in picker window for Grep matches
+# [ ] configure fzf
 # [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
 # [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer
 # [ ] neovim: add undotree replacement
@@ -68,5 +68,6 @@ in
     # ghostty must be manually installed & managed until derivation is no longer marked as broken
     "ghostty".source = ln "external/ghostty";
     "nvim".source = ln "external/nvim";
+    "zellij/themes".source = ln "external/zellij/themes";
   };
 }

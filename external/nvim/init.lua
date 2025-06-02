@@ -148,11 +148,36 @@ vim.lsp.enable({
   'pyright',
 })
 
+-- https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-indentscope.md
+-- TODO figure out how to change color to gray
+require("mini.indentscope").setup {
+  symbol = "",
+  mappings = {
+    -- Textobjects
+    object_scope = 'ii',
+    object_scope_with_border = 'ai',
+
+    -- Motions (jump to respective border line; if not present - body line)
+    goto_top = '[i',
+    goto_bottom = ']i',
+  },
+}
+
+-- https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-pairs.md
+require("mini.pairs").setup {}
+
 -- https://github.com/echasnovski/mini.surround?tab=readme-ov-file#default-config
 -- sa (add)
 -- sd (delete)
 -- sr (replace)
 require("mini.surround").setup {}
+
+-- https://github.com/catgoose/nvim-colorizer.lua
+require("colorizer").setup {
+  user_default_options = {
+    names = false,
+  },
+}
 
 -- https://github.com/Tummetott/unimpaired.nvim
 require("unimpaired").setup {}

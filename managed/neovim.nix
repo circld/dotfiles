@@ -37,6 +37,7 @@ in
       gitsigns-nvim
       lazydev-nvim
       mini-nvim
+      nvim-colorizer-lua
       nvim-lspconfig
       nvim-treesitter
       nvim-web-devicons
