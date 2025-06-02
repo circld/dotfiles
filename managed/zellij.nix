@@ -31,7 +31,10 @@ in
       keybinds = {
         normal = binds {
           "Ctrl f" = { ToggleFocusFullscreen = []; };
-        };
+        }
+        # conflict w/ghostty + fish workaround
+        # see external/fish/functions/fish_user_key_bindings.fish
+        // unbinds [ "Alt f" ];
       };
     };
     themes = {
