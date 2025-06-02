@@ -245,7 +245,7 @@ function FollowRoutePath()
     -- Use netrw to browse images
     vim.fn["netrw#BrowseX"](target_path, 0)
   else
-    vim.cmd("edit " .. string.sub(target_path, 2))
+    vim.cmd("edit " .. target_path)
   end
 end
 
