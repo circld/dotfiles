@@ -29,12 +29,21 @@ in
       mouse_mode = true;
       theme = "space-vim-dark";
       keybinds = {
+        # reserve Ctrl G for neovim
+        unbind = [ "Ctrl g" ];
         normal = binds {
           "Ctrl f" = { ToggleFocusFullscreen = []; };
+          "Ctrl b" = { SwitchToMode = "locked"; };
         }
         # conflict w/ghostty + fish workaround
         # see external/fish/functions/fish_user_key_bindings.fish
-        // unbinds [ "Alt f" ];
+        //
+        unbinds [
+          "Alt f"
+        ];
+        locked = binds {
+          "Ctrl b" = { SwitchToMode = "normal"; };
+        };
       };
     };
     themes = {
