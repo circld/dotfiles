@@ -4,17 +4,21 @@
   lib,
   ...
 }:
-# workaround while home manager config -> kdl gets hashed out
+# workaround while home manager config -> kdl for keymaps gets hashed out
 # https://github.com/nix-community/home-manager/issues/4659#issuecomment-2574906923
 let
   binds = bindings:
-    lib.attrsets.mapAttrs' (key: value: lib.attrsets.nameValuePair "bind \"${key}\"" value) bindings;
-  unbinds = unbindList: let
-    len = builtins.length unbindList;
-    sub = lib.lists.sublist 0 (len - 1) unbindList;
-  in {
-    ${"unbind" + (lib.strings.concatStrings (lib.lists.map (x: " \"${x}\"") sub))} = lib.lists.last unbindList;
-  };
+    let
+      bindStr = key: value: lib.attrsets.nameValuePair "bind \"${key}\"" value;
+    in
+      lib.attrsets.mapAttrs' bindStr bindings;
+  unbinds = unbindList:
+    let
+      len = builtins.length unbindList;
+      sub = lib.lists.sublist 0 (len - 1) unbindList;
+    in {
+      ${"unbind" + (lib.strings.concatStrings (lib.lists.map (x: " \"${x}\"") sub))} = lib.lists.last unbindList;
+    };
 in
 {
   programs.zellij = {
