@@ -40,7 +40,7 @@ in
       nvim-lspconfig
       nvim-treesitter
       nvim-web-devicons
-      telescope-nvim
+      snacks-nvim
       todo-comments-nvim
       unimpaired-nvim
       vim-sleuth
