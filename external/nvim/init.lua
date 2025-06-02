@@ -238,7 +238,7 @@ function FollowRoutePath()
 
   if is_project_file then
     -- remove leading /
-    target_path = string.sub(target_path, 1)
+    target_path = string.sub(target_path, 2)
   end
 
   if is_image then
