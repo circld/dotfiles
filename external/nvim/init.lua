@@ -234,8 +234,20 @@ require("which-key").setup {
 
 -- https://github.com/folke/snacks.nvim
 snacks = require("snacks").setup {
+  -- https://github.com/folke/snacks.nvim/blob/main/docs/picker.md
   picker = {
     enabled = true,
+    matcher = {
+      frecency = true,
+    },
+    win = {
+      input = {
+        keys = {
+          ["<c-t>"] = { "preview_scroll_up", mode = { "i", "n" } },
+          ["<c-g>"] = { "preview_scroll_down", mode = { "i", "n" } },
+        },
+      },
+    },
   },
 }
 
@@ -262,6 +274,7 @@ function FollowRoutePath()
   end
 end
 
+-- TODO replace w/https://github.com/folke/snacks.nvim/blob/main/docs/gitbrowse.md?
 function OpenGithub()
   local file = vim.fn.expand("%:p")
   local line = vim.fn.getcurpos()[2]
@@ -366,7 +379,7 @@ vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
 })
 
 vim.keymap.set("n", "<leader><space>", function() Snacks.picker.smart() end, { desc = "Smart Find Files" })
-vim.keymap.set("n", "<leader>,", function() Snacks.picker.buffers() end, { desc = "Buffers" })
+vim.keymap.set("n", "<leader>,", function() Snacks.picker.buffers({ focus = "list" }) end, { desc = "Buffers" })
 vim.keymap.set("n", "<leader>/", function() Snacks.picker.grep() end, { desc = "Grep" })
 vim.keymap.set("n", "<leader>:", function() Snacks.picker.command_history() end, { desc = "Command History" })
 vim.keymap.set("n", "<leader>n", function() Snacks.picker.notifications() end, { desc = "Notification History" })
