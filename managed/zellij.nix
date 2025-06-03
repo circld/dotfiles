@@ -29,6 +29,7 @@ in
       default_shell = "fish";
       mouse_mode = true;
       theme = "space-vim-dark";
+      # defaults: https://github.com/zellij-org/zellij/blob/main/zellij-utils/assets/config/default.kdl
       keybinds = {
         "normal clear-defaults=true" = binds {
           "Esc" = { SwitchToMode = "locked"; };
@@ -37,6 +38,23 @@ in
           "r" = { SwitchToMode = "resize"; };
           "m" = { SwitchToMode = "move"; };
           "s" = { SwitchToMode = "session"; };
+        };
+        "pane clear-defaults=true" = binds {
+          "Esc" = { SwitchToMode = "Normal"; };
+          "Alt h" = { MoveFocus = "Left"; };
+          "Alt l" = { MoveFocus = "Right"; };
+          "Alt j" = { MoveFocus = "Down"; };
+          "Alt k" = { MoveFocus = "Up"; };
+          "n" = { NewPane = []; };
+          "j" = { NewPane = "Down"; };
+          "l" = { NewPane = "Right"; };
+          "x" = { CloseFocus = []; };
+          "f" = { ToggleFocusFullscreen = []; };
+          "z" = { TogglePaneFrames = []; };
+          "w" = { ToggleFloatingPanes = []; };
+          "e" = { TogglePaneEmbedOrFloating = []; };
+          "r" = { SwitchToMode = "RenamePane"; };
+          "p" = { TogglePanePinned = []; };
         };
         "locked clear-defaults=true" = binds {
           "Alt n" = { NewPane = []; };
