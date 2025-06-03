@@ -385,7 +385,7 @@ vim.keymap.set("n", "<leader>:", function() Snacks.picker.command_history() end,
 vim.keymap.set("n", "<leader>n", function() Snacks.picker.notifications() end, { desc = "Notification History" })
 vim.keymap.set("n", "<leader>e", function() Snacks.explorer() end, { desc = "File Explorer" })
 -- find
-vim.keymap.set("n", "<leader>fb", function() Snacks.picker.buffers() end, { desc = "Buffers" })
+vim.keymap.set("n", "<leader>fb", function() Snacks.picker.buffers({ focus = "list" }) end, { desc = "Buffers" })
 vim.keymap.set("n", "<leader>fc", function() Snacks.picker.files({ cwd = vim.fn.stdpath("config") }) end, { desc = "Find Config File" })
 vim.keymap.set("n", "<leader>ff", function() Snacks.picker.files() end, { desc = "Find Files" })
 vim.keymap.set("n", "<leader>fg", function() Snacks.picker.git_files() end, { desc = "Find Git Files" })
@@ -485,9 +485,9 @@ vim.cmd([[
   hi FlashCurrent guifg=#292b2e guibg=#8a6716 
   hi FlashLabel gui=bold guifg=#fabd2f
   " gitsigns gutter colors
-  hi! link GitSignsAdd DiffAdd
-  hi! link GitSignsChange DiffChange
-  hi! link GitSignsDelete DiffDelete
+  hi! GitSignsAdd guifg=#a4e93e guibg=#292b2e
+  hi! GitSignsChange guifg=#fabd2f guibg=#292b2e
+  hi! GitSignsDelete guifg=#ff5e86 guibg=#292b2e
   " snacks theming
   hi! link NormalFloat Normal
   hi SnacksPickerBorder guifg=#af87d7
