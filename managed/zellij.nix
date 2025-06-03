@@ -25,24 +25,32 @@ in
     enable = true;
     # https://zellij.dev/documentation/configuration.html
     settings = {
+      default_mode = "locked";
       default_shell = "fish";
       mouse_mode = true;
       theme = "space-vim-dark";
       keybinds = {
-        # reserve Ctrl G for neovim
-        unbind = [ "Ctrl g" ];
-        normal = binds {
-          "Ctrl f" = { ToggleFocusFullscreen = []; };
-          "Ctrl b" = { SwitchToMode = "locked"; };
-        }
-        # conflict w/ghostty + fish workaround
-        # see external/fish/functions/fish_user_key_bindings.fish
-        //
-        unbinds [
-          "Alt f"
-        ];
-        locked = binds {
+        "normal clear-defaults=true" = binds {
+          "Esc" = { SwitchToMode = "locked"; };
+          "p" = { SwitchToMode = "pane"; };
+          "t" = { SwitchToMode = "tab"; };
+          "r" = { SwitchToMode = "resize"; };
+          "m" = { SwitchToMode = "move"; };
+          "s" = { SwitchToMode = "session"; };
+        };
+        "locked clear-defaults=true" = binds {
+          "Alt n" = { NewPane = []; };
+          "Alt t" = { NewTab = []; };
+          "Alt h" = { MoveFocusOrTab = "Left"; };
+          "Alt l" = { MoveFocusOrTab = "Right"; };
+          "Alt j" = { MoveFocus = "Down"; };
+          "Alt k" = { MoveFocus = "Up"; };
+          "Alt ]" = { NextSwapLayout = []; };
+          "Alt [" = { PreviousSwapLayout = []; };
+          "Alt =" = { Resize = "Increase"; };
+          "Alt -" = { Resize = "Decrease"; };
           "Ctrl b" = { SwitchToMode = "normal"; };
+          "Ctrl f" = { ToggleFocusFullscreen = []; };
         };
       };
     };

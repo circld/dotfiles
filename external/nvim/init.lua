@@ -488,6 +488,8 @@ vim.cmd([[
   hi! GitSignsAdd guifg=#a4e93e guibg=#292b2e
   hi! GitSignsChange guifg=#fabd2f guibg=#292b2e
   hi! GitSignsDelete guifg=#ff5e86 guibg=#292b2e
+  " mini.indentscope
+  hi! MiniIndentscopeSymbol guifg=#555f69
   " snacks theming
   hi! link NormalFloat Normal
   hi SnacksPickerBorder guifg=#af87d7
