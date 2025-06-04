@@ -1,5 +1,6 @@
 # TODO
-# [ ] try aerospace
+# [x] try aerospace
+# [ ] finish porting amethyst bindings from https://github.com/circld/Prefs/blob/master/.amethyst
 # [ ] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 # [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
 # [ ] configure fzf
@@ -30,7 +31,9 @@ in
   # Install Nix-managed packages into your environment.
   # https://search.nixos.org/packages
   home.packages = [
+    pkgs.aerospace
     pkgs.entr
+    pkgs.htop
     pkgs.nerd-fonts.hasklug
     pkgs.tldr
     pkgs.tree
@@ -51,6 +54,7 @@ in
 
   imports = [
     ./managed/no_config.nix
+    ./managed/aerospace.nix
     ./managed/atuin.nix
     ./managed/bat.nix
     ./managed/direnv.nix
