@@ -243,8 +243,8 @@ snacks = require("snacks").setup {
     win = {
       input = {
         keys = {
-          ["<c-t>"] = { "preview_scroll_up", mode = { "i", "n" } },
-          ["<c-g>"] = { "preview_scroll_down", mode = { "i", "n" } },
+          ["<up>"] = { "preview_scroll_up", mode = { "i", "n" } },
+          ["<down>"] = { "preview_scroll_down", mode = { "i", "n" } },
         },
       },
     },
