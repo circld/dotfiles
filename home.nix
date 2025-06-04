@@ -1,13 +1,13 @@
 # TODO
-# [x] finish porting amethyst bindings from https://github.com/circld/Prefs/blob/master/.amethyst
+# [ ] break init.lua sections into separate files
+# [ ] figure out how best to separate personal & work configurations while sharing core (see README for ideas)
 # [ ] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 # [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
-# [ ] configure fzf
 # [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
 # [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer
+# nice-to-have
 # [ ] neovim: add undotree replacement
-# [ ] break init.lua sections into separate files
-# [ ] figure out how best to separate personal & work configurations while sharing core
+# [ ] configure fzf
 # [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 
 # see template & docs:
