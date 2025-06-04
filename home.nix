@@ -1,4 +1,5 @@
 # TODO
+# [ ] try aerospace
 # [ ] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 # [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
 # [ ] configure fzf
