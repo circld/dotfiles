@@ -43,6 +43,7 @@ in
   home.sessionVariables = {
     XDG_CONFIG_HOME = "${config.home.homeDirectory}/.config";
     EDITOR = "nvim";
+    MANPAGER="nvim +Man!";
   };
 
   # Configure HM-managed programs & configuration
