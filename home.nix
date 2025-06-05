@@ -1,5 +1,5 @@
 # TODO
-# [ ] break init.lua sections into separate files
+# [x] break init.lua sections into separate files
 # [ ] figure out how best to separate personal & work configurations while sharing core (see README for ideas)
 # [ ] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 # [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
