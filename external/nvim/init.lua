@@ -244,7 +244,7 @@ snacks = require("snacks").setup {
       input = {
         keys = {
           ["<up>"] = { "preview_scroll_up", mode = { "i", "n" } },
-          ["<down>"] = { "preview_scroll_down", mode = { "i", "n" } },
+          ["<>"] = { "preview_scroll_down", mode = { "i", "n" } },
         },
       },
     },
@@ -311,6 +311,8 @@ function OpenGithub()
   -- Open in default browser (macOS)
   vim.fn.system({ "open", github_url })
 end
+
+-- [[ Keymaps ]]
 
 -- More intuitive behaviors
 vim.keymap.set("n", "Y", "v$hy")
@@ -478,7 +480,6 @@ vim.cmd([[
   hi! link diffAdded DiffAdd
   hi! link diffChanged DiffChange
   hi! link diffRemoved DiffDelete
-  hi CurrentWordTwins cterm=bold,underline ctermfg=40 ctermbg=234 gui=bold,underline guifg=#00ff00
   " flash labels
   hi! FlashBackdrop guifg=#5C6370 ctermfg=59
   hi FlashMatch guifg=#8a6716 guibg=#292b2e

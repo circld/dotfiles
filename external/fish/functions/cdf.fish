@@ -6,7 +6,7 @@ function cdf --description 'fuzzy find a directory or subdirectory and move ther
     awk '{ print $2 }' |
     fzf --layout reverse \
        --preview "fd --color=always --base-directory {1} ." \
-       --bind=shift-down:preview-half-page-down,shift-up:preview-half-page-up
+       --bind=down:preview-half-page-down,up:preview-half-page-up
   )
   if test $status -eq 0
     cd $found
