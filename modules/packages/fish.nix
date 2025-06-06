@@ -5,12 +5,12 @@
   ...
 }:
 {
-  # see this example (but i think i'd rather define/manage my functions outside of HM...)
-  # https://codeberg.org/justgivemeaname/.dotfiles/src/branch/main/home-manager/packages/fish/fish.nix
   programs.fish = {
     enable = true;
     generateCompletions = true;
     interactiveShellInit = ''
+      set -xg PATH $PATH $HOME/.local/bin
+
       set fish_greeting
 
       # vi mode
@@ -24,6 +24,17 @@
       # set theme
       fish_config theme choose custom
     '';
+    plugins = [
+      {
+        name = "exercism-cli-fish-wrapper";
+        src = pkgs.fetchFromGitHub {
+          owner = "glennj";
+          repo = "exercism-cli-fish-wrapper";
+          rev = "fc00e992b73adc63596e1406a8554313d642204f";
+          sha256 = "sha256-w2aGakB/Kel0TMaZ44/WC6syhetohJzn5kgwgW7Kdqs";
+        };
+      }
+    ];
     shellAbbrs = {
       l = "ls -al";
       c = "clear";

@@ -1,4 +1,20 @@
 -- [[ Keymaps ]]
+local function map_conditional_diff(key, alt_action)
+  return function()
+    if vim.o.diff then
+      -- Pass the original key through to preserve default behavior
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), 'n', false)
+    else
+      if type(alt_action) == "string" then
+        vim.cmd(alt_action)
+      elseif type(alt_action) == "function" then
+        alt_action()
+      else
+        error("Unsupported alt_action type: must be string or function")
+      end
+    end
+  end
+end
 
 -- More intuitive behaviors
 vim.keymap.set("n", "Y", "v$hy")
@@ -13,7 +29,10 @@ vim.keymap.set("n", "<BS>", "<C-O>")
 vim.keymap.set("n", "<Esc>", "<C-I>")
 
 -- remap S to something more useful
-vim.keymap.set('x', 'S', [[:<C-u>lua MiniSurround.add('visual')<CR>]], { desc = "Surround highlighted text with input", silent = true })
+vim.keymap.set(
+  'x', 'S', [[:<C-u>lua MiniSurround.add('visual')<CR>]],
+  { desc = "Surround highlighted text with input", silent = true }
+)
 
 -- simple diffing of buffers
 vim.keymap.set("n", "]d", "<cmd>windo diffthis<CR>")
@@ -64,7 +83,10 @@ vim.keymap.set("n", "<leader>n", function() Snacks.picker.notifications() end, {
 vim.keymap.set("n", "<leader>e", function() Snacks.explorer() end, { desc = "File Explorer" })
 -- find
 vim.keymap.set("n", "<leader>fb", function() Snacks.picker.buffers({ focus = "list" }) end, { desc = "Buffers" })
-vim.keymap.set("n", "<leader>fc", function() Snacks.picker.files({ cwd = vim.fn.stdpath("config") }) end, { desc = "Find Config File" })
+vim.keymap.set(
+  "n", "<leader>fc", function() Snacks.picker.files({ cwd = vim.fn.stdpath("config") }) end,
+  { desc = "Find Config File" }
+)
 vim.keymap.set("n", "<leader>ff", function() Snacks.picker.files() end, { desc = "Find Files" })
 vim.keymap.set("n", "<leader>fg", function() Snacks.picker.git_files() end, { desc = "Find Git Files" })
 vim.keymap.set("n", "<leader>fp", function() Snacks.picker.projects() end, { desc = "Projects" })
@@ -75,13 +97,20 @@ vim.keymap.set("n", "<leader>gl", function() Snacks.picker.git_log() end, { desc
 vim.keymap.set("n", "<leader>gL", function() Snacks.picker.git_log_line() end, { desc = "Git Log Line" })
 vim.keymap.set("n", "<leader>gs", function() Snacks.picker.git_status() end, { desc = "Git Status" })
 vim.keymap.set("n", "<leader>gS", function() Snacks.picker.git_stash() end, { desc = "Git Stash" })
-vim.keymap.set("n", "<leader>gd", function() Snacks.picker.git_diff() end, { desc = "Git Diff (Hunks)" })
+vim.keymap.set("n", "<leader>gd", diffview_toggle, { desc = "Git Diff View Toggle" })
 vim.keymap.set("n", "<leader>gf", function() Snacks.picker.git_log_file() end, { desc = "Git Log File" })
+-- use default action in diff view, otherwise use gitsigns hunk navigation
+vim.keymap.set("n", "]c", map_conditional_diff("]c", "Gitsigns nav_hunk next"), { desc = "Next hunk" })
+vim.keymap.set("n", "]C", map_conditional_diff("]C", "Gitsigns nav_hunk last"), { desc = "Last hunk" })
+vim.keymap.set("n", "[c", map_conditional_diff("[c", "Gitsigns nav_hunk prev"), { desc = "Prev hunk" })
+vim.keymap.set("n", "[C", map_conditional_diff("[C", "Gitsigns nav_hunk first"), { desc = "First hunk" })
 -- Grep
 vim.keymap.set("n", "<leader>sb", function() Snacks.picker.lines() end, { desc = "Buffer Lines" })
 vim.keymap.set("n", "<leader>sB", function() Snacks.picker.grep_buffers() end, { desc = "Grep Open Buffers" })
 vim.keymap.set("n", "<leader>sg", function() Snacks.picker.grep() end, { desc = "Grep" })
-vim.keymap.set({ "n", "x" }, "<leader>sw", function() Snacks.picker.grep_word() end, { desc = "Visual selection or word" })
+vim.keymap.set(
+  { "n", "x" }, "<leader>sw", function() Snacks.picker.grep_word() end, { desc = "Visual selection or word" }
+)
 -- search
 vim.keymap.set("n", '<leader>s"', function() Snacks.picker.registers() end, { desc = "Registers" })
 vim.keymap.set("n", '<leader>s/', function() Snacks.picker.search_history() end, { desc = "Search History" })
@@ -111,5 +140,6 @@ vim.keymap.set("n", "gr", function() Snacks.picker.lsp_references() end, { desc 
 vim.keymap.set("n", "gI", function() Snacks.picker.lsp_implementations() end, { desc = "Goto Implementation" })
 vim.keymap.set("n", "gy", function() Snacks.picker.lsp_type_definitions() end, { desc = "Goto T[y]pe Definition" })
 vim.keymap.set("n", "<leader>ss", function() Snacks.picker.lsp_symbols() end, { desc = "LSP Symbols" })
-vim.keymap.set("n", "<leader>sS", function() Snacks.picker.lsp_workspace_symbols() end, { desc = "LSP Workspace Symbols" })
-
+vim.keymap.set(
+  "n", "<leader>sS", function() Snacks.picker.lsp_workspace_symbols() end, { desc = "LSP Workspace Symbols" }
+)

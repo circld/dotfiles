@@ -1,15 +1,128 @@
 themes {
-  space-vim-dark {
-    bg "#262626"
-    fg "#d358d5"
-    red "#262626"
-    green "#af87d7"
-    blue "#4083cd"
-    yellow "#e89e0f"
-    magenta "#4083cd"
-    orange "#d358d5"
-    cyan "#22abbb"
-    black "#262626"
-    white "#b2b2b2"
-  }
+    space-vim-dark {
+        text_unselected {
+            base "#b2b2b2"
+            background "#262626"
+            emphasis_0 "#d358d5"
+            emphasis_1 "#74d55c"
+            emphasis_2 "#74d55c"
+            emphasis_3 "#74d55c"
+        }
+        text_selected {
+            base "#262626"
+            background "#af87d7"
+            emphasis_0 0
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        ribbon_selected {
+            base "#262626"
+            background "#af87d7"
+            emphasis_0 "#d358d5"
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        ribbon_unselected {
+            base "#b2b2b2"
+            background "#393939"
+            emphasis_0 "#d358d5"
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        table_title {
+            base 0
+            background 0
+            emphasis_0 0
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        table_cell_selected {
+            base "#b2b2b2"
+            background "#393939"
+            emphasis_0 "#d358d5"
+            emphasis_1 "#74d55c"
+            emphasis_2 "#e89e0f"
+            emphasis_3 "#4083cd"
+        }
+        table_cell_unselected {
+            base "#b2b2b2"
+            background 0
+            emphasis_0 "#d358d5"
+            emphasis_1 "#74d55c"
+            emphasis_2 "#e89e0f"
+            emphasis_3 "#4083cd"
+        }
+        list_selected {
+            base 0
+            background "#393939"
+            emphasis_0 0
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        list_unselected {
+            base 0
+            background 0
+            emphasis_0 0
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        frame_selected {
+            base "#af87d7"
+            background 0
+            emphasis_0 0
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        frame_unselected {
+            base "#393939"
+            background 0
+            emphasis_0 0
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        frame_highlight {
+            base "#d358d5"
+            background 0
+            emphasis_0 0
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        exit_code_success {
+            base "#74d55c"
+            background 0
+            emphasis_0 0
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        exit_code_error {
+            base "#cb4674"
+            background 0
+            emphasis_0 "#cb4674"
+            emphasis_1 0
+            emphasis_2 0
+            emphasis_3 0
+        }
+        multiplayer_user_colors {
+            player_1 "#627ad2"
+            player_2 "#e89e0f"
+            player_3 "#91429d"
+            player_4 "#eb4674"
+            player_5 "#96e931"
+            player_6 0
+            player_7 0
+            player_8 0
+            player_9 0
+            player_10 0
+        }
+    }
 }

@@ -7,10 +7,10 @@
   programs.bash = {
     enable = true;
   };
-  programs.fd = {
+  programs.eza = {
     enable = true;
   };
-  programs.fzf = {
+  programs.fd = {
     enable = true;
   };
   programs.jq = {

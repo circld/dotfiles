@@ -1,5 +1,4 @@
 -- [[ Utility functions ]]
-
 function FollowRoutePath()
   local target_path = vim.fn.expand("<cfile>")
   local ext = vim.fn.expand("<cfile>:e")
@@ -47,14 +46,20 @@ function OpenGithub()
 
   -- Get file path relative to repo root
   local file_repo_path = file:gsub(repo_full_path, "")
-  local github_url = string.format(
-    "https://github.com/%s/tree/%s%s#L%d",
-    remote,
-    branch,
-    file_repo_path,
-    line
-  )
+  local github_url = string.format("https://github.com/%s/tree/%s%s#L%d", remote, branch, file_repo_path, line)
 
   -- Open in default browser (macOS)
   vim.fn.system({ "open", github_url })
+end
+
+diffview_toggle = function()
+  local lib = require("diffview.lib")
+  local view = lib.get_current_view()
+  if view then
+    -- Current tabpage is a Diffview; close it
+    vim.cmd.DiffviewClose()
+  else
+    -- No open Diffview exists: open a new one
+    vim.cmd.DiffviewOpen()
+  end
 end
