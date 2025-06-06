@@ -19,4 +19,4 @@ let
       )
     );
 in
-collectModules ./modules
+collectModules

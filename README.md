@@ -5,8 +5,15 @@
 ```
 .
 ├── external/
-├── managed/
-└── home.nix
+├── home/
+│   ├── personal.nix
+│   └── work.nix
+├── modules/
+│   ├── personal/
+│   ├── shared/
+│   └── work/
+├── LICENSE
+└── README.md
 ```
 
 ## design
@@ -22,11 +29,11 @@
 3. symlink `dotfiles/home.nix`: `mkdir -p ~/.config/home-manager && ln -s ~/dotfiles/home.nix ~/.config/home-manager/home.nix`
 4. apply the environment: `home-manager switch`
 
-## todo
+## To Do
 
-- [ ] *figure out how best to separate personal & work configurations while sharing core (see README for ideas)*
-- [ ] add nix lang server + add nixfmt to conform
+- [x] figure out how best to separate personal & work configurations while sharing core (see README for ideas)
 - [ ] move gitconfig into file + add extraConfig for things that vary
+- [ ] add nix lang server + add nixfmt to conform
 - [ ] symlink personal gitconfig for work computer
 - [ ] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 - [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
