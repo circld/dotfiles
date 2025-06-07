@@ -57,7 +57,5 @@
       ".DS_Store"
       "*.pyc"
     ];
-    userEmail = "circld1@gmail.com";
-    userName = "circld";
   };
 }
