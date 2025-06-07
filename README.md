@@ -31,8 +31,7 @@
 
 ## To Do
 
-- [x] move gitconfig into file + add extraConfig for things that vary
-- [ ] symlink personal gitconfig for work computer
+- [x] add work-specific git config to use personal user based on directory
 - [ ] test out config on work computer
 - [ ] add nix lang server + add nixfmt to conform
 - [ ] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage

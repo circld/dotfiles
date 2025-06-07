@@ -17,11 +17,27 @@ in
   home.homeDirectory = "/Users/paul.garaud";
 
   home.sessionVariables = common.home.sessionVariables // {
-    # TODO to add
+    NIX_SSL_CERT_FILE="$HOME/octane/global-bundle-with-zscaler.pem";
+    SSL_CERT_FILE="$HOME/octane/global-bundle-with-zscaler.pem";
+    AWS_CA_BUNDLE="$HOME/octane/global-bundle-with-zscaler.pem";
   };
 
   programs.git = sharedGit.programs.git // {
-    userEmail = "paul.garaud@octanelending.com";
-    userName = "paulgrow-octane";
+    # https://confusedalex.dev/blog/git-conditional-config/
+    includes = [
+      {
+        condition = "gitdir:~/work/";
+        contents = {
+          user = {
+            name = "paulgrow-octane";
+            email = "paul.garaud@octanelending.com";
+          };
+          http = {
+            sslCAInfo = "${config.home.homeDirectory}/octane/global-bundle-with-zscaler.pem";
+            proactiveAuth = "basic";
+          };
+        };
+      }
+    ];
   };
 }
