@@ -31,7 +31,6 @@
 
 ## To Do
 
-- [x] add nix lang server + add nixfmt to conform
 - [ ] test out config on work computer
 - [ ] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 - [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
