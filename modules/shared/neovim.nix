@@ -6,16 +6,21 @@
 }:
 
 let
-  fromGitHub = { repo, ref ? null, rev ? null }:
+  fromGitHub =
+    {
+      repo,
+      ref ? null,
+      rev ? null,
+    }:
 
-  let
-    gitArgs = lib.filterAttrs (name: value: value != null) {
-      url = "https://github.com/${repo}.git";
-      inherit ref;
-      inherit rev;
-    };
-    src = builtins.fetchGit gitArgs;
-  in
+    let
+      gitArgs = lib.filterAttrs (name: value: value != null) {
+        url = "https://github.com/${repo}.git";
+        inherit ref;
+        inherit rev;
+      };
+      src = builtins.fetchGit gitArgs;
+    in
     pkgs.vimUtils.buildVimPlugin {
       inherit src;
       pname = "${lib.strings.sanitizeDerivationName repo}";
@@ -46,7 +51,10 @@ in
       unimpaired-nvim
       vim-sleuth
       which-key-nvim
-      (fromGitHub { repo = "liuchengxu/space-vim-dark"; rev = "0ab698bd2a3959e3bed7691ac55ba4d8abefd143"; })
+      (fromGitHub {
+        repo = "liuchengxu/space-vim-dark";
+        rev = "0ab698bd2a3959e3bed7691ac55ba4d8abefd143";
+      })
     ];
   };
 }

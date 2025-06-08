@@ -17,9 +17,9 @@ in
   home.homeDirectory = "/Users/paul.garaud";
 
   home.sessionVariables = common.home.sessionVariables // {
-    NIX_SSL_CERT_FILE="$HOME/octane/global-bundle-with-zscaler.pem";
-    SSL_CERT_FILE="$HOME/octane/global-bundle-with-zscaler.pem";
-    AWS_CA_BUNDLE="$HOME/octane/global-bundle-with-zscaler.pem";
+    NIX_SSL_CERT_FILE = "$HOME/octane/global-bundle-with-zscaler.pem";
+    SSL_CERT_FILE = "$HOME/octane/global-bundle-with-zscaler.pem";
+    AWS_CA_BUNDLE = "$HOME/octane/global-bundle-with-zscaler.pem";
   };
 
   programs.git = sharedGit.programs.git // {

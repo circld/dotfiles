@@ -49,9 +49,11 @@
       };
       color = {
         ui = true;
-	pager = true;
+        pager = true;
       };
-      init = { defaultBranch = "main"; };
+      init = {
+        defaultBranch = "main";
+      };
     };
     ignores = [
       ".DS_Store"
