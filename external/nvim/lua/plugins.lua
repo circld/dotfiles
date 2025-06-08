@@ -33,6 +33,7 @@ require("blink-cmp").setup {
 require("conform").setup({
   formatters_by_ft = {
     python = { "ruff_organize_imports", "ruff_format", "ruff_fix" },
+    nix = { "nixfmt" },
   },
 })
 
@@ -66,8 +67,21 @@ lspconfig.pyright.setup{
     },
   },
 }
+require('lspconfig').nil_ls.setup {
+  autostart = true,
+  capabilities = caps,
+  cmd = { "nil" },
+  settings = {
+    ['nil'] = {
+      formatting = {
+        command = { "nixfmt" },
+      },
+    },
+  },
+}
 vim.lsp.enable({
   'pyright',
+  'nil_ls'
 })
 
 -- https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-indentscope.md

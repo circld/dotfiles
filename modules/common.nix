@@ -16,6 +16,7 @@ in
     pkgs.entr
     pkgs.htop
     pkgs.nerd-fonts.hasklug
+    pkgs.nil
     pkgs.nixfmt-rfc-style
     pkgs.tldr
     pkgs.tree
