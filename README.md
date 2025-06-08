@@ -38,7 +38,7 @@
 - [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer
 - nice-to-have
 - [ ] neovim: add undotree replacement
-- [ ] configure `fzf`
+- [x] configure `fzf`
 - [ ] configure & alias `eza`
 - [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 
