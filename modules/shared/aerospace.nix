@@ -23,13 +23,26 @@
         # resizing
         ctrl-alt-shift-minus = "resize smart -50";
         ctrl-alt-shift-equal = "resize smart +50";
+        ctrl-alt-shift-f = "fullscreen";
         # workspaces
         ctrl-1 = "workspace 1";
         ctrl-2 = "workspace 2";
         ctrl-3 = "workspace 3";
+        ctrl-4 = "workspace 4";
+        ctrl-5 = "workspace 5";
+        ctrl-6 = "workspace 6";
+        ctrl-7 = "workspace 7";
+        ctrl-8 = "workspace 8";
+        ctrl-9 = "workspace 9";
         ctrl-alt-shift-1 = "move-node-to-workspace 1";
         ctrl-alt-shift-2 = "move-node-to-workspace 2";
         ctrl-alt-shift-3 = "move-node-to-workspace 3";
+        ctrl-alt-shift-4 = "move-node-to-workspace 4";
+        ctrl-alt-shift-5 = "move-node-to-workspace 5";
+        ctrl-alt-shift-6 = "move-node-to-workspace 6";
+        ctrl-alt-shift-7 = "move-node-to-workspace 7";
+        ctrl-alt-shift-8 = "move-node-to-workspace 8";
+        ctrl-alt-shift-9 = "move-node-to-workspace 9";
       };
     };
   };

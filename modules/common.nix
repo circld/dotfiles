@@ -27,6 +27,7 @@ in
 
   # Environment variables
   home.sessionVariables = {
+    NIX_PATH = "nixpkgs=https://github.com/NixOS/nixpkgs/archive/release-25.05.tar.gz";
     XDG_CONFIG_HOME = "${config.home.homeDirectory}/.config";
     EDITOR = "nvim";
     MANPAGER = "nvim +Man!";
