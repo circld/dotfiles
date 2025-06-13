@@ -9,22 +9,27 @@ let
   fromGitHub =
     {
       repo,
-      ref ? null,
-      rev ? null,
+      rev,
+      sha256,
     }:
 
     let
-      gitArgs = lib.filterAttrs (name: value: value != null) {
-        url = "https://github.com/${repo}.git";
-        inherit ref;
-        inherit rev;
+      # note that builtins.split interleaves non-matches w/lists of matched characters
+      # so we remove non-captured matches
+      parts = builtins.filter (val: val != [ ]) (builtins.split "/" repo);
+      owner = builtins.elemAt parts 0;
+      name = builtins.elemAt parts 1;
+
+      src = pkgs.fetchFromGitHub {
+        inherit owner rev sha256;
+        repo = name;
       };
-      src = builtins.fetchGit gitArgs;
     in
+
     pkgs.vimUtils.buildVimPlugin {
       inherit src;
-      pname = "${lib.strings.sanitizeDerivationName repo}";
-      version = if rev != null then rev else ref;
+      pname = lib.strings.sanitizeDerivationName repo;
+      version = rev;
     };
 
 in
@@ -54,6 +59,7 @@ in
       (fromGitHub {
         repo = "liuchengxu/space-vim-dark";
         rev = "0ab698bd2a3959e3bed7691ac55ba4d8abefd143";
+        sha256 = "sha256-GafPnqc5WjsxaPCBi6w6/VL9gnJtB/5fhXZamKZsKkA=";
       })
     ];
   };
