@@ -22,6 +22,11 @@ in
     AWS_CA_BUNDLE = "$HOME/octane/global-bundle-with-zscaler.pem";
   };
 
+  home.packages = common.home.packages ++ [
+    pkgs.awscli2
+    pkgs.saml2aws
+  ];
+
   programs.fish.shellAbbrs.ecr = "aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin ${workConfig.awsAccountNumber}.dkr.ecr.us-west-2.amazonaws.com";
 
   # https://confusedalex.dev/blog/git-conditional-config/
