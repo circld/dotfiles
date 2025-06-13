@@ -1,10 +1,10 @@
 { config, pkgs, ... }:
 let
   importModules = import ../modules/utils.nix { inherit config pkgs; };
-  managedModules = importModules ../modules/shared;
-  exclusiveModules = importModules ../modules/work;
-  sharedGit = import ../modules/shared/git.nix { inherit config pkgs; };
+  managedModules = importModules ../modules/packages;
+  exclusiveModules = importModules ../modules/work/packages;
   common = import ../modules/common.nix { inherit config pkgs; };
+  workConfig = import ../modules/work/untracked.nix;
 in
 {
   # expects list of module paths
@@ -22,22 +22,22 @@ in
     AWS_CA_BUNDLE = "$HOME/octane/global-bundle-with-zscaler.pem";
   };
 
-  programs.git = sharedGit.programs.git // {
-    # https://confusedalex.dev/blog/git-conditional-config/
-    includes = [
-      {
-        condition = "gitdir:~/work/";
-        contents = {
-          user = {
-            name = "paulgrow-octane";
-            email = "paul.garaud@octanelending.com";
-          };
-          http = {
-            sslCAInfo = "${config.home.homeDirectory}/octane/global-bundle-with-zscaler.pem";
-            proactiveAuth = "basic";
-          };
+  programs.fish.shellAbbrs.ecr = "aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin ${workConfig.awsAccountNumber}.dkr.ecr.us-west-2.amazonaws.com";
+
+  # https://confusedalex.dev/blog/git-conditional-config/
+  programs.git.includes = [
+    {
+      condition = "gitdir:~/work/";
+      contents = {
+        user = {
+          name = "paulgrow-octane";
+          email = "paul.garaud@octanelending.com";
         };
-      }
-    ];
-  };
+        http = {
+          sslCAInfo = "${config.home.homeDirectory}/octane/global-bundle-with-zscaler.pem";
+          proactiveAuth = "basic";
+        };
+      };
+    }
+  ];
 }

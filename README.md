@@ -31,7 +31,8 @@
 
 ## To Do
 
-- [ ] test out config on work computer
+- [x] test out config on work computer
+- [ ] neovim: file search for hidden/non-git versioned files?
 - [ ] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 - [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
