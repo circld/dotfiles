@@ -13,8 +13,10 @@ in
   # https://search.nixos.org/packages
   home.packages = [
     pkgs.aerospace
+    pkgs.coreutils
     pkgs.entr
     pkgs.htop
+    pkgs.gnumake
     pkgs.nerd-fonts.hasklug
     pkgs.nil
     pkgs.nixfmt-rfc-style
