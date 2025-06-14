@@ -6,14 +6,15 @@
 .
 ├── external/
 ├── home/
-│   ├── personal.nix
-│   └── work.nix
-├── modules/
-│   ├── personal/
-│   ├── shared/
-│   └── work/
-├── LICENSE
-└── README.md
+│   ├── personal.nix
+│   └── work.nix
+└── modules/
+    ├── common.nix
+    ├── packages/
+    ├── personal/
+    │   └── packages/
+    └── work/
+        └── packages/
 ```
 
 ## design
@@ -31,14 +32,15 @@
 
 ## To Do
 
+- [x] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 - [ ] neovim: file search for hidden/non-git versioned files?
-- [ ] neovim (gitsigns): add jump to git chunk ]c/[c (add example config from https://github.com/lewis6991/gitsigns.nvim?tab=readme-ov-file#%EF%B8%8F-installation--usage
 - [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
 - [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer
 
 ### nice-to-have
 
+- [ ] use visible highlight text color in zellij
 - [ ] neovim: add undotree replacement
 - [ ] configure & alias `eza`
 - [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
