@@ -42,7 +42,6 @@
 - [ ] use visible highlight text color in zellij
 - [ ] neovim: add undotree replacement
 - [ ] configure & alias `eza`
-- [x] adjust `mini.statusline` colors
 - [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 - [ ] thunderbird?
 
