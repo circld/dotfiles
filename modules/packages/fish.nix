@@ -11,6 +11,8 @@
     enable = true;
     generateCompletions = true;
     interactiveShellInit = ''
+      set -xg PATH $PATH $HOME/.local/bin
+
       set fish_greeting
 
       # vi mode

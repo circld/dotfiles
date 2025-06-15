@@ -30,6 +30,13 @@ vim.cmd([[
   hi! GitSignsDelete guifg=#ff5e86 guibg=#292b2e
   " mini.indentscope
   hi! MiniIndentscopeSymbol guifg=#555f69
+  " mini.statusline
+  hi! MiniStatuslineModeNormal guifg=#af87d7
+  hi! MiniStatuslineModeInsert guifg=#262626 guibg=#627ad2
+  hi! MiniStatuslineModeCommand guifg=#dfdfdf guibg=#91429d
+  hi! MiniStatuslineModeVisual guifg=#262626 guibg=#af87d7
+  hi! MiniStatuslineModeVisualLine guifg=#262626 guibg=#af87d7
+  hi! MiniStatuslineModeReplace guifg=#262626 guibg=#cb4674
   " snacks theming
   hi! link NormalFloat Normal
   hi SnacksPickerBorder guifg=#af87d7

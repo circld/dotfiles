@@ -102,6 +102,9 @@ require("mini.indentscope").setup {
 -- https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-pairs.md
 require("mini.pairs").setup {}
 
+-- https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-statusline.md
+require("mini.statusline").setup {}
+
 -- https://github.com/echasnovski/mini.surround?tab=readme-ov-file#default-config
 -- sa (add)
 -- sd (delete)
