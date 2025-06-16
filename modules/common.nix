@@ -33,7 +33,7 @@ in
     #   home-manager https://github.com/nix-community/home-manager/archive/release-25.05.tar.gz
     #   nixpkgs https://nixos.org/channels/nixpkgs-25.05-darwin
     # to explicitly set the nixpkgs version (and avoid caching):
-    # NIX_PATH = "https://nixos.org/channels/nixpkgs-25.05-darwin";
+    NIX_PATH = "nixpkgs=$HOME/.nix-defexpr/channels/nixpkgs";
     XDG_CONFIG_HOME = "${config.home.homeDirectory}/.config";
     EDITOR = "nvim";
     MANPAGER = "nvim +Man!";

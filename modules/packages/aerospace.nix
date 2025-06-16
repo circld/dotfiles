@@ -44,6 +44,18 @@
         ctrl-alt-shift-8 = "move-node-to-workspace 8";
         ctrl-alt-shift-9 = "move-node-to-workspace 9";
       };
+      # sanity w/external monitors
+      workspace-to-monitor-force-assignment = {
+        "1" = "U2717D";
+        "2" = "U2717D";
+        "3" = "U2717D";
+        "4" = "U2717D";
+        "5" = "P2419H";
+        "6" = "P2419H";
+        "7" = "P2419H";
+        "8" = "Retina Display";
+        "9" = "Retina Display";
+      };
     };
   };
 }
