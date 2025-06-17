@@ -15,6 +15,7 @@
         ctrl-shift-j = "focus down";
         ctrl-shift-k = "focus up";
         ctrl-shift-l = "focus right";
+        alt-tab = "workspace-back-and-forth";
         # moving
         ctrl-alt-shift-h = "move left";
         ctrl-alt-shift-j = "move down";
@@ -24,6 +25,8 @@
         ctrl-alt-shift-minus = "resize smart -50";
         ctrl-alt-shift-equal = "resize smart +50";
         ctrl-alt-shift-f = "fullscreen";
+        ctrl-alt-shift-leftSquareBracket = "layout v_accordion h_accordion";
+        ctrl-alt-shift-rightSquareBracket = "layout v_tiles h_tiles";
         # workspaces
         ctrl-1 = "workspace 1";
         ctrl-2 = "workspace 2";
