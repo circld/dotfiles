@@ -49,6 +49,7 @@ in
     # ghostty must be manually installed & managed until derivation is no longer marked as broken
     "ghostty".source = ln "external/ghostty";
     "nvim".source = ln "external/nvim";
+    "taskell".source = ln "external/taskell";
     "zellij/themes".source = ln "external/zellij/themes";
   };
 }
