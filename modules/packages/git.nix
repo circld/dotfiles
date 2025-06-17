@@ -57,6 +57,20 @@
     };
     ignores = [
       ".DS_Store"
+      "**/.env"
+      "**/.env.*"
+      "**/credentials.json"
+      "**/secret.json"
+      "**/secrets.json"
+      "**/*.key"
+      "**/*.pem"
+      "**/*.pfx"
+      "**/*.p12"
+      "**/*.crt"
+      "**/*.cer"
+      "**/id_rsa"
+      "**/id_dsa"
+      "**/.ssh/id_*"
       "*.pyc"
     ];
     userEmail = "circld1@gmail.com";
