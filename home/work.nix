@@ -17,9 +17,11 @@ in
   home.homeDirectory = "/Users/paul.garaud";
 
   home.sessionVariables = common.home.sessionVariables // {
-    NIX_SSL_CERT_FILE = "$HOME/octane/global-bundle-with-zscaler.pem";
-    SSL_CERT_FILE = "$HOME/octane/global-bundle-with-zscaler.pem";
-    AWS_CA_BUNDLE = "$HOME/octane/global-bundle-with-zscaler.pem";
+    AWS_CA_BUNDLE = "${workConfig.customCaCertFile}";
+    NIX_SSL_CERT_FILE = "${workConfig.customCaCertFile}";
+    PIP_CERT = "${workConfig.customCaCertFile}";
+    REQUESTS_CA_BUNDLE = "${workConfig.customCaCertFile}";
+    SSL_CERT_FILE = "${workConfig.customCaCertFile}";
   };
 
   home.packages = common.home.packages ++ [
@@ -39,7 +41,7 @@ in
           email = "paul.garaud@octanelending.com";
         };
         http = {
-          sslCAInfo = "${config.home.homeDirectory}/octane/global-bundle-with-zscaler.pem";
+          sslCAInfo = "${workConfig.customCaCertFile}";
           proactiveAuth = "basic";
         };
       };
