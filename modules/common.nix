@@ -17,6 +17,7 @@ in
     pkgs.entr
     pkgs.htop
     pkgs.gnumake
+    pkgs.luaformatter
     pkgs.nerd-fonts.hasklug
     pkgs.nil
     pkgs.nixfmt-rfc-style
@@ -25,7 +26,9 @@ in
   ];
 
   # Manage plain config files (moved into /nix/store)
-  home.file = { };
+  home.file = {
+    ".lua-format".source = ln "external/lua/.lua-format";
+  };
 
   # Environment variables
   home.sessionVariables = {

@@ -32,10 +32,12 @@
 
 ## To Do
 
-- [ ] autocomplete for filepaths
-- [ ] fix command completion behavior (e.g., opening a file in a different directory)
+- [x] autocomplete for filepaths
+- [x] fix command completion behavior (e.g., opening a file in a different directory)
+- [x] neovim: add noice
+- [x] neovim: add lua formatter + configuration to conform (trim trailing newlines, whitespace)
+- [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches + selected filepath color
 - [ ] neovim: file search for hidden/non-git versioned files?
-- [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
 - [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer
 

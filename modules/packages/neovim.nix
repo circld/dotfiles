@@ -47,6 +47,7 @@ in
       gitsigns-nvim
       lazydev-nvim
       mini-nvim
+      noice-nvim
       nvim-colorizer-lua
       nvim-lspconfig
       nvim-treesitter
