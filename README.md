@@ -33,6 +33,8 @@
 ## To Do
 
 - [ ] zellij: refine color scheme (see: https://zellij.dev/documentation/themes.html and https://github.com/zellij-org/zellij/blob/7ef7cd5ecd13974b0f51eec87df164249c294a4c/zellij-utils/assets/themes/ao.kdl)
+- [ ] autocomplete for filepaths
+- [ ] fix command completion behavior (e.g., opening a file in a different directory)
 - [ ] neovim: file search for hidden/non-git versioned files?
 - [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
