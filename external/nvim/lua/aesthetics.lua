@@ -1,9 +1,9 @@
 -- [[ Theming ]]
-
 -- colors
 vim.cmd.colorscheme "space-vim-dark"
 
-vim.cmd([[
+vim.cmd(
+  [[
   " improved aesthetics
   hi LineNr ctermbg=NONE ctermfg=243 guibg=NONE guifg=#767676
   hi SpecialComment ctermfg=38 guifg=#0087d7
@@ -40,24 +40,27 @@ vim.cmd([[
   " snacks theming
   hi! link NormalFloat Normal
   hi SnacksPickerBorder guifg=#af87d7
-]])
+]]
+)
 
 -- lsp display configuration
 -- https://www.nerdfonts.com/cheat-sheet
-vim.diagnostic.config({
-  float = true,
-  signs = {
-    text = {
-      [vim.diagnostic.severity.ERROR] = " ",
-      [vim.diagnostic.severity.WARN] = " ",
-      [vim.diagnostic.severity.INFO] = "󰋼 ",
-      [vim.diagnostic.severity.HINT] = "󰌵 ",
+vim.diagnostic.config(
+  {
+    float = true,
+    signs = {
+      text = {
+        [vim.diagnostic.severity.ERROR] = " ",
+        [vim.diagnostic.severity.WARN] = " ",
+        [vim.diagnostic.severity.INFO] = "󰋼 ",
+        [vim.diagnostic.severity.HINT] = "󰌵 ",
+      },
+      numhl = {
+        [vim.diagnostic.severity.ERROR] = "",
+        [vim.diagnostic.severity.WARN] = "",
+        [vim.diagnostic.severity.HINT] = "",
+        [vim.diagnostic.severity.INFO] = "",
+      },
     },
-    numhl = {
-      [vim.diagnostic.severity.ERROR] = "",
-      [vim.diagnostic.severity.WARN] = "",
-      [vim.diagnostic.severity.HINT] = "",
-      [vim.diagnostic.severity.INFO] = "",
-    },
-  },
-})
+  }
+)

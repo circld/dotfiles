@@ -3,7 +3,7 @@
 require("blink-cmp").setup {
   cmdline = {
     keymap = { preset = 'inherit' },
-    completion = { ghost_text = { enabled = true }, menu = { auto_show = true } }
+    completion = { ghost_text = { enabled = true }, menu = { auto_show = true } },
   },
   completion = {
     -- TODO figure out how to avoid documentation from getting cut off near bottom of window
@@ -11,19 +11,16 @@ require("blink-cmp").setup {
       auto_show = true,
       window = {
         max_height = 50,
-        direction_priority = {
-          menu_north = { 'e', 'w', 'n', 's' },
-          menu_south = { 'e', 'w', 's', 'n' }
-        }
-      }
-    }
+        direction_priority = { menu_north = { 'e', 'w', 'n', 's' }, menu_south = { 'e', 'w', 's', 'n' } },
+      },
+    },
   },
   keymap = {
     preset = 'default',
     ['<S-Tab>'] = { 'select_prev', 'fallback' },
     ['<Tab>'] = { 'select_next', 'fallback' },
     ['<S-Enter>'] = { 'accept', 'fallback' },
-    ['<C-C>'] = { 'cancel', 'fallback' }
+    ['<C-C>'] = { 'cancel', 'fallback' },
   },
   signature = { enabled = true, window = { max_height = 50 } },
   sources = {
@@ -32,22 +29,24 @@ require("blink-cmp").setup {
         opts = {
           -- ./* relative to repo root
           get_cwd = function(_) return vim.fn.getcwd() end,
-          show_hidden_files_by_default = true
-        }
-      }
-    }
-  }
+          show_hidden_files_by_default = true,
+        },
+      },
+    },
+  },
 }
 
 -- https://github.com/stevearc/conform.nvim
-require("conform").setup({
-  formatters_by_ft = {
-    lua = { "lua-format" },
-    python = { "ruff_organize_imports", "ruff_format", "ruff_fix" },
-    nix = { "nixfmt" },
-    ["*"] = { "trim_newlines", "trim_whitespace" }
+require("conform").setup(
+  {
+    formatters_by_ft = {
+      lua = { "lua-format" },
+      python = { "ruff_organize_imports", "ruff_format", "ruff_fix" },
+      nix = { "nixfmt" },
+      ["*"] = { "trim_newlines", "trim_whitespace" },
+    },
   }
-})
+)
 
 -- https://github.com/folke/flash.nvim?tab=readme-ov-file#%EF%B8%8F-configuration
 local flash = require("flash").setup { modes = { char = { enabled = false } } }
@@ -64,25 +63,26 @@ lspconfig.pyright.setup {
   on_attach = function(client, bufnr)
     -- Enable signature help if supported by the LSP server
     if client.server_capabilities.signatureHelp then
-      vim.lsp.handlers["textDocument/signatureHelp"] =
-        vim.lsp.with(vim.lsp.handlers.signature_help, {
-          border = "rounded" -- Optional: Adds a rounded border to signature help popups
-        })
+      vim.lsp.handlers["textDocument/signatureHelp"] = vim.lsp.with(
+        vim.lsp.handlers.signature_help, {
+          border = "rounded", -- Optional: Adds a rounded border to signature help popups
+        }
+      )
     end
   end,
   settings = {
     python = {
       analysis = {
-        typeCheckingMode = "basic" -- Can adjust this to "strict" or "off"
-      }
-    }
-  }
+        typeCheckingMode = "basic", -- Can adjust this to "strict" or "off"
+      },
+    },
+  },
 }
 require('lspconfig').nil_ls.setup {
   autostart = true,
   capabilities = caps,
   cmd = { "nil" },
-  settings = { ['nil'] = { formatting = { command = { "nixfmt" } } } }
+  settings = { ['nil'] = { formatting = { command = { "nixfmt" } } } },
 }
 vim.lsp.enable({ 'pyright', 'nil_ls' })
 
@@ -97,8 +97,8 @@ require("mini.indentscope").setup {
 
     -- Motions (jump to respective border line; if not present - body line)
     goto_top = '[i',
-    goto_bottom = ']i'
-  }
+    goto_bottom = ']i',
+  },
 }
 
 -- https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-pairs.md
@@ -120,8 +120,8 @@ require("noice").setup {
     command_palette = true, -- position the cmdline and popupmenu together
     long_message_to_split = true, -- long messages will be sent to a split
     inc_rename = false, -- enables an input dialog for inc-rename.nvim
-    lsp_doc_border = false -- add a border to hover docs and signature help
-  }
+    lsp_doc_border = false, -- add a border to hover docs and signature help
+  },
 }
 
 -- https://github.com/catgoose/nvim-colorizer.lua
@@ -168,16 +168,16 @@ require("which-key").setup {
       F9 = '<F9>',
       F10 = '<F10>',
       F11 = '<F11>',
-      F12 = '<F12>'
-    }
+      F12 = '<F12>',
+    },
   },
   -- Document existing key chains
   spec = {
-    { '<leader>s', group = '[S]earch' }
+    { '<leader>s', group = '[S]earch' },
     -- TODO too add once other plugins are configured
     -- { '<leader>t', group = '[T]oggle' },
     -- { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
-  }
+  },
 }
 
 -- https://github.com/folke/snacks.nvim
@@ -190,9 +190,9 @@ snacks = require("snacks").setup {
       input = {
         keys = {
           ["<up>"] = { "preview_scroll_up", mode = { "i", "n" } },
-          ["<down>"] = { "preview_scroll_down", mode = { "i", "n" } }
-        }
-      }
-    }
-  }
+          ["<down>"] = { "preview_scroll_down", mode = { "i", "n" } },
+        },
+      },
+    },
+  },
 }

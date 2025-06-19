@@ -1,7 +1,6 @@
 -- [[ Setting options ]]
 -- See `:help vim.opt`
 -- For more options, you can see `:help option-list`
-
 -- Set to true if you have a Nerd Font installed and selected in the terminal
 vim.g.have_nerd_font = true
 
@@ -18,11 +17,13 @@ vim.opt.mouse = 'a'
 vim.opt.showmode = false
 
 -- Blinking cursor
-vim.o.guicursor = table.concat({
-  'n-v-c:block-Cursor/lCursor-blinkwait100-blinkon100-blinkoff100',
-  'i-ci:ver25-Cursor/lCursor-blinkwait100-blinkon100-blinkoff100',
-  'r:hor50-Cursor/lCursor-blinkwait100-blinkon100-blinkoff100',
-}, ',')
+vim.o.guicursor = table.concat(
+  {
+    'n-v-c:block-Cursor/lCursor-blinkwait100-blinkon100-blinkoff100',
+    'i-ci:ver25-Cursor/lCursor-blinkwait100-blinkon100-blinkoff100',
+    'r:hor50-Cursor/lCursor-blinkwait100-blinkon100-blinkoff100',
+  }, ','
+)
 
 -- Enable break indent
 vim.opt.breakindent = true
