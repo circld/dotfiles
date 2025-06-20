@@ -57,6 +57,12 @@ in
       unimpaired-nvim
       vim-sleuth
       which-key-nvim
+      # merged into vim but not yet on 0.11.2
+      (fromGitHub {
+        repo = "gleam-lang/gleam.vim";
+        rev = "ad6c328d6460763ca6a338183f7f1bd54137ce80";
+        sha256 = "sha256-Yi1M9EbY/Iv55KzqQcqnfvIDfQgN3JhwapskQ8P7+6o=";
+      })
       (fromGitHub {
         repo = "liuchengxu/space-vim-dark";
         rev = "0ab698bd2a3959e3bed7691ac55ba4d8abefd143";

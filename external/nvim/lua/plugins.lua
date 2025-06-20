@@ -61,6 +61,7 @@ local lspconfig = require('lspconfig')
 
 -- https://github.com/bash-lsp/bash-language-server
 vim.lsp.enable('bashls')
+vim.lsp.enable('gleam')
 
 -- Configure Pyright as the LSP server for Python
 -- https://github.com/microsoft/pyright
