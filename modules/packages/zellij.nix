@@ -35,6 +35,15 @@ in
       theme = "space-vim-dark";
       # defaults: https://github.com/zellij-org/zellij/blob/main/zellij-utils/assets/config/default.kdl
       keybinds = {
+        "session" = binds {
+          "w" = {
+            "LaunchOrFocusPlugin \"session-manager\"" = {
+              floating = true;
+              move_to_focused_tab = true;
+            };
+            SwitchToMode = "locked";
+          };
+        };
         "normal clear-defaults=true" = binds {
           "Esc" = {
             SwitchToMode = "locked";
