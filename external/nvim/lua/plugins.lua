@@ -40,6 +40,7 @@ require("blink-cmp").setup {
 require("conform").setup(
   {
     formatters_by_ft = {
+      sh = { "shellcheck", "shfmt" },
       lua = { "lua-format" },
       python = { "ruff_organize_imports", "ruff_format", "ruff_fix" },
       nix = { "nixfmt" },
@@ -58,7 +59,11 @@ require("gitsigns").setup {}
 -- nvim-lspconfig setup for Pyright
 local lspconfig = require('lspconfig')
 
+-- https://github.com/bash-lsp/bash-language-server
+vim.lsp.enable('bashls')
+
 -- Configure Pyright as the LSP server for Python
+-- https://github.com/microsoft/pyright
 lspconfig.pyright.setup {
   on_attach = function(client, bufnr)
     -- Enable signature help if supported by the LSP server
@@ -78,6 +83,7 @@ lspconfig.pyright.setup {
     },
   },
 }
+-- https://github.com/oxalica/nil
 require('lspconfig').nil_ls.setup {
   autostart = true,
   capabilities = caps,

@@ -32,10 +32,7 @@
 
 ## To Do
 
-- [x] autocomplete for filepaths
-- [x] fix command completion behavior (e.g., opening a file in a different directory)
-- [x] neovim: add noice
-- [x] neovim: add lua formatter + configuration to conform (trim trailing newlines, whitespace)
+- [x] add shellcheck + add as linter
 - [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches + selected filepath color
 - [ ] neovim: file search for hidden/non-git versioned files?
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
@@ -43,7 +40,6 @@
 
 ### nice-to-have
 
-- [ ] use visible highlight text color in zellij
 - [ ] neovim: add undotree replacement
 - [ ] configure & alias `eza`
 - [ ] attempt to integrate with lazy.nvim: https://nixalted.com/

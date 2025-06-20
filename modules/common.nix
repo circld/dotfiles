@@ -13,6 +13,7 @@ in
   # https://search.nixos.org/packages
   home.packages = [
     pkgs.aerospace
+    pkgs.bash-language-server
     pkgs.coreutils
     pkgs.entr
     pkgs.htop
@@ -21,6 +22,8 @@ in
     pkgs.nerd-fonts.hasklug
     pkgs.nil
     pkgs.nixfmt-rfc-style
+    pkgs.shellcheck
+    pkgs.shfmt
     pkgs.tldr
     pkgs.tree
   ];
