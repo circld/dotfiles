@@ -40,6 +40,9 @@ vim.cmd(
   " snacks theming
   hi! link NormalFloat Normal
   hi SnacksPickerBorder guifg=#af87d7
+  hi SnacksPickerMatch guifg=#fabd2f
+  hi SnacksPickerSearch guifg=#fabd2f
+  hi SnacksPickerDir guifg=#767676
 ]]
 )
 

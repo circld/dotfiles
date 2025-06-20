@@ -32,8 +32,7 @@
 
 ## To Do
 
-- [x] add shellcheck + add as linter
-- [ ] neovim (snacks.picker): fix highlight color in picker window for Grep matches + selected filepath color
+- [x] neovim (snacks.picker): fix highlight color in picker window for Grep matches (conflict b/w highlight line color bg and search fg; unify search + highlight line) + selected filepath color
 - [ ] neovim: file search for hidden/non-git versioned files?
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
 - [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer
