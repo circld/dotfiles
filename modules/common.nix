@@ -15,8 +15,10 @@ in
     pkgs.aerospace
     pkgs.bash-language-server
     pkgs.coreutils
+    pkgs.exercism
     pkgs.entr
     pkgs.htop
+    pkgs.jq
     pkgs.gnumake
     pkgs.luaformatter
     pkgs.nerd-fonts.hasklug
