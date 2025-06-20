@@ -21,7 +21,7 @@
 
 1. use Home Manager to manage global packages & dotfile installation in `home.nix`
 2. use Home Manager to manage slowly changing configuration stored in `modules/`
-3. manage quickly changing configuration outside of Home Manager in `external/` and use Home Manager to symlink to `~/.config` as needed
+3. manage frequently changing configuration outside of Home Manager in `external/` and use Home Manager to symlink to $HOME or $XDG_CONFIG_HOME as needed
 
 ## initial setup
 
@@ -32,7 +32,6 @@
 
 ## To Do
 
-- [x] neovim (snacks.picker): fix highlight color in picker window for Grep matches (conflict b/w highlight line color bg and search fg; unify search + highlight line) + selected filepath color
 - [ ] neovim: file search for hidden/non-git versioned files?
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua
 - [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer

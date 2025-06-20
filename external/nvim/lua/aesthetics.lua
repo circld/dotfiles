@@ -43,6 +43,8 @@ vim.cmd(
   hi SnacksPickerMatch guifg=#fabd2f
   hi SnacksPickerSearch guifg=#fabd2f
   hi SnacksPickerDir guifg=#767676
+  hi NoiceCmdlinePopupBorder guifg=#d358d5
+  hi NoiceCmdlineIcon guifg=#d358d5
 ]]
 )
 
