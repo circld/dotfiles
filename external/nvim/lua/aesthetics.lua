@@ -33,7 +33,7 @@ vim.cmd(
   " mini.statusline
   hi! MiniStatuslineModeNormal guifg=#af87d7
   hi! MiniStatuslineModeInsert guifg=#262626 guibg=#627ad2
-  hi! MiniStatuslineModeCommand guifg=#dfdfdf guibg=#91429d
+  hi! MiniStatuslineModeCommand guifg=#262626 guibg=#d358d5
   hi! MiniStatuslineModeVisual guifg=#262626 guibg=#af87d7
   hi! MiniStatuslineModeVisualLine guifg=#262626 guibg=#af87d7
   hi! MiniStatuslineModeReplace guifg=#262626 guibg=#cb4674
