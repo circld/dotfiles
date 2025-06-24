@@ -26,6 +26,7 @@ in
 
   home.packages = common.home.packages ++ [
     pkgs.awscli2
+    pkgs.dive
     pkgs.saml2aws
   ];
 
