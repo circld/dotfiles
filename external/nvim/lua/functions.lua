@@ -63,3 +63,24 @@ diffview_toggle = function()
     vim.cmd.DiffviewOpen()
   end
 end
+
+-- first search for a directory, then search that directory for files
+function pick_files_under()
+  local snacks = require("snacks")
+
+  snacks.picker.pick(
+    {
+      title = "Directories",
+      format = "text",
+      layout = { preview = false },
+      finder = function(opts, ctx)
+        local proc_opts = {
+          cmd = "fd",
+          args = { ".", "--type", "directory", "--hidden", "--no-ignore", "--max-depth=5", os.getenv("HOME") },
+        }
+        return require("snacks.picker.source.proc").proc({ opts, proc_opts }, ctx)
+      end,
+      confirm = function(picker, item) snacks.picker.files({ cwd = item.text, prompt = "Files in: " .. item.text }) end,
+    }
+  )
+end
