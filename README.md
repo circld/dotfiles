@@ -32,8 +32,7 @@
 
 ## To Do
 
-- [x] neovim: custom snack picker that takes root directory as initial argument via ui:
-- [ ] neovim: file search picker should use the cwd of the focused file
+- [x] neovim: file search picker should use the cwd of the focused file
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua (esp LSP keymaps, highlight word under cursor, diagnostic config, etc)
     - [ ] for lsp keybindings, see https://github.com/folke/snacks.nvim/blob/main/docs/picker.md#general
 - [ ] neovim: add todo/fixme search picker
