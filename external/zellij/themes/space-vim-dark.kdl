@@ -26,7 +26,7 @@ themes {
         }
         ribbon_unselected {
             base "#b2b2b2"
-            background "#393939"
+            background "#262626"
             emphasis_0 "#d358d5"
             emphasis_1 0
             emphasis_2 0
