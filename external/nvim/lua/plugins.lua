@@ -180,12 +180,7 @@ require("which-key").setup {
     },
   },
   -- Document existing key chains
-  spec = {
-    { '<leader>s', group = '[S]earch' },
-    -- TODO too add once other plugins are configured
-    -- { '<leader>t', group = '[T]oggle' },
-    -- { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
-  },
+  spec = { { '<leader>s', group = '[S]earch' }, { '<leader>u', group = '[U]tility' } },
 }
 
 -- https://github.com/folke/snacks.nvim

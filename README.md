@@ -32,15 +32,17 @@
 
 ## To Do
 
-- [x] neovim: file search picker should use the cwd of the focused file
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua (esp LSP keymaps, highlight word under cursor, diagnostic config, etc)
     - [ ] for lsp keybindings, see https://github.com/folke/snacks.nvim/blob/main/docs/picker.md#general
 - [ ] neovim: add todo/fixme search picker
-- [ ] neovim: file search for hidden/non-git versioned files?
+- [ ] zellij: add date/clock to interface
 - [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer
 
 ### nice-to-have
 
+- [ ] neovim: tab bar aesthetics
+- [ ] zellij: backspace to go back a mode level, escape to return to locked
+  - is it as simple as making esc universal change to lock mode + making backspace universal return to normal (w/exceptions, e.g., normal mode -> locked)?
 - [ ] configure & alias `eza`
 - [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 - [ ] thunderbird?

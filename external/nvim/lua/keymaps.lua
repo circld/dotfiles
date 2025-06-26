@@ -48,6 +48,16 @@ vim.keymap.set("n", "gf", FollowRoutePath, { desc = "Open file or image" })
 -- open github in browser
 vim.keymap.set("n", "go", OpenGithub, { desc = "Open current line in Github" })
 
+-- copy filepath of file open in focused buffer
+vim.keymap.set(
+  "n", "<leader>uc", function() vim.fn.setreg("*", vim.fn.expand("%:t")) end,
+  { desc = "Copy filepath of focused buffer" }
+)
+vim.keymap.set(
+  "n", "<leader>uC", function() vim.fn.setreg("*", vim.api.nvim_buf_get_name(0)) end,
+  { desc = "Copy filepath of focused buffer" }
+)
+
 -- Diagnostic keymaps
 vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
 
@@ -132,7 +142,7 @@ vim.keymap.set("n", "<leader>su", function() Snacks.picker.undo() end, { desc = 
 vim.keymap.set(
   { "n", "x" }, "<leader>sw", function() Snacks.picker.grep_word() end, { desc = "Visual selection or word" }
 )
-vim.keymap.set("n", "<leader>uC", function() Snacks.picker.colorschemes() end, { desc = "Colorschemes" })
+vim.keymap.set("n", "<leader>uz", function() Snacks.picker.colorschemes() end, { desc = "Colorschemes" })
 -- LSP
 vim.keymap.set("n", "gd", function() Snacks.picker.lsp_definitions() end, { desc = "Goto Definition" })
 vim.keymap.set("n", "gD", function() Snacks.picker.lsp_declarations() end, { desc = "Goto Declaration" })
