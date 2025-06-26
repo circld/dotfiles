@@ -46,26 +46,32 @@ in
         };
         "normal clear-defaults=true" = binds {
           "Esc" = {
-            SwitchToMode = "locked";
+            SwitchToMode = "Locked";
+          };
+          "Backspace" = {
+            SwitchToMode = "Locked";
           };
           "p" = {
-            SwitchToMode = "pane";
+            SwitchToMode = "Pane";
           };
           "t" = {
-            SwitchToMode = "tab";
+            SwitchToMode = "Tab";
           };
           "r" = {
-            SwitchToMode = "resize";
+            SwitchToMode = "Resize";
           };
           "m" = {
-            SwitchToMode = "move";
+            SwitchToMode = "Move";
           };
           "s" = {
-            SwitchToMode = "session";
+            SwitchToMode = "Session";
           };
         };
         "pane clear-defaults=true" = binds {
           "Esc" = {
+            SwitchToMode = "Locked";
+          };
+          "Backspace" = {
             SwitchToMode = "Normal";
           };
           "Alt h" = {
@@ -101,14 +107,105 @@ in
           "w" = {
             ToggleFloatingPanes = [ ];
           };
-          "e" = {
-            TogglePaneEmbedOrFloating = [ ];
-          };
           "r" = {
+            SwitchToMode = "RenamePane";
+            PaneNameInput = 0;
+          };
+          "e" = {
             SwitchToMode = "RenamePane";
           };
           "p" = {
             TogglePanePinned = [ ];
+          };
+          "t" = {
+            TogglePaneEmbedOrFloating = [ ];
+          };
+        };
+        "tab clear-defaults=true" = binds {
+          "Esc" = {
+            SwitchToMode = "Locked";
+          };
+          "Backspace" = {
+            SwitchToMode = "Normal";
+          };
+          "r" = {
+            SwitchToMode = "RenameTab";
+            TabNameInput = 0;
+          };
+          "e" = {
+            SwitchToMode = "RenameTab";
+          };
+          "h" = {
+            GoToPreviousTab = [ ];
+          };
+          "l" = {
+            GoToNextTab = [ ];
+          };
+          "n" = {
+            NewTab = [ ];
+          };
+          "x" = {
+            CloseTab = [ ];
+          };
+          "s" = {
+            ToggleActiveSyncTab = [ ];
+          };
+          "b" = {
+            BreakPane = [ ];
+          };
+          "]" = {
+            BreakPaneRight = [ ];
+          };
+          "[" = {
+            BreakPaneLeft = [ ];
+          };
+          "1" = {
+            GoToTab = 1;
+          };
+          "2" = {
+            GoToTab = 2;
+          };
+          "3" = {
+            GoToTab = 3;
+          };
+          "4" = {
+            GoToTab = 4;
+          };
+          "5" = {
+            GoToTab = 5;
+          };
+          "6" = {
+            GoToTab = 6;
+          };
+          "7" = {
+            GoToTab = 7;
+          };
+          "8" = {
+            GoToTab = 8;
+          };
+          "9" = {
+            GoToTab = 9;
+          };
+          "Tab" = {
+            ToggleTab = [ ];
+          };
+        };
+        "renamepane clear-defaults=true" = binds {
+          "Enter" = {
+            SwitchToMode = "Pane";
+          };
+          "Esc" = {
+            UndoRenamePane = [ ];
+            SwitchToMode = "Pane";
+          };
+        };
+        "renametab clear-defaults=true" = binds {
+          "Enter" = {
+            SwitchToMode = "Tab";
+          };
+          "Esc" = {
+            UndoRenameTab = [ ];
+            SwitchToMode = "Tab";
           };
         };
         "locked clear-defaults=true" = binds {
@@ -147,6 +244,16 @@ in
           };
           "Ctrl f" = {
             ToggleFocusFullscreen = [ ];
+          };
+        };
+        "shared_except \"locked\"" = binds {
+          "Esc" = {
+            SwitchToMode = "Locked";
+          };
+        };
+        "shared_except \"normal\"" = binds {
+          "Backspace" = {
+            SwitchToMode = "Normal";
           };
         };
       };

@@ -41,8 +41,7 @@
 ### nice-to-have
 
 - [ ] neovim: tab bar aesthetics
-- [ ] zellij: backspace to go back a mode level, escape to return to locked
-  - is it as simple as making esc universal change to lock mode + making backspace universal return to normal (w/exceptions, e.g., normal mode -> locked)?
+- [x] zellij: backspace to go back a mode level, escape to return to locked
 - [ ] configure & alias `eza`
 - [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 - [ ] thunderbird?

@@ -83,7 +83,7 @@ vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower win
 vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
 
 -- replace default f behavior with flash jump
-vim.keymap.set("n", "f", function() require("flash").jump() end)
+vim.keymap.set({ 'n', 'v' }, "f", function() require("flash").jump() end)
 
 vim.keymap.set("n", "<leader><space>", function() Snacks.picker.smart() end, { desc = "Smart Find Files" })
 vim.keymap.set("n", "<leader>,", function() Snacks.picker.buffers({ focus = "list" }) end, { desc = "Buffers" })
