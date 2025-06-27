@@ -41,7 +41,6 @@
 ### nice-to-have
 
 - [ ] neovim: tab bar aesthetics
-- [x] zellij: backspace to go back a mode level, escape to return to locked
 - [ ] configure & alias `eza`
 - [ ] attempt to integrate with lazy.nvim: https://nixalted.com/
 - [ ] thunderbird?

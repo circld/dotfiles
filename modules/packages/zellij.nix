@@ -74,25 +74,25 @@ in
           "Backspace" = {
             SwitchToMode = "Normal";
           };
-          "Alt h" = {
+          "h" = {
             MoveFocus = "Left";
           };
-          "Alt l" = {
+          "l" = {
             MoveFocus = "Right";
           };
-          "Alt j" = {
+          "j" = {
             MoveFocus = "Down";
           };
-          "Alt k" = {
+          "k" = {
             MoveFocus = "Up";
           };
           "n" = {
             NewPane = [ ];
           };
-          "j" = {
+          "Shift j" = {
             NewPane = "Down";
           };
-          "l" = {
+          "Shift l" = {
             NewPane = "Right";
           };
           "x" = {
