@@ -18,6 +18,7 @@ in
     pkgs.exercism
     pkgs.entr
     pkgs.htop
+    pkgs.jnv
     pkgs.jq
     pkgs.gnumake
     pkgs.luaformatter
