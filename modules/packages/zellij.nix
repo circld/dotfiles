@@ -60,9 +60,6 @@ in
           "r" = {
             SwitchToMode = "Resize";
           };
-          "m" = {
-            SwitchToMode = "Move";
-          };
           "s" = {
             SwitchToMode = "Session";
           };
@@ -86,13 +83,25 @@ in
           "k" = {
             MoveFocus = "Up";
           };
+          "Shift h" = {
+            MovePane = "Left";
+          };
+          "Shift l" = {
+            MovePane = "Right";
+          };
+          "Shift j" = {
+            MovePane = "Down";
+          };
+          "Shift k" = {
+            MovePane = "Up";
+          };
           "n" = {
             NewPane = [ ];
           };
-          "Shift j" = {
+          "Alt j" = {
             NewPane = "Down";
           };
-          "Shift l" = {
+          "Alt l" = {
             NewPane = "Right";
           };
           "x" = {
@@ -140,6 +149,12 @@ in
           };
           "l" = {
             GoToNextTab = [ ];
+          };
+          "Shift h" = {
+            MoveTab = "Left";
+          };
+          "Shift l" = {
+            MoveTab = "Right";
           };
           "n" = {
             NewTab = [ ];
