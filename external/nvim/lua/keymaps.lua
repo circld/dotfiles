@@ -112,6 +112,7 @@ vim.keymap.set("n", "<leader>gd", diffview_toggle, { desc = "Git Diff View Toggl
 vim.keymap.set("n", "<leader>gf", function() Snacks.picker.git_log_file() end, { desc = "Git Log File" })
 vim.keymap.set("n", "<leader>ghp", require("gitsigns").preview_hunk_inline, { desc = "[G]it [H]unk [P]review" })
 vim.keymap.set("n", "<leader>ghs", require("gitsigns").stage_hunk, { desc = "[G]it [H]unk [S]tage/Unstage" })
+vim.keymap.set("n", "<leader>ghr", require("gitsigns").reset_hunk, { desc = "[G]it [H]unk [R]eset" })
 -- use default action in diff view, otherwise use gitsigns hunk navigation
 vim.keymap.set("n", "]c", map_conditional_diff("]c", "Gitsigns nav_hunk next"), { desc = "Next hunk" })
 vim.keymap.set("n", "]C", map_conditional_diff("]C", "Gitsigns nav_hunk last"), { desc = "Last hunk" })
