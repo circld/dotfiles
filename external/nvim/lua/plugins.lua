@@ -43,7 +43,7 @@ require("conform").setup(
       sh = { "shellcheck", "shfmt" },
       lua = { "lua-format" },
       gleam = { "gleam" },
-      python = { "ruff_organize_imports", "ruff_format", "ruff_fix" },
+      python = { "ruff_organize_imports", "ruff_format", "ruff_fix", "black" },
       nix = { "nixfmt" },
       ["*"] = { "trim_newlines", "trim_whitespace" },
     },

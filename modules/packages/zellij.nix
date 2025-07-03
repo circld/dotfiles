@@ -164,6 +164,7 @@ in
           };
           "s" = {
             ToggleActiveSyncTab = [ ];
+            SwitchToMode = "Locked";
           };
           "b" = {
             BreakPane = [ ];
