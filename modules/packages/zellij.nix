@@ -261,6 +261,9 @@ in
           "Ctrl f" = {
             ToggleFocusFullscreen = [ ];
           };
+          "Alt /" = {
+            EditScrollback = [ ];
+          };
         };
         "shared_except \"locked\"" = binds {
           "Esc" = {

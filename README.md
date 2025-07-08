@@ -33,7 +33,6 @@
 ## To Do
 
 - [ ] neovim: configure remaining plugins: https://github.com/circld/kickstart.nvim/blob/b3765acc86187b18431f275905e964e71d32be95/init.lua (esp LSP keymaps, highlight word under cursor, diagnostic config, etc)
-- [x] remove branch from status line or limit to < 10 chars
 - [ ] neovim: add todo/fixme search picker
 - [ ] zellij: add date/clock to interface
 - [ ] neovim: figure out how to avoid docstring getting cut off near bottom of buffer
