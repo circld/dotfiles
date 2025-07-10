@@ -53,6 +53,7 @@ in
       nvim-treesitter
       nvim-web-devicons
       snacks-nvim
+      tabular
       todo-comments-nvim
       unimpaired-nvim
       vim-sleuth
