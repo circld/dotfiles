@@ -45,6 +45,7 @@ require("conform").setup(
       gleam = { "gleam" },
       python = { "ruff_organize_imports", "ruff_format", "ruff_fix", "black" },
       nix = { "nixfmt" },
+      rust = { "rustfmt" },
       ["*"] = { "trim_newlines", "trim_whitespace" },
     },
   }
@@ -65,8 +66,6 @@ require("gitsigns").setup {
 local lspconfig = require('lspconfig')
 
 -- https://github.com/bash-lsp/bash-language-server
-vim.lsp.enable('bashls')
-vim.lsp.enable('gleam')
 
 -- Configure Pyright as the LSP server for Python
 -- https://github.com/microsoft/pyright
@@ -96,7 +95,10 @@ require('lspconfig').nil_ls.setup {
   cmd = { "nil" },
   settings = { ['nil'] = { formatting = { command = { "nixfmt" } } } },
 }
-vim.lsp.enable({ 'pyright', 'nil_ls' })
+
+vim.lsp.config('rust_analyzer', { settings = { ['rust-analyzer'] = { diagnostics = { enable = false } } } })
+
+vim.lsp.enable({ 'bashls', 'gleam', 'pyright', 'nil_ls', 'rust_analyzer' })
 
 -- https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-indentscope.md
 -- TODO figure out how to change color to gray
