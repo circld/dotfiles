@@ -45,7 +45,8 @@ function OpenGithub()
   end
 
   -- Get file path relative to repo root
-  local file_repo_path = file:gsub(repo_full_path, "")
+  local escaped_pattern = repo_full_path:gsub("([^%w])", "%%%1")
+  local file_repo_path = file:gsub(escaped_pattern, "")
   local github_url = string.format("https://github.com/%s/tree/%s%s#L%d", remote, branch, file_repo_path, line)
 
   -- Open in default browser (macOS)
