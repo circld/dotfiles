@@ -223,6 +223,7 @@ snacks = require("snacks").setup {
         keys = {
           ["<up>"] = { "preview_scroll_up", mode = { "i", "n" } },
           ["<down>"] = { "preview_scroll_down", mode = { "i", "n" } },
+          ["<c-y>"] = { "yank", mode = { "i", "n" } },
         },
       },
     },
