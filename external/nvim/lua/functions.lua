@@ -37,7 +37,7 @@ function OpenGithub()
   local remotes = vim.fn.systemlist("git remote -v")
   local remote_line = remotes[2] or remotes[1] or ""
   local remote = string.gsub(remote_line, "%.git", "")
-  local remote = string.match(remote_line, "github.com[:/](.-)%s")
+  local remote = string.match(remote, "github.com[:/](.-)%s")
 
   if not remote then
     vim.notify("Could not find a valid GitHub remote", vim.log.levels.ERROR)
