@@ -29,6 +29,7 @@ in
     pkgs.shfmt
     pkgs.tldr
     pkgs.tree
+    pkgs.yq-go
   ];
 
   # Manage plain config files (moved into /nix/store)

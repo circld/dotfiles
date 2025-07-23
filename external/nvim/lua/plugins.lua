@@ -40,12 +40,17 @@ require("blink-cmp").setup {
 require("conform").setup(
   {
     formatters_by_ft = {
-      sh = { "shellcheck", "shfmt" },
-      lua = { "lua-format" },
+      csv = { "yq" },
       gleam = { "gleam" },
-      python = { "ruff_organize_imports", "ruff_format", "ruff_fix", "black" },
+      ini = { "yq" },
+      json = { "jq" },
+      lua = { "lua-format" },
       nix = { "nixfmt" },
+      python = { "ruff_organize_imports", "ruff_format", "ruff_fix", "black" },
       rust = { "rustfmt" },
+      sh = { "shellcheck", "shfmt" },
+      xml = { "yq" },
+      yaml = { "yq" },
       ["*"] = { "trim_newlines", "trim_whitespace" },
     },
   }
