@@ -49,6 +49,7 @@ require("conform").setup(
       python = { "ruff_organize_imports", "ruff_format", "ruff_fix", "black" },
       rust = { "rustfmt" },
       sh = { "shellcheck", "shfmt" },
+      terraform = { "terraform_fmt" },
       xml = { "yq" },
       yaml = { "yq" },
       ["*"] = { "trim_newlines", "trim_whitespace" },
