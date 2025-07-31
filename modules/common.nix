@@ -29,12 +29,14 @@ in
     pkgs.shfmt
     pkgs.tldr
     pkgs.tree
+    pkgs.yamlfmt
     pkgs.yq-go
   ];
 
   # Manage plain config files (moved into /nix/store)
   home.file = {
     ".lua-format".source = ln "external/lua/.lua-format";
+    ".yamlfmt".source = ln "external/yaml/.yamlfmt";
   };
 
   # Environment variables

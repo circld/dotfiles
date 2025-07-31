@@ -51,7 +51,7 @@ require("conform").setup(
       sh = { "shellcheck", "shfmt" },
       terraform = { "terraform_fmt" },
       xml = { "yq" },
-      yaml = { "yq" },
+      yaml = { "yamlfmt" },
       ["*"] = { "trim_newlines", "trim_whitespace" },
     },
   }
