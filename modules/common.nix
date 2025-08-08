@@ -37,6 +37,7 @@ in
   home.file = {
     ".lua-format".source = ln "external/lua/.lua-format";
     ".yamlfmt".source = ln "external/yaml/.yamlfmt";
+    ".zprofile".source = ln "external/zsh/.zprofile";
   };
 
   # Environment variables
