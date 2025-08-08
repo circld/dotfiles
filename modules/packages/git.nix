@@ -75,6 +75,7 @@
       "**/id_dsa"
       "**/.ssh/id_*"
       "*.pyc"
+      ".claude"
     ];
     userEmail = "circld1@gmail.com";
     userName = "circld";
