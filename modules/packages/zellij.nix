@@ -243,6 +243,39 @@ in
           "Alt k" = {
             MoveFocus = "Up";
           };
+          "Alt Shift h" = {
+            GoToPreviousTab = [ ];
+          };
+          "Alt Shift l" = {
+            GoToNextTab = [ ];
+          };
+          "Alt 1" = {
+            GoToTab = 1;
+          };
+          "Alt 2" = {
+            GoToTab = 2;
+          };
+          "Alt 3" = {
+            GoToTab = 3;
+          };
+          "Alt 4" = {
+            GoToTab = 4;
+          };
+          "Alt 5" = {
+            GoToTab = 5;
+          };
+          "Alt 6" = {
+            GoToTab = 6;
+          };
+          "Alt 7" = {
+            GoToTab = 7;
+          };
+          "Alt 8" = {
+            GoToTab = 8;
+          };
+          "Alt 9" = {
+            GoToTab = 9;
+          };
           "Alt ]" = {
             NextSwapLayout = [ ];
           };
