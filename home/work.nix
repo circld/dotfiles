@@ -5,6 +5,8 @@ let
   exclusiveModules = importModules ../modules/work/packages;
   common = import ../modules/common.nix { inherit config pkgs; };
   workConfig = import ../modules/work/untracked.nix;
+  dotfiles = "${config.home.homeDirectory}/dotfiles";
+  ln = file: config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${file}";
   unstablePkgs =
     import
       (builtins.fetchTarball {
@@ -32,6 +34,10 @@ in
     PIP_CERT = workConfig.customCaCertFile;
     REQUESTS_CA_BUNDLE = workConfig.customCaCertFile;
     SSL_CERT_FILE = workConfig.customCaCertFile;
+  };
+
+  home.file = common.home.file // {
+    ".claude/commands".source = ln "external/claude/commands";
   };
 
   home.packages = common.home.packages ++ [
