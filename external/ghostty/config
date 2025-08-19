@@ -5,5 +5,3 @@ shell-integration = fish
 shell-integration-features = no-cursor
 font-family = "Hasklug Nerd Font Mono"
 theme = space-vim-dark
-# added by claude-code
-keybind = shift+enter=text:\n

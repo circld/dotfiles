@@ -11,7 +11,7 @@ Think step-by-step and follow this procedure:
 2. Print the augmented prompt generated in step 1.
 3. Ask the user whether to proceed with remaining steps.
 4. Create a plan to answer the prompt in step 1.
-5. Run through the plan generated in step 3.
+5. Run through the plan generated in step 4.
 6. Summarize the output concisely.
 
 Step 1 should be based off of the following: "$ARGUMENTS"
