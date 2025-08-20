@@ -50,7 +50,7 @@ in
       noice-nvim
       nvim-colorizer-lua
       nvim-lspconfig
-      nvim-treesitter
+      nvim-treesitter.withAllGrammars
       nvim-web-devicons
       snacks-nvim
       tabular

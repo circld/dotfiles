@@ -218,6 +218,26 @@ require("which-key").setup {
   spec = { { '<leader>s', group = '[S]earch' }, { '<leader>u', group = '[U]tility' } },
 }
 
+-- https://github.com/nvim-treesitter/nvim-treesitter
+require("nvim-treesitter.configs").setup {
+  highlight = {
+    enable = true,
+    -- Disable slow treesitter highlight for large files
+    disable = function(lang, buf)
+      local max_filesize = 100 * 1024 -- 100 KB
+      local ok, stats = pcall(vim.loop.fs_stat, vim.api.nvim_buf_get_name(buf))
+      if ok and stats and stats.size > max_filesize then return true end
+    end,
+  },
+  -- Enable incremental selection
+  incremental_selection = {
+    enable = true,
+    keymaps = { init_selection = "gnn", node_incremental = "gk", scope_incremental = "gK", node_decremental = "gj" },
+  },
+  -- Enable indentation
+  indent = { enable = true },
+}
+
 -- https://github.com/folke/snacks.nvim
 snacks = require("snacks").setup {
   -- https://github.com/folke/snacks.nvim/blob/main/docs/picker.md
