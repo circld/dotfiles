@@ -10,11 +10,12 @@ let
   unstablePkgs =
     import
       (builtins.fetchTarball {
-        url = "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz";
+        url = "https://github.com/NixOS/nixpkgs/archive/nixpkgs-unstable.tar.gz";
       })
       {
         system = pkgs.system;
         config.allowUnfree = true;
+        config.allowBroken = true;
       };
 in
 {
@@ -38,6 +39,7 @@ in
 
   home.file = common.home.file // {
     ".claude/commands".source = ln "external/claude/commands";
+    ".claude/CLAUDE.md".source = ln "external/claude/CLAUDE.md";
   };
 
   home.packages = common.home.packages ++ [

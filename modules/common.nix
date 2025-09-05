@@ -25,6 +25,7 @@ in
     pkgs.nerd-fonts.hasklug
     pkgs.nil
     pkgs.nixfmt-rfc-style
+    pkgs.repomix
     pkgs.shellcheck
     pkgs.shfmt
     pkgs.tldr
