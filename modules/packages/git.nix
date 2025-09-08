@@ -54,6 +54,10 @@
       init = {
         defaultBranch = "main";
       };
+      push = {
+        default = "simple";
+        autoSetupRemote = true;
+      };
     };
     ignores = [
       ".DS_Store"
