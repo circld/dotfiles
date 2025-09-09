@@ -6,25 +6,15 @@ let
   common = import ../modules/common.nix { inherit config pkgs; };
   workConfig = import ../modules/work/untracked.nix;
   dotfiles = "${config.home.homeDirectory}/dotfiles";
-  ln = file: config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${file}";
-  unstablePkgs =
-    import
-      (builtins.fetchTarball {
-        url = "https://github.com/NixOS/nixpkgs/archive/nixpkgs-unstable.tar.gz";
-      })
-      {
-        system = pkgs.system;
-        config.allowUnfree = true;
-        config.allowBroken = true;
-      };
 in
 {
   # expects list of module paths
-  imports = [
-    ../modules/common.nix
-  ]
-  ++ (builtins.map (mod: import mod) managedModules)
-  ++ (builtins.map (mod: import mod) exclusiveModules);
+  imports =
+    [
+      ../modules/common.nix
+    ]
+    ++ (builtins.map (mod: import mod) managedModules)
+    ++ (builtins.map (mod: import mod) exclusiveModules);
 
   home.username = workConfig.userName;
   home.homeDirectory = workConfig.homeDirectory;
@@ -37,16 +27,10 @@ in
     SSL_CERT_FILE = workConfig.customCaCertFile;
   };
 
-  home.file = common.home.file // {
-    ".claude/commands".source = ln "external/claude/commands";
-    ".claude/CLAUDE.md".source = ln "external/claude/CLAUDE.md";
-  };
-
   home.packages = common.home.packages ++ [
     pkgs.awscli2
     pkgs.dive
     pkgs.saml2aws
-    unstablePkgs.claude-code
   ];
 
   programs.fish.shellAbbrs.ecr = workConfig.ecrCommand;

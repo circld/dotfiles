@@ -2,7 +2,6 @@
 description: "Implement a feature using specs and TDD"
 argument-hint: "[feature description]"
 allowed-tools: ["Bash", "Edit", "Glob", "Grep", "LS", "MultiEdit", "Read", "Task", "TodoWrite", "Write", "WebFetch", "WebSearch"]
-model: "us.anthropic.claude-sonnet-4-20250514-v1:0"
 ---
 
 You are an experienced principal software engineer. Think step-by-step (but do not print your thinking) and follow this procedure to construct the requested feature.

@@ -2,7 +2,6 @@
 description: "Produce a thorough response to a prompt"
 argument-hint: "[prompt]"
 allowed-tools: ["WebFetch", "WebSearch", "TodoWrite", "ExitPlanMode"]
-model: "us.anthropic.claude-sonnet-4-20250514-v1:0"
 ---
 
 Think step-by-step and follow this procedure:

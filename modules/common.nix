@@ -2,6 +2,16 @@
 let
   dotfiles = "${config.home.homeDirectory}/dotfiles";
   ln = file: config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${file}";
+  unstablePkgs =
+    import
+      (builtins.fetchTarball {
+        url = "https://github.com/NixOS/nixpkgs/archive/nixpkgs-unstable.tar.gz";
+      })
+      {
+        system = pkgs.system;
+        config.allowUnfree = true;
+        config.allowBroken = true;
+      };
 in
 {
   # You should not change this value, even if you update Home Manager. If you do
@@ -32,10 +42,13 @@ in
     pkgs.tree
     pkgs.yamlfmt
     pkgs.yq-go
+    unstablePkgs.claude-code
   ];
 
   # Manage plain config files (moved into /nix/store)
   home.file = {
+    ".claude/commands".source = ln "external/claude/commands";
+    ".claude/CLAUDE.md".source = ln "external/claude/CLAUDE.md";
     ".lua-format".source = ln "external/lua/.lua-format";
     ".yamlfmt".source = ln "external/yaml/.yamlfmt";
     ".zprofile".source = ln "external/zsh/.zprofile";
