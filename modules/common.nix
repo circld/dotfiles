@@ -47,6 +47,7 @@ in
 
   # Manage plain config files (moved into /nix/store)
   home.file = {
+    ".claude/agents".source = ln "external/claude/agents";
     ".claude/commands".source = ln "external/claude/commands";
     ".claude/CLAUDE.md".source = ln "external/claude/CLAUDE.md";
     ".lua-format".source = ln "external/lua/.lua-format";
