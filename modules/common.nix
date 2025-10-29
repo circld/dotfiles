@@ -65,6 +65,7 @@ in
     XDG_CONFIG_HOME = "${config.home.homeDirectory}/.config";
     EDITOR = "nvim";
     MANPAGER = "nvim +Man!";
+    TERM = "xterm-256color"; # xterm-ghostty may not be recognized
   };
 
   # Configure HM-managed programs & configuration
