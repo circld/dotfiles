@@ -21,3 +21,4 @@
 
 - blank lines should not have any whitespace (e.g., indent)
 - do not use relative imports
+- use bash and pbcopy when asked to copy to clipboard
