@@ -36,6 +36,9 @@ require("blink-cmp").setup {
   },
 }
 
+-- https://github.com/catgoose/nvim-colorizer.lua
+require("colorizer").setup { user_default_options = { names = false } }
+
 -- https://github.com/stevearc/conform.nvim
 require("conform").setup(
   {
@@ -107,7 +110,6 @@ vim.lsp.config('rust_analyzer', { settings = { ['rust-analyzer'] = { diagnostics
 vim.lsp.enable({ 'bashls', 'gleam', 'pyright', 'nil_ls', 'rust_analyzer' })
 
 -- https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-indentscope.md
--- TODO figure out how to change color to gray
 require("mini.indentscope").setup {
   symbol = "",
   mappings = {
@@ -167,8 +169,66 @@ require("noice").setup {
   },
 }
 
--- https://github.com/catgoose/nvim-colorizer.lua
-require("colorizer").setup { user_default_options = { names = false } }
+-- https://github.com/chrisgrieser/nvim-origami
+require("origami").setup {
+  useLspFoldsWithTreesitterFallback = true,
+  pauseFoldsOnSearch = true,
+  foldtext = {
+    enabled = true,
+    padding = 3,
+    lineCount = {
+      template = "%d lines", -- `%d` is replaced with the number of folded lines
+      hlgroup = "Comment",
+    },
+    diagnosticsCount = true, -- uses hlgroups and icons from `vim.diagnostic.config().signs`
+    gitsignsCount = true, -- requires `gitsigns.nvim`
+    disableOnFt = { "snacks_picker_input" }, ---@type string[]
+  },
+  autoFold = {
+    enabled = false,
+    kinds = { "comment", "imports" }, ---@type lsp.FoldingRangeKind[]
+  },
+  foldKeymaps = {
+    setup = true, -- modifies `h`, `l`, and `$`
+    hOnlyOpensOnFirstColumn = false,
+  },
+}
+-- https://github.com/folke/snacks.nvim
+snacks = require("snacks").setup {
+  -- https://github.com/folke/snacks.nvim/blob/main/docs/picker.md
+  picker = {
+    enabled = true,
+    matcher = { frecency = true },
+    win = {
+      input = {
+        keys = {
+          ["<up>"] = { "preview_scroll_up", mode = { "i", "n" } },
+          ["<down>"] = { "preview_scroll_down", mode = { "i", "n" } },
+          ["<c-y>"] = { "yank", mode = { "i", "n" } },
+        },
+      },
+    },
+  },
+}
+-- https://github.com/nvim-treesitter/nvim-treesitter
+require("nvim-treesitter.configs").setup {
+  highlight = {
+    enable = true,
+    -- Disable slow treesitter highlight for large files
+    disable = function(lang, buf)
+      local max_filesize = 100 * 1024 -- 100 KB
+      local ok, stats = pcall(vim.loop.fs_stat, vim.api.nvim_buf_get_name(buf))
+      if ok and stats and stats.size > max_filesize then return true end
+    end,
+  },
+  -- Enable incremental selection
+  incremental_selection = {
+    enable = true,
+    keymaps = { init_selection = "gnn", node_incremental = "gk", scope_incremental = "gK", node_decremental = "gj" },
+  },
+  -- Enable indentation
+  indent = { enable = true },
+}
 
 -- https://github.com/Tummetott/unimpaired.nvim
 require("unimpaired").setup {}
@@ -216,42 +276,4 @@ require("which-key").setup {
   },
   -- Document existing key chains
   spec = { { '<leader>s', group = '[S]earch' }, { '<leader>u', group = '[U]tility' } },
-}
-
--- https://github.com/nvim-treesitter/nvim-treesitter
-require("nvim-treesitter.configs").setup {
-  highlight = {
-    enable = true,
-    -- Disable slow treesitter highlight for large files
-    disable = function(lang, buf)
-      local max_filesize = 100 * 1024 -- 100 KB
-      local ok, stats = pcall(vim.loop.fs_stat, vim.api.nvim_buf_get_name(buf))
-      if ok and stats and stats.size > max_filesize then return true end
-    end,
-  },
-  -- Enable incremental selection
-  incremental_selection = {
-    enable = true,
-    keymaps = { init_selection = "gnn", node_incremental = "gk", scope_incremental = "gK", node_decremental = "gj" },
-  },
-  -- Enable indentation
-  indent = { enable = true },
-}
-
--- https://github.com/folke/snacks.nvim
-snacks = require("snacks").setup {
-  -- https://github.com/folke/snacks.nvim/blob/main/docs/picker.md
-  picker = {
-    enabled = true,
-    matcher = { frecency = true },
-    win = {
-      input = {
-        keys = {
-          ["<up>"] = { "preview_scroll_up", mode = { "i", "n" } },
-          ["<down>"] = { "preview_scroll_down", mode = { "i", "n" } },
-          ["<c-y>"] = { "yank", mode = { "i", "n" } },
-        },
-      },
-    },
-  },
 }

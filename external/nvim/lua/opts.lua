@@ -31,6 +31,10 @@ vim.opt.breakindent = true
 -- Save undo history
 vim.opt.undofile = true
 
+-- Leave documents unfolded by default
+vim.opt.foldlevel = 99
+vim.opt.foldlevelstart = 99
+
 -- Case-insensitive searching UNLESS \C or one or more capital letters in the search term
 vim.opt.ignorecase = true
 vim.opt.smartcase = true

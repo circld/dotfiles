@@ -69,6 +69,11 @@ in
         rev = "0ab698bd2a3959e3bed7691ac55ba4d8abefd143";
         sha256 = "sha256-GafPnqc5WjsxaPCBi6w6/VL9gnJtB/5fhXZamKZsKkA=";
       })
+      (fromGitHub {
+        repo = "chrisgrieser/nvim-origami";
+        rev = "d42d11008a32f5f8c92bca6fd63f6782f197d114";
+        sha256 = "sha256-fArQRyDWYb4TLZxdUyDaGrsY3u6R/IFeMYwEYaBBgBk=";
+      })
     ];
   };
 }
