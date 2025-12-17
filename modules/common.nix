@@ -73,6 +73,7 @@ in
 
   # Link to externally managed configuration from XDG_CONFIG_HOME
   xdg.configFile = {
+    "fish/completions".source = ln "external/fish/completions";
     "fish/functions".source = ln "external/fish/functions";
     "fish/themes".source = ln "external/fish/themes";
     # ghostty must be manually installed & managed until derivation is no longer marked as broken
