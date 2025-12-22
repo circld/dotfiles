@@ -43,7 +43,6 @@ require("colorizer").setup { user_default_options = { names = false } }
 require("conform").setup(
   {
     formatters_by_ft = {
-      csv = { "yq" },
       gleam = { "gleam" },
       ini = { "yq" },
       json = { "jq" },
