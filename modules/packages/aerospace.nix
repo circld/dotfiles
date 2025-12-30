@@ -9,6 +9,9 @@
     # https://nikitabobko.github.io/AeroSpace/guide#default-config
     userSettings = {
       start-at-login = true;
+      default-root-container-layout = "accordion";
+      default-root-container-orientation = "auto";
+      automatically-unhide-macos-hidden-apps = true;
       mode.main.binding = {
         # nav
         ctrl-shift-h = "focus left";
