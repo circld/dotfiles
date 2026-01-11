@@ -1,6 +1,12 @@
 ---
 name: architecture-diagrammer
-description: Use this agent when you need to create architectural diagrams for a software system. Examples include: after implementing a new microservice architecture and needing to document the system structure, when onboarding new team members who need visual understanding of system components, during architecture reviews where stakeholders need clear visual representations, when preparing technical documentation for a project handoff, or when analyzing an existing codebase to understand its architectural patterns and relationships.
+description: >
+  Use this agent when you need to create architectural diagrams for a software system.
+  Examples include: after implementing a new microservice architecture and needing to document
+  the system structure, when onboarding new team members who need visual understanding of
+  system components, during architecture reviews where stakeholders need clear visual
+  representations, when preparing technical documentation for a project handoff, or when
+  analyzing an existing codebase to understand its architectural patterns and relationships.
 tools: Glob, Grep, Read, WebFetch, TodoWrite, WebSearch, BashOutput, KillBash
 model: sonnet
 ---
