@@ -5,16 +5,14 @@ let
   exclusiveModules = importModules ../modules/work/packages;
   common = import ../modules/common.nix { inherit config pkgs; };
   workConfig = import ../modules/work/untracked.nix;
-  dotfiles = "${config.home.homeDirectory}/dotfiles";
 in
 {
   # expects list of module paths
-  imports =
-    [
-      ../modules/common.nix
-    ]
-    ++ (builtins.map (mod: import mod) managedModules)
-    ++ (builtins.map (mod: import mod) exclusiveModules);
+  imports = [
+    ../modules/common.nix
+  ]
+  ++ (builtins.map (mod: import mod) managedModules)
+  ++ (builtins.map (mod: import mod) exclusiveModules);
 
   home.username = workConfig.userName;
   home.homeDirectory = workConfig.homeDirectory;
