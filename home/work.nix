@@ -33,6 +33,14 @@ in
 
   programs.fish.shellAbbrs.ecr = workConfig.ecrCommand;
 
+  # Global git config for SSL (applies everywhere, including pre-commit cache)
+  programs.git.extraConfig = {
+    http = {
+      sslCAInfo = workConfig.customCaCertFile;
+      proactiveAuth = "basic";
+    };
+  };
+
   # https://confusedalex.dev/blog/git-conditional-config/
   programs.git.includes = [
     {
@@ -41,10 +49,6 @@ in
         user = {
           name = workConfig.gitUser;
           email = workConfig.gitEmail;
-        };
-        http = {
-          sslCAInfo = workConfig.customCaCertFile;
-          proactiveAuth = "basic";
         };
       };
     }
