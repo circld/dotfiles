@@ -22,3 +22,7 @@
 - blank lines should not have any whitespace (e.g., indent)
 - do not use relative imports
 - use bash and pbcopy when asked to copy to clipboard
+
+# Superpowers Usage
+
+Use superpowers skills as process frameworks for complex tasks (debugging, TDD, verification), not as gatekeepers for every action. Don't let superpowers block other tools like claude-code-guide, Explore agents, or direct tool use for straightforward tasks

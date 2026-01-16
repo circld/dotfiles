@@ -24,6 +24,7 @@ in
   home.packages = [
     pkgs.aerospace
     pkgs.bash-language-server
+    pkgs.nodePackages.vscode-langservers-extracted
     pkgs.coreutils
     pkgs.exercism
     pkgs.entr

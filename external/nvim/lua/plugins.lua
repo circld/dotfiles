@@ -106,7 +106,7 @@ require('lspconfig').nil_ls.setup {
 
 vim.lsp.config('rust_analyzer', { settings = { ['rust-analyzer'] = { diagnostics = { enable = false } } } })
 
-vim.lsp.enable({ 'bashls', 'gleam', 'pyright', 'nil_ls', 'rust_analyzer' })
+vim.lsp.enable({ 'bashls', 'gleam', 'jsonls', 'pyright', 'nil_ls', 'rust_analyzer' })
 
 -- https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-indentscope.md
 require("mini.indentscope").setup {
