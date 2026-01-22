@@ -20,6 +20,9 @@
         format = "[$path](bright-cyan)[$read_only]($read_only_style) ";
         home_symbol = "💻";
       };
+      git_branch = {
+        truncation_length = 20;
+      };
     };
   };
 }
