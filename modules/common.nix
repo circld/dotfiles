@@ -2,16 +2,7 @@
 let
   dotfiles = "${config.home.homeDirectory}/dotfiles";
   ln = file: config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${file}";
-  unstablePkgs =
-    import
-      (builtins.fetchTarball {
-        url = "https://github.com/NixOS/nixpkgs/archive/nixpkgs-unstable.tar.gz";
-      })
-      {
-        system = pkgs.system;
-        config.allowUnfree = true;
-        config.allowBroken = true;
-      };
+  unstablePkgs = import ./unstable-pkgs.nix { inherit pkgs; };
 in
 {
   # You should not change this value, even if you update Home Manager. If you do

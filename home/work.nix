@@ -4,6 +4,7 @@ let
   managedModules = importModules ../modules/packages;
   exclusiveModules = importModules ../modules/work/packages;
   common = import ../modules/common.nix { inherit config pkgs; };
+  unstablePkgs = import ../modules/unstable-pkgs.nix { inherit pkgs; };
   workConfig = import ../modules/work/untracked.nix;
 in
 {
@@ -23,12 +24,15 @@ in
     PIP_CERT = workConfig.customCaCertFile;
     REQUESTS_CA_BUNDLE = workConfig.customCaCertFile;
     SSL_CERT_FILE = workConfig.customCaCertFile;
+    OCTANE_API_KEY = workConfig.octaneApiKey;
+    OPENAI_API_KEY = workConfig.openAiApiKey;
   };
 
   home.packages = common.home.packages ++ [
     pkgs.awscli2
     pkgs.dive
     pkgs.saml2aws
+    unstablePkgs.codex
   ];
 
   programs.fish.shellAbbrs.ecr = workConfig.ecrCommand;
