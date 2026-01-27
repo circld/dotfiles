@@ -1,6 +1,8 @@
 { config, pkgs, ... }:
 let
-  importModules = import ../modules/utils.nix { inherit config pkgs; };
+  utils = import ../modules/utils.nix { inherit config pkgs; };
+  importModules = utils.collectModules;
+  ln = utils.ln;
   managedModules = importModules ../modules/packages;
   exclusiveModules = importModules ../modules/work/packages;
   common = import ../modules/common.nix { inherit config pkgs; };
@@ -17,6 +19,10 @@ in
 
   home.username = workConfig.userName;
   home.homeDirectory = workConfig.homeDirectory;
+
+  home.file = common.home.file // {
+    ".codex/AGENTS.md".source = ln "external/claude/CLAUDE.md";
+  };
 
   home.sessionVariables = common.home.sessionVariables // {
     AWS_CA_BUNDLE = workConfig.customCaCertFile;

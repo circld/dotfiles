@@ -11,6 +11,7 @@
 - Prefer calculations to actions
 - Imperative shell/functional core: place actions at the edge of the application (bottom of call stack)
 - Use data classes to represent program values and state
+- Classes should not contain behavior (methods) unless it's part of a framework (e.g., Pydantic)
 - Keep function implementations at a level of abstraction aligned with its name. e.g., `upload_file_to_sftp` could call `connect_to_server`, `upload_file_to_remote_directory`, and `verify_upload`, rather than including the lower-level implementation logic directly in its body
 - Identify problem domain primitives (functions) to maximize re-use and expressiveness
 - Separate program description from program execution

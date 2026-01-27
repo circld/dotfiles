@@ -1,5 +1,7 @@
 { config, pkgs, ... }:
 let
+  dotfiles = "${config.home.homeDirectory}/dotfiles";
+  ln = file: config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${file}";
   collectModules =
     dir:
     builtins.concatLists (
@@ -19,4 +21,6 @@ let
       )
     );
 in
-collectModules
+{
+  inherit collectModules ln;
+}

@@ -1,7 +1,7 @@
 { config, pkgs, ... }:
 let
-  dotfiles = "${config.home.homeDirectory}/dotfiles";
-  ln = file: config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${file}";
+  utils = import ./utils.nix { inherit config pkgs; };
+  ln = utils.ln;
   unstablePkgs = import ./unstable-pkgs.nix { inherit pkgs; };
 in
 {
