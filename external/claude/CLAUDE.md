@@ -15,6 +15,7 @@
 - Keep function implementations at a level of abstraction aligned with its name. e.g., `upload_file_to_sftp` could call `connect_to_server`, `upload_file_to_remote_directory`, and `verify_upload`, rather than including the lower-level implementation logic directly in its body
 - Identify problem domain primitives (functions) to maximize re-use and expressiveness
 - Separate program description from program execution
+- Prefer enums for sets of legal values to minimize magic values and maximize clarity
 
 # Language-specific Principles
 
