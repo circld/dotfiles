@@ -32,6 +32,8 @@ in
     SSL_CERT_FILE = workConfig.customCaCertFile;
     OCTANE_API_KEY = workConfig.octaneApiKey;
     OPENAI_API_KEY = workConfig.openAiApiKey;
+    CLAUDE_CODE_USE_BEDROCK = 1;
+    AWS_BEARER_TOKEN_BEDROCK = workConfig.bedrockApiKey;
   };
 
   home.packages = common.home.packages ++ [
