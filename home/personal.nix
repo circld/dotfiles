@@ -1,8 +1,8 @@
 { config, pkgs, ... }:
 let
-  importModules = import ../modules/utils.nix { inherit config pkgs; };
-  managedModules = importModules ../modules/packages;
-  exclusiveModules = importModules ../modules/personal/packages;
+  utils = import ../modules/utils.nix { inherit config pkgs; };
+  managedModules = utils.collectModules ../modules/packages;
+  exclusiveModules = utils.collectModules ../modules/personal/packages;
   common = import ../modules/common.nix { inherit config pkgs; };
 in
 {
