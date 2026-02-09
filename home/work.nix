@@ -21,7 +21,7 @@ in
   home.homeDirectory = workConfig.homeDirectory;
 
   home.file = common.home.file // {
-    ".codex/AGENTS.md".source = ln "external/claude/CLAUDE.md";
+    ".codex/AGENTS.md".source = ln "external/opencode/AGENTS.md";
   };
 
   home.sessionVariables = common.home.sessionVariables // {

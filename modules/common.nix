@@ -74,6 +74,7 @@ in
     "nvim".source = ln "external/nvim";
     "opencode/agents".source = ln "external/opencode/agents";
     "opencode/commands".source = ln "external/opencode/commands";
+    "opencode/AGENTS.md".source = ln "external/opencode/AGENTS.md";
     "opencode/skills".source = ln "external/opencode/skills";
     "taskell".source = ln "external/taskell";
     "zellij/themes".source = ln "external/zellij/themes";
