@@ -43,6 +43,7 @@ in
   home.file = {
     ".claude/agents".source = ln "external/claude/agents";
     ".claude/commands".source = ln "external/claude/commands";
+    ".claude/skills".source = ln "external/opencode/skills";
     ".claude/CLAUDE.md".source = ln "external/claude/CLAUDE.md";
     ".lua-format".source = ln "external/lua/.lua-format";
     ".yamlfmt".source = ln "external/yaml/.yamlfmt";
