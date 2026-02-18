@@ -24,6 +24,10 @@ in
     ".codex/AGENTS.md".source = ln "external/opencode/AGENTS.md";
   };
 
+  xdg.configFile = common.xdg.configFile // {
+    "opencode/opencode.json".source = ln "external/opencode/work-opencode.json";
+  };
+
   home.sessionVariables = common.home.sessionVariables // {
     AWS_CA_BUNDLE = workConfig.customCaCertFile;
     NIX_SSL_CERT_FILE = workConfig.customCaCertFile;
@@ -31,6 +35,7 @@ in
     REQUESTS_CA_BUNDLE = workConfig.customCaCertFile;
     SSL_CERT_FILE = workConfig.customCaCertFile;
     OCTANE_API_KEY = workConfig.octaneApiKey;
+    OCTANE_MCP_BASE_URL = workConfig.octaneMcpBaseUrl;
     OPENAI_API_KEY = workConfig.openAiApiKey;
     CLAUDE_CODE_USE_BEDROCK = 1;
     AWS_BEARER_TOKEN_BEDROCK = workConfig.bedrockApiKey;
