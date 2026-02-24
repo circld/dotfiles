@@ -20,6 +20,7 @@ in
     pkgs.coreutils
     pkgs.exercism
     pkgs.entr
+    pkgs.gh
     pkgs.htop
     pkgs.jnv
     pkgs.jq
