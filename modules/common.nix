@@ -75,12 +75,12 @@ in
     # ghostty must be manually installed & managed until derivation is no longer marked as broken
     "ghostty".source = ln "external/ghostty";
     "nvim".source = ln "external/nvim";
+    "opencode/AGENTS.md".source = ln "external/opencode/AGENTS.md";
     "opencode/agents".source = ln "external/opencode/agents";
     "opencode/commands".source = ln "external/opencode/commands";
+    "opencode/skills".source = ln "external/opencode/skills";
     "opencode/themes".source = ln "external/opencode/themes";
     "opencode/tui.json".source = ln "external/opencode/tui.json";
-    "opencode/AGENTS.md".source = ln "external/opencode/AGENTS.md";
-    "opencode/skills".source = ln "external/opencode/skills";
     "taskell".source = ln "external/taskell";
     "zellij/themes".source = ln "external/zellij/themes";
   };
