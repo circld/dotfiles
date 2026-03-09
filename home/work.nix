@@ -6,7 +6,6 @@ let
   managedModules = importModules ../modules/packages;
   exclusiveModules = importModules ../modules/work/packages;
   common = import ../modules/common.nix { inherit config pkgs; };
-  unstablePkgs = import ../modules/unstable-pkgs.nix { inherit pkgs; };
   workConfig = import ../modules/work/untracked.nix;
 in
 {
@@ -19,10 +18,6 @@ in
 
   home.username = workConfig.userName;
   home.homeDirectory = workConfig.homeDirectory;
-
-  home.file = common.home.file // {
-    ".codex/AGENTS.md".source = ln "external/opencode/AGENTS.md";
-  };
 
   xdg.configFile = common.xdg.configFile // {
     "opencode/opencode.json".source = ln "external/opencode/work-opencode.json";
@@ -43,7 +38,7 @@ in
     pkgs.awscli2
     pkgs.dive
     pkgs.saml2aws
-    unstablePkgs.codex
+
   ];
 
   programs.fish.shellAbbrs.ecr = workConfig.ecrCommand;
