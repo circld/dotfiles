@@ -9,6 +9,18 @@
     enable = true;
     generateCompletions = true;
     interactiveShellInit = ''
+      # Always re-source HM session vars to override the __HM_SESS_VARS_SOURCED
+      # guard inherited from the zellij server environment
+      hm-refresh
+
+      # Detect home-manager generation change; exec fish for full re-init
+      set -l current_config (readlink ~/.config/fish/config.fish)
+      if set -q __HM_FISH_CONFIG; and test "$__HM_FISH_CONFIG" != "$current_config"
+          set -gx __HM_FISH_CONFIG $current_config
+          exec fish
+      end
+      set -gx __HM_FISH_CONFIG $current_config
+
       set -xg PATH $PATH $HOME/.local/bin
 
       set fish_greeting
