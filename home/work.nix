@@ -36,9 +36,7 @@ in
     SSL_CERT_FILE = workConfig.customCaCertFile;
     OCTANE_API_KEY = workConfig.octaneApiKey;
     OCTANE_MCP_BASE_URL = workConfig.octaneMcpBaseUrl;
-    OPENAI_API_KEY = workConfig.openAiApiKey;
-    CLAUDE_CODE_USE_BEDROCK = 1;
-    AWS_BEARER_TOKEN_BEDROCK = workConfig.bedrockApiKey;
+    OCTANE_LLM_PROXY_URL = workConfig.octaneLlmProxyUrl;
   };
 
   home.packages = common.home.packages ++ [

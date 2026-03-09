@@ -1,5 +1,41 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "octane_llm_proxy": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Octane LLM Proxy",
+      "options": {
+        "baseURL": "{env:OCTANE_LLM_PROXY_URL}",
+        "apiKey": "{env:OCTANE_API_KEY}"
+      },
+      "models": {
+        "bedrock-minimax-m2.1": {
+          "name": "MiniMax M2.1",
+          "attachment": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "claude-opus-4.6": {
+          "name": "Claude Opus 4.6",
+          "attachment": true,
+          "modalities": {
+            "input": ["text", "image", "pdf"],
+            "output": ["text"]
+          }
+        },
+        "gpt-5.3-codex": {
+          "name": "GPT-5.3 Codex",
+          "attachment": true,
+          "modalities": {
+            "input": ["text", "image", "pdf"],
+            "output": ["text"]
+          }
+        }
+      },
+    }
+  },
   "mcp": {
     "confluence": {
       "type": "remote",
