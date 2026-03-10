@@ -36,6 +36,11 @@
       },
     }
   },
+  "agent": {
+    "code-reviewer": {
+      "model": "octane_llm_proxy/gpt-5.3-codex"
+    }
+  },
   "mcp": {
     "confluence": {
       "type": "remote",
