@@ -6,7 +6,9 @@
       "name": "Octane LLM Proxy",
       "options": {
         "baseURL": "{env:OCTANE_LLM_PROXY_URL}",
-        "apiKey": "{env:OCTANE_API_KEY}"
+        "apiKey": "{env:OCTANE_API_KEY}",
+        "timeout": 300000,
+        "chunkTimeout": 30000
       },
       "models": {
         "bedrock-minimax-m2.1": {

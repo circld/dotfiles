@@ -62,6 +62,10 @@ in
     EDITOR = "nvim";
     MANPAGER = "nvim +Man!";
     TERM = "xterm-256color"; # xterm-ghostty may not be recognized
+    # nixpkgs builds opencode with OPENCODE_CHANNEL="stable", which causes it
+    # to use a separate database (opencode-stable.db) from non-nix installs
+    # (opencode.db). This flag forces a single db regardless of channel.
+    OPENCODE_DISABLE_CHANNEL_DB = "1";
   };
 
   # Configure HM-managed programs & configuration
