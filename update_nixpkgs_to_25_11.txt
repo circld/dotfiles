@@ -1,0 +1,18 @@
+1. Create a git commit of your current state:
+
+cd ~/dotfiles
+git add -A
+git commit -m "Pre-upgrade snapshot: nixpkgs 25.05"
+2. Update ONLY the nixpkgs channel to 25.11:
+nix-channel --add https://nixos.org/channels/nixpkgs-25.11-darwin nixpkgs
+nix-channel --update
+3. Do NOT change home.stateVersion in modules/common.nix - leave it at "25.05"
+4. Test the configuration with newer nixpkgs but same home-manager:
+home-manager switch
+5. If it works: Commit the change:
+git add -A
+git commit -m "Upgrade nixpkgs to 25.11 (home-manager still 25.05)"
+6. If it breaks: Revert nixpkgs channel:
+nix-channel --add https://nixos.org/channels/nixpkgs-25.05-darwin nixpkgs
+nix-channel --update
+home-manager switch

@@ -7,6 +7,7 @@
       "options": {
         "baseURL": "{env:OCTANE_LLM_PROXY_URL}",
         "apiKey": "{env:OCTANE_API_KEY}",
+        "litellmProxy": true,
         "timeout": 300000,
         "chunkTimeout": 30000
       },
