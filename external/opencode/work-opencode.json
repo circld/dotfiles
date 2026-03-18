@@ -8,8 +8,8 @@
         "baseURL": "{env:OCTANE_LLM_PROXY_URL}",
         "apiKey": "{env:OCTANE_API_KEY}",
         "litellmProxy": true,
-        "timeout": 300000,
-        "chunkTimeout": 30000
+        "timeout": 600000,
+        "chunkTimeout": 180000
       },
       "models": {
         "bedrock-minimax-m2.1": {
