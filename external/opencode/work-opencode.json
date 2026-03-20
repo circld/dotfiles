@@ -72,7 +72,20 @@
             "input": 3.0,
             "output": 15.0
           }
-        },
+        }
+      }
+    },
+    "octane_llm_proxy_openai": {
+      "npm": "@ai-sdk/openai",
+      "name": "Octane LLM Proxy",
+      "options": {
+        "baseURL": "{env:OCTANE_LLM_PROXY_URL}",
+        "apiKey": "{env:OCTANE_API_KEY}",
+        "litellmProxy": true,
+        "timeout": 600000,
+        "chunkTimeout": 180000
+      },
+      "models": {
         "gpt-5.3-codex": {
           "name": "GPT-5.3 Codex",
           "attachment": true,
