@@ -11,8 +11,6 @@ Guide completion of development work by presenting clear options and handling ch
 
 **Core principle:** Verify tests → Present options → Execute choice → Clean up.
 
-**Announce at start:** "I'm using the finishing-a-development-branch skill to complete this work."
-
 ## The Process
 
 ### Step 1: Verify Tests
@@ -103,7 +101,7 @@ EOF
 )"
 ```
 
-Then: Cleanup worktree (Step 5)
+Keep worktree (may need for review feedback).
 
 #### Option 3: Keep As-Is
 
@@ -189,12 +187,3 @@ git worktree remove <worktree-path>
 - Present exactly 4 options
 - Get typed confirmation for Option 4
 - Clean up worktree for Options 1 & 4 only
-
-## Integration
-
-**Called by:**
-- **subagent-driven-development** (Step 7) - After all tasks complete
-- **executing-plans** (Step 5) - After all batches complete
-
-**Pairs with:**
-- **using-git-worktrees** - Cleans up worktree created by that skill

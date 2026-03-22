@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+description: "Use when the user requests new functionality, changes to existing behavior, or any task where the intent, scope, or approach is not fully obvious from the request. Err on the side of invoking — brief unnecessary clarification is cheaper than building the wrong thing. Not for purely mechanical tasks like renaming, reformatting, or running commands."
 ---
 
 # Brainstorming Ideas Into Designs
@@ -36,13 +36,12 @@ Start by understanding the current project context, then ask questions one at a 
 
 **Documentation:**
 - Write the validated design to `docs/plans/YYYY-MM-DD-<topic>-design.md`
-- Use elements-of-style:writing-clearly-and-concisely skill if available
+- Write the design doc clearly and concisely
 - Commit the design document to git
 
-**Implementation (if continuing):**
-- Ask: "Ready to set up for implementation?"
-- Use superpowers:using-git-worktrees to create isolated workspace
-- Use superpowers:writing-plans to create detailed implementation plan
+**Next steps:**
+- Ask: "Should I write this up as a design doc, or is the conversation sufficient?"
+- If the user wants to continue to implementation, ask: "Ready to set up for implementation?"
 
 ## Key Principles
 
