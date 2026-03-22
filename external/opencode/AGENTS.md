@@ -34,3 +34,7 @@
 > The instructions in this section apply whenever using skills.
 
 Use skills as process frameworks for complex tasks (debugging, TDD, verification), not as gatekeepers for every action. Don't let skills block direct tool use for straightforward tasks.
+
+## CLI utilities
+
+CLI utilities for system-wide use are located in ~/.nix-profile. Project CLI utilities may be available via nix shell.

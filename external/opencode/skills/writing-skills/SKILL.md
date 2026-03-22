@@ -15,7 +15,7 @@ You write test cases (pressure scenarios with subagents), watch them fail (basel
 
 **Core principle:** If you didn't watch an agent fail without the skill, you don't know if the skill teaches the right thing.
 
-**REQUIRED BACKGROUND:** You MUST understand superpowers:test-driven-development before using this skill. That skill defines the fundamental RED-GREEN-REFACTOR cycle. This skill adapts TDD to documentation.
+**REQUIRED BACKGROUND:** You must understand TDD methodology (RED-GREEN-REFACTOR cycle) before using this skill. This skill adapts TDD to documentation.
 
 **Official guidance:** For skill authoring best practices, see skill-authoring-best-practices.md. This document provides additional patterns and guidelines that complement the TDD-focused approach in this skill.
 
@@ -136,6 +136,14 @@ What goes wrong + fixes
 Concrete results
 ```
 
+**Spec compliance:** All skills must comply with the agentic component spec rules S-1 through S-8. Key rules:
+- **S-1:** Single responsibility — one workflow, one domain, one procedure
+- **S-2:** Write the description for the router — trigger conditions, not summaries
+- **S-4:** Domain-level actions, not tool-level actions
+- **S-6:** Include "when to use" and "when not to use"
+- **S-8:** No references to specific platform components
+
+See `260320_agentic-component-spec.md` for the complete specification.
 
 ## Agent Search Optimization (ASO)
 
@@ -230,14 +238,14 @@ search-conversations supports --text, --both, --after DATE, --before DATE, --lim
 search-conversations supports multiple modes and filters. Run --help for details.
 ```
 
-**Use cross-references:**
+**Minimize repetition:**
 ```markdown
-# ❌ BAD: Repeat workflow details
+# Bad: Repeat detailed instructions inline
 When searching, dispatch subagent with template...
 [20 lines of repeated instructions]
 
-# ✅ GOOD: Reference other skill
-Always use subagents (50-100x context savings). REQUIRED: Use [other-skill-name] for workflow.
+# Good: Describe the action at domain level
+Always use subagents for search (50-100x context savings).
 ```
 
 **Compress examples:**
@@ -275,17 +283,20 @@ wc -w skills/path/SKILL.md
 - `creating-skills`, `testing-skills`, `debugging-with-logs`
 - Active, describes the action you're taking
 
-### 4. Cross-Referencing Other Skills
+### 4. No Cross-References to Other Components
 
-**When writing documentation that references other skills:**
+Per the agentic component spec (S-8): **Skills must not depend on specific platform components.** A skill does not name specific tools, agents, other skills, or commands. It describes domain-level actions that any suitably-equipped agent can map to its own tool set.
 
-Use skill name only, with explicit requirement markers:
-- ✅ Good: `**REQUIRED SUB-SKILL:** Use superpowers:test-driven-development`
-- ✅ Good: `**REQUIRED BACKGROUND:** You MUST understand superpowers:systematic-debugging`
-- ❌ Bad: `See skills/testing/test-driven-development` (unclear if required)
-- ❌ Bad: `@skills/testing/test-driven-development/SKILL.md` (force-loads, burns context)
+- Bad: `**REQUIRED SUB-SKILL:** Use superpowers:test-driven-development`
+- Bad: `Use TodoWrite to track progress`
+- Bad: `Dispatch code-reviewer subagent`
+- Good: `Follow TDD methodology`
+- Good: `Track task progress`
+- Good: `Request a code review of the changes`
 
-**Why no @ links:** `@` syntax force-loads files immediately, consuming 200k+ context before you need them.
+**Why:** Skills are pure, composable knowledge units (O-3). Only agents and commands reference other components by name (O-1). Orchestration sequences belong in commands, not skills.
+
+References to local supporting files within the same skill directory (e.g., `@supporting-doc.md`) are acceptable — these are part of the skill, not external dependencies.
 
 ## Flowchart Usage
 
@@ -390,7 +401,7 @@ Edit skill without testing? Same violation.
 - Don't "adapt" while running tests
 - Delete means delete
 
-**REQUIRED BACKGROUND:** The superpowers:test-driven-development skill explains why this matters. Same principles apply to documentation.
+The TDD methodology explains why this matters. Same principles apply to documentation.
 
 ## Testing All Skill Types
 

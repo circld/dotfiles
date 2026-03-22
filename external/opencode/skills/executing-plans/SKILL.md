@@ -1,6 +1,6 @@
 ---
 name: executing-plans
-description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
+description: "Use when you have a written implementation plan to execute with batch-based human review checkpoints between groups of tasks. Not for automated per-task review workflows."
 ---
 
 # Executing Plans
@@ -10,8 +10,6 @@ description: Use when you have a written implementation plan to execute in a sep
 Load plan, review critically, execute tasks in batches, report for review between batches.
 
 **Core principle:** Batch execution with checkpoints for architect review.
-
-**Announce at start:** "I'm using the executing-plans skill to implement this plan."
 
 ## The Process
 
@@ -44,10 +42,9 @@ Based on feedback:
 
 ### Step 5: Complete Development
 
-After all tasks complete and verified:
-- Announce: "I'm using the finishing-a-development-branch skill to complete this work."
-- **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
-- Follow that skill to verify tests, present options, execute choice
+After all tasks complete and verified, proceed to integration:
+- Verify all tests pass
+- Present integration options to the user
 
 ## When to Stop and Ask for Help
 
@@ -71,14 +68,6 @@ After all tasks complete and verified:
 - Review plan critically first
 - Follow plan steps exactly
 - Don't skip verifications
-- Reference skills when plan says to
 - Between batches: just report and wait
 - Stop when blocked, don't guess
 - Never start implementation on main/master branch without explicit user consent
-
-## Integration
-
-**Required workflow skills:**
-- **superpowers:using-git-worktrees** - REQUIRED: Set up isolated workspace before starting
-- **superpowers:writing-plans** - Creates the plan this skill executes
-- **superpowers:finishing-a-development-branch** - Complete development after all tasks
