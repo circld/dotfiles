@@ -74,7 +74,8 @@ digraph process {
     "Dispatch code quality reviewer subagent" -> "Code quality reviewer subagent approves?";
     "Code quality reviewer subagent approves?" -> "Implementer subagent fixes quality issues" [label="no"];
     "Implementer subagent fixes quality issues" -> "Dispatch code quality reviewer subagent" [label="re-review"];
-    "Code quality reviewer subagent approves?" -> "Mark task complete" [label="yes"];
+    "Code quality reviewer subagent approves?" -> "Verify independently (run tests, check VCS diff)" [label="yes"];
+    "Verify independently (run tests, check VCS diff)" -> "Mark task complete";
     "Mark task complete" -> "More tasks remain?";
     "More tasks remain?" -> "Dispatch implementer subagent" [label="yes"];
     "More tasks remain?" -> "Dispatch final code reviewer subagent for entire implementation" [label="no"];
