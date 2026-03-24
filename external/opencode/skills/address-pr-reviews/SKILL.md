@@ -47,7 +47,7 @@ Determine the repository owner, name, and PR number. Then run:
 scripts/fetch-pr-reviews.sh <owner> <repo> <pr-number>
 ```
 
-This fetches all reviews and review threads via GraphQL (with automatic pagination), classifies them (resolved, unresolved, out-of-scope), and outputs structured text.
+This fetches review submissions, review threads, and top-level PR issue comments via GraphQL (with automatic pagination), classifies them (resolved, unresolved, out-of-scope), and outputs structured text.
 
 The script path is relative to this skill's directory.
 

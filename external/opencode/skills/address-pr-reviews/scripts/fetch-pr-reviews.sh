@@ -19,12 +19,14 @@ check_deps() {
 
 fetch_page() {
 	local owner="$1" repo="$2" pr_number="$3"
-	local reviews_cursor="${4:-}" threads_cursor="${5:-}"
+	local reviews_cursor="${4:-}" threads_cursor="${5:-}" comments_cursor="${6:-}"
 
 	local reviews_after=""
 	local threads_after=""
+	local comments_after=""
 	[[ -n "$reviews_cursor" ]] && reviews_after=", after: \"$reviews_cursor\""
 	[[ -n "$threads_cursor" ]] && threads_after=", after: \"$threads_cursor\""
+	[[ -n "$comments_cursor" ]] && comments_after=", after: \"$comments_cursor\""
 
 	gh api graphql -f query="
     query {
@@ -52,6 +54,14 @@ fetch_page() {
               }
             }
           }
+          comments(first: 50${comments_after}) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              id
+              body
+              author { login }
+            }
+          }
         }
       }
     }
@@ -63,13 +73,13 @@ fetch_page() {
 
 fetch_all() {
 	local owner="$1" repo="$2" pr_number="$3"
-	local reviews_cursor="" threads_cursor=""
-	local all_reviews="[]" all_threads="[]"
-	local has_more_reviews=true has_more_threads=true
+	local reviews_cursor="" threads_cursor="" comments_cursor=""
+	local all_reviews="[]" all_threads="[]" all_comments="[]"
+	local has_more_reviews=true has_more_threads=true has_more_comments=true
 
-	while [[ "$has_more_reviews" == "true" ]] || [[ "$has_more_threads" == "true" ]]; do
+	while [[ "$has_more_reviews" == "true" ]] || [[ "$has_more_threads" == "true" ]] || [[ "$has_more_comments" == "true" ]]; do
 		local page
-		page=$(fetch_page "$owner" "$repo" "$pr_number" "$reviews_cursor" "$threads_cursor")
+		page=$(fetch_page "$owner" "$repo" "$pr_number" "$reviews_cursor" "$threads_cursor" "$comments_cursor")
 
 		local pr_data
 		pr_data=$(echo "$page" | jq '.data.repository.pullRequest')
@@ -93,10 +103,17 @@ fetch_all() {
 			has_more_threads=$(echo "$pr_data" | jq -r '.reviewThreads.pageInfo.hasNextPage')
 			threads_cursor=$(echo "$pr_data" | jq -r '.reviewThreads.pageInfo.endCursor // empty')
 		fi
+
+		# Merge issue comments
+		if [[ "$has_more_comments" == "true" ]]; then
+			all_comments=$(echo "$all_comments" "$pr_data" | jq -s '.[0] + (.[1].comments.nodes // [])')
+			has_more_comments=$(echo "$pr_data" | jq -r '.comments.pageInfo.hasNextPage')
+			comments_cursor=$(echo "$pr_data" | jq -r '.comments.pageInfo.endCursor // empty')
+		fi
 	done
 
-	jq -n --argjson reviews "$all_reviews" --argjson threads "$all_threads" \
-		'{reviews: $reviews, threads: $threads}'
+	jq -n --argjson reviews "$all_reviews" --argjson threads "$all_threads" --argjson comments "$all_comments" \
+		'{reviews: $reviews, threads: $threads, comments: $comments}'
 }
 
 format_output() {
@@ -134,6 +151,20 @@ def summary_line:
 # Process top-level reviews with non-empty body
 [.reviews[] |
   select((.state == "CHANGES_REQUESTED" or .state == "COMMENTED") and (.body // "" | length > 0)) |
+  {
+    id: .id,
+    type: "top-level",
+    is_resolved: false,
+    author: (.author.login // "unknown"),
+    path: "",
+    line: 0,
+    body: .body,
+    is_out_of_scope: false
+  }
+] +
+# Process PR issue comments with non-empty body
+[.comments[] |
+  select((.body // "" | length > 0)) |
   {
     id: .id,
     type: "top-level",
