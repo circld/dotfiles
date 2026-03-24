@@ -13,6 +13,7 @@ in
   # Install Nix-managed packages into your environment.
   # https://search.nixos.org/packages
   home.packages = [
+    pkgs.actionlint
     pkgs.aerospace
     pkgs.bash-language-server
     pkgs.bruno
