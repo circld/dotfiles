@@ -13,6 +13,16 @@ SECTION="$({
 })"
 
 printf '%s\n' "$SECTION" | grep -F 'scripts/post-feature-branch-review.sh --review-json' >/dev/null
+printf '%s\n' "$SECTION" | grep -F 'scripts/post-feature-branch-review.sh --review-json /tmp/review.json --edit' >/dev/null
+printf '%s\n' "$SECTION" | grep -F -- '- `verdict`' >/dev/null
+printf '%s\n' "$SECTION" | grep -F -- '- `ready_to_merge`' >/dev/null
+printf '%s\n' "$SECTION" | grep -F -- '- `reasoning`' >/dev/null
+printf '%s\n' "$SECTION" | grep -F -- '- `objective_assessment`' >/dev/null
+printf '%s\n' "$SECTION" | grep -F -- '- `engineering_issues`' >/dev/null
+printf '%s\n' "$SECTION" | grep -F -- '- `security_issues`' >/dev/null
+printf '%s\n' "$SECTION" | grep -F -- '- `scope_assessment`' >/dev/null
+printf '%s\n' "$SECTION" | grep -F 'Use `--pr <number>` when auto-detect is unavailable.' >/dev/null
+printf '%s\n' "$SECTION" | grep -F 'Use `--dry-run` to preview the rendered comment without posting.' >/dev/null
 
 LINES="$(printf '%s\n' "$SECTION" | wc -l | tr -d ' ')"
 [[ "$LINES" -le 20 ]]
