@@ -53,7 +53,6 @@ Use Task tool with `code-reviewer` type, fill template at `feature-branch-review
 - **Security issues** - Fix all before merging; no exceptions
 
 **5. Post review to PR (optional):**
-
 After presenting the review and acting on feedback, offer to post it as a PR comment.
 
 Write the review into a JSON file with these fields:

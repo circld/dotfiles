@@ -12,7 +12,7 @@ SECTION="$({
   ' "$SKILL"
 })"
 
-printf '%s\n' "$SECTION" | grep -F 'scripts/post-feature-branch-review.sh --review-json' "$SKILL" >/dev/null
+printf '%s\n' "$SECTION" | grep -F 'scripts/post-feature-branch-review.sh --review-json' >/dev/null
 
 LINES="$(printf '%s\n' "$SECTION" | wc -l | tr -d ' ')"
 [[ "$LINES" -le 20 ]]
