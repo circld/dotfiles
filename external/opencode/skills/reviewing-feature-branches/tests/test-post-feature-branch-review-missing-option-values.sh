@@ -18,7 +18,7 @@ assert_missing_value() {
 
 	test "$rc" -eq 2
 	test "$output" = "ERROR - missing value for $option
-Usage: $SCRIPT --review-json <file> [--template <file>] [--pr <number>] [--dry-run]"
+Usage: $SCRIPT --review-json <file> [--template <file>] [--pr <number>] [--edit] [--dry-run]"
 }
 
 assert_missing_value --review-json

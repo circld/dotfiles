@@ -6,6 +6,14 @@ usage() {
 		"Usage: $0 --review-json <file> [--template <file>] [--pr <number>] [--edit] [--dry-run]"
 }
 
+missing_option_value() {
+	local option="$1"
+
+	printf 'ERROR - missing value for %s\n' "$option" >&2
+	usage >&2
+	exit 2
+}
+
 check_deps() {
 	for cmd in gh jq; do
 		if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -52,7 +60,8 @@ render_comment() {
 }
 
 REVIEW_JSON=""
-TEMPLATE="external/opencode/skills/reviewing-feature-branches/pr-comment-template.md"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE="$SCRIPT_DIR/../pr-comment-template.md"
 PR_NUMBER=""
 EDIT=0
 DRY_RUN=0
@@ -61,14 +70,17 @@ KEEP_RENDERED_FILE=0
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 	--review-json)
+		[[ $# -ge 2 && "$2" != --* ]] || missing_option_value "$1"
 		REVIEW_JSON="$2"
 		shift 2
 		;;
 	--template)
+		[[ $# -ge 2 && "$2" != --* ]] || missing_option_value "$1"
 		TEMPLATE="$2"
 		shift 2
 		;;
 	--pr)
+		[[ $# -ge 2 && "$2" != --* ]] || missing_option_value "$1"
 		PR_NUMBER="$2"
 		shift 2
 		;;
