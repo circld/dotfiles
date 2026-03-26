@@ -67,7 +67,7 @@ done
 	exit 1
 }
 
-[[ -n "$PR_NUMBER" ]] || {
+[[ "$DRY_RUN" -eq 0 || -n "$PR_NUMBER" ]] || {
 	printf 'ERROR - --pr is required in dry-run render mode\n' >&2
 	exit 1
 }
