@@ -1,0 +1,9 @@
+{
+  "verdict": "Partially",
+  "ready_to_merge": "With fixes",
+  "reasoning": "The branch mostly meets the stated purpose but leaves one path unhandled.",
+  "objective_assessment": "- **Goal:** Post the automated review to GitHub\n- **Status:** Achieved\n- **Evidence:** `external/opencode/skills/reviewing-feature-branches/scripts/post-feature-branch-review.sh` renders the template.\n- **Gap:** None.",
+  "engineering_issues": "#### Critical (Must Fix Before Merge)\nNone.\n\n#### Important (Should Fix Before Merge)\nNone.\n\n#### Minor (Nice to Have)\nNone.",
+  "security_issues": "None.",
+  "scope_assessment": "**Scope creep:** None\n**Missing from scope:** None"
+}
