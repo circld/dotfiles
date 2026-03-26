@@ -56,44 +56,23 @@ Use Task tool with `code-reviewer` type, fill template at `feature-branch-review
 
 After presenting the review and acting on feedback, offer to post it as a PR comment.
 
-Auto-detect PR:
+Write the review into a JSON file with these fields:
+- `verdict`
+- `ready_to_merge`
+- `reasoning`
+- `objective_assessment`
+- `engineering_issues`
+- `security_issues`
+- `scope_assessment`
+
+Then run:
 ```bash
-PR_NUMBER=$(gh pr view --json number --jq '.number')
+scripts/post-feature-branch-review.sh --review-json /tmp/review.json --edit
 ```
 
-If `gh pr view` fails (no PR for current branch), ask the user for a PR number or URL. If no PR exists, skip posting.
-
-Confirm target: "Post review to PR #$PR_NUMBER?"
-
-Format the subagent's review output into the collapsible comment structure defined in `pr-comment-template.md`. Map the subagent's output sections to template placeholders:
-- Verdict's "Does this branch achieve its stated purpose?" value -> `{VERDICT}`
-- Verdict's "Ready to merge?" value -> `{READY_TO_MERGE}`
-- Verdict's "Reasoning:" text -> `{VERDICT_REASONING}`
-- Full Objective Assessment section -> `{OBJECTIVE_ASSESSMENT}`
-- Full Engineering Issues section -> `{ENGINEERING_ISSUES}`
-- Full Security Issues section -> `{SECURITY_ISSUES}`
-- Full Scope Assessment section -> `{SCOPE_ASSESSMENT}`
-
-Write the formatted comment to a temp file:
-```bash
-REVIEW_FILE=$(mktemp /tmp/pr-review-XXXX.md)
-```
-
-Present choice to user: **POST** / **EDIT** / **DO NOTHING**
-
-- **POST**: Submit the comment.
-  ```bash
-  gh pr comment $PR_NUMBER --body-file "$REVIEW_FILE"
-  rm "$REVIEW_FILE"
-  ```
-- **EDIT**: Open in `$EDITOR` for modifications, then re-prompt with the same 3 choices.
-  ```bash
-  ${EDITOR:-vim} "$REVIEW_FILE"
-  ```
-- **DO NOTHING**: Skip posting, clean up.
-  ```bash
-  rm "$REVIEW_FILE"
-  ```
+- Use `--pr <number>` when auto-detect is unavailable.
+- Use `--dry-run` to preview the rendered comment without posting.
+- If no PR exists for the current branch, ask the user for a PR number or URL. If none exists, skip posting.
 
 ## Integration
 
