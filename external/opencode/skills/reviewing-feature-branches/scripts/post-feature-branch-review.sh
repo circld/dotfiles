@@ -27,6 +27,11 @@ detect_pr_number() {
 	gh pr view --json number --jq '.number'
 }
 
+missing_pr_number() {
+	printf 'ERROR - could not determine PR number; pass --pr <number> or run this from a branch with an open PR\n' >&2
+	exit 1
+}
+
 render_comment() {
 	local rendered_content
 
@@ -123,12 +128,13 @@ done
 check_deps
 
 if [[ -z "$PR_NUMBER" ]]; then
-	PR_NUMBER="$(detect_pr_number)"
+	if ! PR_NUMBER="$(detect_pr_number 2>/dev/null)"; then
+		missing_pr_number
+	fi
 fi
 
 [[ -n "$PR_NUMBER" ]] || {
-	printf 'ERROR - could not determine PR number\n' >&2
-	exit 1
+	missing_pr_number
 }
 
 RENDERED_FILE="$(mktemp /tmp/feature-branch-review-XXXX.md)"
