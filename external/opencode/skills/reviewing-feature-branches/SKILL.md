@@ -73,6 +73,8 @@ scripts/post-feature-branch-review.sh --review-json /tmp/review.json --edit
 - Use `--dry-run` to preview the rendered comment without posting.
 - If no PR exists for the current branch, ask the user for a PR number or URL. If none exists, skip posting.
 
+**IMPORTANT** Finally, clean up any temporary files that are created as part of this step.
+
 ## Integration
 
 **Complements:**
