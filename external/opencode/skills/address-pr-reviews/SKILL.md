@@ -1,27 +1,6 @@
 ---
 name: address-pr-reviews
-description: |
-  Address PR review comments - fix issues, reply to threads, mark resolved
-version: 3.0.0
-triggers:
-  # Direct invocations
-  - address pr reviews
-  - address pr comments
-  - address reviews
-  - /address-pr-reviews
-  # Action phrases
-  - fix pr comments
-  - fix review comments
-  - handle pr feedback
-  - process pr reviews
-  - resolve pr threads
-  - resolve review threads
-  - respond to pr reviews
-  - respond to review comments
-  # Question patterns
-  - what did reviewers say
-  - any pr feedback
-  - pending review comments
+description: "Use when addressing PR review comments — fixing issues, replying to threads, marking resolved. Not for creating reviews of code or branches."
 ---
 
 # PR Review Comment Processing

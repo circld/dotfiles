@@ -5,7 +5,7 @@ description: Use when evaluating a feature branch against its PR description or 
 
 # Reviewing Feature Branches
 
-Dispatch a code-reviewer subagent to evaluate whether a feature branch achieves its stated purpose.
+Evaluate whether a feature branch achieves its stated purpose.
 
 **Core principle:** A branch that doesn't achieve its stated objective is not ready to merge, regardless of code quality.
 
@@ -16,9 +16,9 @@ Dispatch a code-reviewer subagent to evaluate whether a feature branch achieves 
 - As a final review checkpoint after implementation is complete
 - When asked to review a branch, PR, or set of changes against requirements
 
-**Not this skill:**
-- Reviewing code quality during iterative development (use requesting-code-review)
-- Reviewing individual commits mid-implementation (use requesting-code-review)
+**Not for:**
+- Reviewing code quality during iterative development or individual commits mid-implementation
+- Per-task code review during plan execution
 
 ## How to Review
 
@@ -37,9 +37,9 @@ BASE_BRANCH=$(gh pr view <PR_NUMBER> --json baseRefName --jq '.baseRefName')
 git diff ${BASE_BRANCH}...HEAD
 ```
 
-**3. Dispatch feature-branch-reviewer subagent:**
+**3. Review the branch:**
 
-Use Task tool with `code-reviewer` type, fill template at `feature-branch-reviewer.md`.
+Complete the template at `feature-branch-reviewer.md`.
 
 **Placeholders:**
 - `{PURPOSE}` - The PR description or stated purpose (verbatim)
@@ -55,7 +55,14 @@ Use Task tool with `code-reviewer` type, fill template at `feature-branch-review
 **5. Post review to PR (optional):**
 After presenting the review and acting on feedback, offer to post it as a PR comment.
 
-Write the review into a JSON file with these fields:
+Write the review into a JSON file:
+
+```bash
+REVIEW_FILE=$(mktemp /tmp/pr-review-XXXX.md)
+```
+
+With these fields:
+
 - `verdict`
 - `ready_to_merge`
 - `reasoning`
@@ -66,19 +73,10 @@ Write the review into a JSON file with these fields:
 
 Then run:
 ```bash
-scripts/post-feature-branch-review.sh --review-json /tmp/review.json --edit
+scripts/post-feature-branch-review.sh --review-json /tmp/pr-review-XXXX.md --edit
+rm "$REVIEW_FILE"
 ```
 
 - Use `--pr <number>` when auto-detect is unavailable.
 - Use `--dry-run` to preview the rendered comment without posting.
 - If no PR exists for the current branch, ask the user for a PR number or URL. If none exists, skip posting.
-
-**IMPORTANT** Finally, clean up any temporary files that are created as part of this step.
-
-## Integration
-
-**Complements:**
-- **requesting-code-review** - General code quality during development
-- **finishing-a-development-branch** - Use this skill as part of the finishing workflow
-
-**Subagent template:** See `feature-branch-reviewer.md`

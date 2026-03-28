@@ -29,8 +29,6 @@
 - do not use relative imports
 - use bash and pbcopy when asked to copy to clipboard
 
-# Skills Usage
+# CLI utilities
 
-> The instructions in this section apply whenever using skills.
-
-Use skills as process frameworks for complex tasks (debugging, TDD, verification), not as gatekeepers for every action. Don't let skills block direct tool use for straightforward tasks.
+CLI utilities for system-wide use are located in ~/.nix-profile. Project CLI utilities may be available via nix shell.
