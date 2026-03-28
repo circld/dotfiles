@@ -3,6 +3,35 @@ let
   utils = import ./utils.nix { inherit config pkgs; };
   ln = utils.ln;
   unstablePkgs = import ./unstable-pkgs.nix { inherit pkgs; };
+
+  # Discover OpenCode skills for individual symlinking to Claude
+  skillsDir = ../external/opencode/skills;
+  skillNames = builtins.attrNames (builtins.readDir skillsDir);
+  claudeSkillEntries = builtins.listToAttrs (map (name: {
+    name = ".claude/skills/${name}";
+    value = { source = ln "external/opencode/skills/${name}"; };
+  }) skillNames);
+
+  # Discover and transform OpenCode commands into Claude cmd-prefixed skills
+  commandsDir = ../external/opencode/commands;
+  commandFiles = builtins.filter (f: builtins.match ".*\\.md$" f != null)
+    (builtins.attrNames (builtins.readDir commandsDir));
+  commandNames = map (f: builtins.replaceStrings [ ".md" ] [ "" ] f) commandFiles;
+
+  claudeCommandSkills = pkgs.runCommand "claude-command-skills" { } ''
+    mkdir -p $out
+    for file in ${commandsDir}/*.md; do
+      basename=$(basename "$file" .md)
+      mkdir -p "$out/cmd-$basename"
+      ${pkgs.gawk}/bin/awk -f ${../scripts/transform-command-to-skill.awk} \
+        "$file" > "$out/cmd-$basename/SKILL.md"
+    done
+  '';
+
+  claudeCommandEntries = builtins.listToAttrs (map (name: {
+    name = ".claude/skills/cmd-${name}";
+    value = { source = "${claudeCommandSkills}/cmd-${name}"; };
+  }) commandNames);
 in
 {
   # You should not change this value, even if you update Home Manager. If you do
@@ -43,14 +72,12 @@ in
 
   # Manage plain config files (moved into /nix/store)
   home.file = {
-    ".claude/agents".source = ln "external/claude/agents";
-    ".claude/commands".source = ln "external/claude/commands";
-    ".claude/skills".source = ln "external/opencode/skills";
-    ".claude/CLAUDE.md".source = ln "external/claude/CLAUDE.md";
+    ".claude/agents".source = ln "external/opencode/agents";
+    ".claude/CLAUDE.md".source = ln "external/opencode/AGENTS.md";
     ".lua-format".source = ln "external/lua/.lua-format";
     ".yamlfmt".source = ln "external/yaml/.yamlfmt";
     ".zprofile".source = ln "external/zsh/.zprofile";
-  };
+  } // claudeSkillEntries // claudeCommandEntries;
 
   # Environment variables
   home.sessionVariables = {
