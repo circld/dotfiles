@@ -294,7 +294,7 @@ Concrete results
 - **S-6:** Include "when to use" and "when not to use"
 - **S-8:** No references to specific platform components
 
-See `260320_agentic-component-spec.md` for the complete specification.
+See `docs/agentic-component-spec.md` for the complete specification.
 
 ## Agent Search Optimization (ASO)
 

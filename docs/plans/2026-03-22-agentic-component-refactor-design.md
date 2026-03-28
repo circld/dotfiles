@@ -1,10 +1,10 @@
 # Agentic Component Refactor Design
 
-**Goal:** Refactor all agentic AI components to adhere to the agentic component spec (`260320_agentic-component-spec.md`) and be fully client/provider agnostic.
+**Goal:** Refactor all agentic AI components to adhere to the agentic component spec (`docs/agentic-component-spec.md`) and be fully client/provider agnostic.
 
 **Architecture:** Extract orchestration from skills into commands and agent definitions. Skills become pure knowledge units. Commands own workflow sequencing. Agents are reusable capabilities dispatched with context by commands. All components use plain markdown, no client-specific markup.
 
-**Spec:** `260320_agentic-component-spec.md`
+**Spec:** `docs/agentic-component-spec.md`
 
 ---
 
@@ -28,7 +28,7 @@
 
 9. **Remove CLAUDE.md "Skills Usage" directive.** The directive "Use skills as process frameworks for complex tasks, not as gatekeepers for every action" was a patch for coupling between skills. The refactor fixes the root cause.
 
-10. **`writing-skills` references the agentic component spec.** Post-refactor, the `writing-skills` skill uses `260320_agentic-component-spec.md` as the authoritative source for skill authoring rules (S-1 through S-8, plus relevant orchestration and verification rules). This replaces ad-hoc guidance and ensures future skills conform to the spec.
+10. **`writing-skills` references the agentic component spec.** Post-refactor, the `writing-skills` skill uses `docs/agentic-component-spec.md` as the authoritative source for skill authoring rules (S-1 through S-8, plus relevant orchestration and verification rules). This replaces ad-hoc guidance and ensures future skills conform to the spec.
 
 ---
 
@@ -504,7 +504,7 @@ The `writing-plans` skill currently embeds a directive in plan headers: "REQUIRE
 
 ### 7. Rewrite writing-skills to reference the agentic component spec
 
-The `writing-skills` skill currently has ad-hoc guidance on skill authoring (ASO, cross-referencing conventions, `superpowers:` prefix patterns). Post-refactor, replace this with a reference to `260320_agentic-component-spec.md` as the authoritative source for skill rules. Specifically:
+The `writing-skills` skill currently has ad-hoc guidance on skill authoring (ASO, cross-referencing conventions, `superpowers:` prefix patterns). Post-refactor, replace this with a reference to `docs/agentic-component-spec.md` as the authoritative source for skill rules. Specifically:
 
 - Replace the "Cross-Referencing Other Skills" section with guidance that skills must not reference other components by name (S-8)
 - Replace ad-hoc description guidance with the spec's S-2 (write description for the router) and S-6 (include when to use and when not to use)

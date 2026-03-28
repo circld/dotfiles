@@ -6,7 +6,7 @@
 
 **Design doc:** `docs/plans/2026-03-22-agentic-component-refactor-design.md`
 
-**Spec:** `260320_agentic-component-spec.md`
+**Spec:** `docs/agentic-component-spec.md`
 
 ---
 
@@ -1185,7 +1185,7 @@ After the existing structure guidance, add:
 - **S-6:** Include "when to use" and "when not to use"
 - **S-8:** No references to specific platform components
 
-See `260320_agentic-component-spec.md` for the complete specification.
+See `docs/agentic-component-spec.md` for the complete specification.
 ```
 
 **Step 5: Retain the ASO insight**
