@@ -1,6 +1,6 @@
 ## Feature Branch Review
 
-> Automated review by OpenCode against PR description.
+> Automated review against PR description.
 
 **Verdict:** Partially | **Ready to merge:** With fixes
 
