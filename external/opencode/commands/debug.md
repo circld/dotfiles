@@ -11,4 +11,4 @@ Debug the following issue: {{issue}}
 
 Load the systematic-debugging skill and follow it. Do not propose fixes until root cause is identified.
 
-When creating a failing test case (Phase 4), follow TDD methodology — load the test-driven-development skill.
+When creating a failing test case (Phase 4), follow TDD methodology.
