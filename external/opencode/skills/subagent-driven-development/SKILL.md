@@ -43,43 +43,43 @@ digraph process {
 
     subgraph cluster_per_task {
         label="Per Task";
-        "Dispatch implementer subagent" [shape=box];
-        "Implementer subagent asks questions?" [shape=diamond];
+        "Implement task" [shape=box];
+        "Questions before starting?" [shape=diamond];
         "Answer questions, provide context" [shape=box];
-        "Implementer subagent implements, tests, commits, self-reviews" [shape=box];
-        "Dispatch spec reviewer subagent" [shape=box];
-        "Spec reviewer subagent confirms code matches spec?" [shape=diamond];
-        "Implementer subagent fixes spec gaps" [shape=box];
-        "Dispatch code quality reviewer subagent" [shape=box];
-        "Code quality reviewer subagent approves?" [shape=diamond];
-        "Implementer subagent fixes quality issues" [shape=box];
+        "Implement, test, commit, self-review" [shape=box];
+        "Verify spec compliance" [shape=box];
+        "Code matches spec?" [shape=diamond];
+        "Fix spec gaps" [shape=box];
+        "Review code quality" [shape=box];
+        "Code quality approved?" [shape=diamond];
+        "Fix quality issues" [shape=box];
         "Mark task complete" [shape=box];
     }
 
     "Read plan, extract all tasks with full text, note context, track task progress" [shape=box];
     "More tasks remain?" [shape=diamond];
-    "Dispatch final code reviewer subagent for entire implementation" [shape=box];
+    "Final code quality review of entire implementation" [shape=box];
     "Proceed to integration" [shape=box style=filled fillcolor=lightgreen];
 
-    "Read plan, extract all tasks with full text, note context, track task progress" -> "Dispatch implementer subagent";
-    "Dispatch implementer subagent" -> "Implementer subagent asks questions?";
-    "Implementer subagent asks questions?" -> "Answer questions, provide context" [label="yes"];
-    "Answer questions, provide context" -> "Dispatch implementer subagent";
-    "Implementer subagent asks questions?" -> "Implementer subagent implements, tests, commits, self-reviews" [label="no"];
-    "Implementer subagent implements, tests, commits, self-reviews" -> "Dispatch spec reviewer subagent";
-    "Dispatch spec reviewer subagent" -> "Spec reviewer subagent confirms code matches spec?";
-    "Spec reviewer subagent confirms code matches spec?" -> "Implementer subagent fixes spec gaps" [label="no"];
-    "Implementer subagent fixes spec gaps" -> "Dispatch spec reviewer subagent" [label="re-review"];
-    "Spec reviewer subagent confirms code matches spec?" -> "Dispatch code quality reviewer subagent" [label="yes"];
-    "Dispatch code quality reviewer subagent" -> "Code quality reviewer subagent approves?";
-    "Code quality reviewer subagent approves?" -> "Implementer subagent fixes quality issues" [label="no"];
-    "Implementer subagent fixes quality issues" -> "Dispatch code quality reviewer subagent" [label="re-review"];
-    "Code quality reviewer subagent approves?" -> "Verify independently (run tests, check VCS diff)" [label="yes"];
+    "Read plan, extract all tasks with full text, note context, track task progress" -> "Implement task";
+    "Implement task" -> "Questions before starting?";
+    "Questions before starting?" -> "Answer questions, provide context" [label="yes"];
+    "Answer questions, provide context" -> "Implement task";
+    "Questions before starting?" -> "Implement, test, commit, self-review" [label="no"];
+    "Implement, test, commit, self-review" -> "Verify spec compliance";
+    "Verify spec compliance" -> "Code matches spec?";
+    "Code matches spec?" -> "Fix spec gaps" [label="no"];
+    "Fix spec gaps" -> "Verify spec compliance" [label="re-review"];
+    "Code matches spec?" -> "Review code quality" [label="yes"];
+    "Review code quality" -> "Code quality approved?";
+    "Code quality approved?" -> "Fix quality issues" [label="no"];
+    "Fix quality issues" -> "Review code quality" [label="re-review"];
+    "Code quality approved?" -> "Verify independently (run tests, check VCS diff)" [label="yes"];
     "Verify independently (run tests, check VCS diff)" -> "Mark task complete";
     "Mark task complete" -> "More tasks remain?";
-    "More tasks remain?" -> "Dispatch implementer subagent" [label="yes"];
-    "More tasks remain?" -> "Dispatch final code reviewer subagent for entire implementation" [label="no"];
-    "Dispatch final code reviewer subagent for entire implementation" -> "Proceed to integration";
+    "More tasks remain?" -> "Implement task" [label="yes"];
+    "More tasks remain?" -> "Final code quality review of entire implementation" [label="no"];
+    "Final code quality review of entire implementation" -> "Proceed to integration";
 }
 ```
 
