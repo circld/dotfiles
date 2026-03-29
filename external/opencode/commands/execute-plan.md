@@ -27,19 +27,10 @@ The task-implementer must follow TDD methodology for all production code.
 
 ### IF subagent-driven (choice A):
 
-For each task in the plan, sequentially (never dispatch multiple implementers in parallel):
-
-1. Dispatch the task-implementer agent with the full task text, context from prior tasks, and project standards. Provide all context in the dispatch — do not make the implementer read the plan file.
-2. If the implementer asks questions, answer them before letting it proceed.
-3. When complete, dispatch the spec-reviewer agent with the task requirements and implementer's report.
-4. If spec review fails, have implementer fix and re-submit. Repeat until passing.
-5. If spec review passes, dispatch the code-reviewer agent with changed files (BASE_SHA..HEAD_SHA).
-6. If code review has critical/important issues, have implementer fix and re-submit. Repeat until approved.
-7. Mark task complete. Proceed to next task.
-
-If an implementer fails a task, dispatch a new subagent with fix instructions. Do not fix manually in the coordinator context (prevents context pollution).
-
-After all tasks: dispatch code-reviewer for final review of entire implementation.
+Load the subagent-driven-development skill and follow it. Use these agents:
+- task-implementer for implementation
+- spec-reviewer for spec compliance verification
+- code-reviewer for code quality review
 
 ### IF batch (choice B):
 
@@ -62,10 +53,4 @@ Ask for clarification rather than guessing.
 
 ## Phase 3 — Finish.
 
-Load the finishing-a-development-branch skill and follow it:
-
-1. Run test suite. Do not proceed if tests fail.
-2. Determine base branch.
-3. Present exactly 4 options: merge locally, push and create PR, keep as-is, discard.
-4. Execute user's choice.
-5. Clean up worktree for options 1 and 4 only. For option 4, require typed "discard" confirmation. For option 2, keep worktree (may need it for review feedback).
+Load the finishing-a-development-branch skill and follow it.
