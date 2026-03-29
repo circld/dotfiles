@@ -9,6 +9,8 @@ arguments:
 
 Address review comments on PR: {{pr_reference}}
 
+Requires: file write, shell execution, git access.
+
 Load the address-pr-reviews skill and follow it.
 
 For each unresolved review thread:
