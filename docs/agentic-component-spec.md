@@ -244,13 +244,3 @@ A component is "correct" when the agent that uses it consistently behaves as the
 | V-7 | Version control all components |
 | V-8 | Test compositions, not just individual components |
 | V-9 | Test under both serial and concurrent execution |
-
-Source: conversations with Opus 4.6 & GPT-5.4
-
-## related ideas
-
----
-*   area-design
-*   #managing-complexity
-*   #how-to-use-generative-ai
----
