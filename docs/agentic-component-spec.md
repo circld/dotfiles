@@ -14,6 +14,8 @@ Agentic AI tools share a common set of component types despite differing termino
 
 Every agentic AI component is a configuration artifact that shapes how an AI agent behaves. The five component types form a layered system, ordered by how they enter the agent's context.
 
+**This taxonomy is a design lens, not a file-format specification.** Platform artifacts do not map 1:1 to these types. A single file may combine concerns from multiple types — for example, a Claude Code "skill" that references specific tools and routes to a named agent is functioning as a Command (or even an Agent definition) in this taxonomy, not a Skill. The value of the taxonomy is in making these mixed concerns visible so they can be evaluated and, where appropriate, separated.
+
 ### Component Types
 
 **Instruction.** Declarative text injected automatically into the agent's context window. An instruction has no behavior of its own. It constrains or guides the agent's behavior passively. Instructions are scoped by location (global, project, path) and loaded based on proximity (directory traversal). Because they consume context on every session, they must be concise.
