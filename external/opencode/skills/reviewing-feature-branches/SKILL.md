@@ -5,80 +5,47 @@ description: Use when evaluating a feature branch against its PR description or 
 
 # Reviewing Feature Branches
 
-Dispatch a code-reviewer subagent to evaluate whether a feature branch achieves its stated purpose.
+Evaluate whether a feature branch achieves its stated purpose.
 
-**Core principle:** A branch that doesn't achieve its stated objective is not ready to merge, regardless of code quality.
+## Core Principle
+
+A branch that doesn't achieve its stated objective is not ready to merge, regardless of code quality. Purpose-achievement outranks engineering polish.
 
 ## When to Use
 
 - Before merging a feature branch
-- When a PR description exists and you need to verify the branch delivers on it
+- When verifying a branch delivers on its PR description or requirements
 - As a final review checkpoint after implementation is complete
-- When asked to review a branch, PR, or set of changes against requirements
 
-**Not this skill:**
-- Reviewing code quality during iterative development (use requesting-code-review)
-- Reviewing individual commits mid-implementation (use requesting-code-review)
+**Not for:**
+- Per-task code review during iterative development
+- Per-task review during plan execution
+- Reviewing individual commits mid-implementation
 
-## How to Review
+## Evaluation Dimensions
 
-**1. Get the PR description / stated purpose:**
+**1. Objective Achievement and Scope**
+Map each stated goal to concrete changes. Identify goals with no implementation, implementation that contradicts stated goals, and partially implemented goals. Flag scope creep: significant work serving no stated objective. Flag missing scope: stated objectives with no corresponding implementation.
 
-From a PR URL:
-```bash
-gh pr view <PR_NUMBER> --json title,body --jq '.title + "\n\n" + .body'
-```
+**2. Engineering Quality**
+DRY violations, intention-revealing names and structure, dead code, error handling, separation of concerns, test quality (tests verify behavior, not just exercise code), consistency with existing codebase patterns.
 
-Or from the user directly.
+**3. Security**
+Hardcoded secrets or credentials, unvalidated user input, untrusted dependencies, authorization/authentication gaps, information leakage, injection vectors.
 
-**2. Get the diff against base branch:**
-```bash
-BASE_BRANCH=$(gh pr view <PR_NUMBER> --json baseRefName --jq '.baseRefName')
-git diff ${BASE_BRANCH}...HEAD
-```
+## Triage Rules
 
-**3. Dispatch feature-branch-reviewer subagent:**
+| Category | Action |
+|---|---|
+| Objective/scope gaps | Block merge — branch doesn't do what it says |
+| Security issues | Block merge — no exceptions |
+| Engineering critical/important | Fix before merge |
+| Engineering minor | Note for follow-up, does not block |
 
-Use Task tool with `code-reviewer` type, fill template at `feature-branch-reviewer.md`.
+## Verdict Criteria
 
-**Placeholders:**
-- `{PURPOSE}` - The PR description or stated purpose (verbatim)
-- `{BASE_BRANCH}` - The base branch (e.g., main)
-- `{FEATURE_BRANCH}` - The feature branch name
-- `{DESCRIPTION}` - Brief summary of the branch
-
-**4. Act on feedback:**
-- **Objective gaps** - Fix before merging; the branch doesn't do what it says
-- **Engineering issues** - Fix critical/important; note minor for follow-up
-- **Security issues** - Fix all before merging; no exceptions
-
-**5. Post review to PR (optional):**
-After presenting the review and acting on feedback, offer to post it as a PR comment.
-
-Write the review into a JSON file with these fields:
-- `verdict`
-- `ready_to_merge`
-- `reasoning`
-- `objective_assessment`
-- `engineering_issues`
-- `security_issues`
-- `scope_assessment`
-
-Then run:
-```bash
-scripts/post-feature-branch-review.sh --review-json /tmp/review.json --edit
-```
-
-- Use `--pr <number>` when auto-detect is unavailable.
-- Use `--dry-run` to preview the rendered comment without posting.
-- If no PR exists for the current branch, ask the user for a PR number or URL. If none exists, skip posting.
-
-**IMPORTANT** Finally, clean up any temporary files that are created as part of this step.
-
-## Integration
-
-**Complements:**
-- **requesting-code-review** - General code quality during development
-- **finishing-a-development-branch** - Use this skill as part of the finishing workflow
-
-**Subagent template:** See `feature-branch-reviewer.md`
+A branch is **ready to merge** when:
+- Every stated objective has corresponding implementation
+- No unresolved critical or important engineering issues
+- No security gaps
+- Scope creep, if any, is acknowledged and justified
