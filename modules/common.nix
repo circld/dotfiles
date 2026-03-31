@@ -72,7 +72,7 @@ in
 
   # Manage plain config files (moved into /nix/store)
   home.file = {
-    ".claude/agents".source = ln "external/opencode/agents";
+    ".claude/agents".source = ln "external/claude/agents";
     ".claude/CLAUDE.md".source = ln "external/opencode/AGENTS.md";
     ".lua-format".source = ln "external/lua/.lua-format";
     ".yamlfmt".source = ln "external/yaml/.yamlfmt";
