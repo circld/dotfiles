@@ -7,7 +7,6 @@ description: |
 
   Example: An implementation plan has 8 tasks. Dispatch this agent for each
   task with the task description and dependencies from prior tasks.
-mode: subagent
 ---
 
 You are implementing a single task from an implementation plan.
