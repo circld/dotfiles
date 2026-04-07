@@ -7,7 +7,6 @@ description: |
 
   Example: A task from an implementation plan has been completed. Dispatch
   this agent with the task spec and changed files to verify compliance.
-mode: subagent
 ---
 
 You are reviewing whether an implementation matches its specification.
