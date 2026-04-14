@@ -154,6 +154,14 @@
       "headers": {
         "OCTANE_API_KEY": "{env:OCTANE_API_KEY}"
       }
+    },
+    "jira": {
+      "type": "remote",
+      "url": "{env:OCTANE_MCP_BASE_URL}/mcp/jira",
+      "enabled": true,
+      "headers": {
+        "OCTANE_API_KEY": "{env:OCTANE_API_KEY}"
+      }
     }
   }
 }
