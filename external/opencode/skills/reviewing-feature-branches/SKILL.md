@@ -49,3 +49,37 @@ A branch is **ready to merge** when:
 - No unresolved critical or important engineering issues
 - No security gaps
 - Scope creep, if any, is acknowledged and justified
+
+## Output
+
+Write the review result to a JSON file, then post it:
+
+```bash
+post-feature-branch-review.sh --review-json review.json
+```
+
+**All fields must be strings** — never arrays, booleans, or objects. Multi-line strings use `\n` for newlines within the JSON value.
+
+| Field | Type | Notes |
+|---|---|---|
+| `verdict` | string | Short phrase: `"Approved"`, `"Partially"`, `"Blocked"` |
+| `ready_to_merge` | string | Short phrase: `"Yes"`, `"No"`, `"With fixes"` — never a boolean |
+| `reasoning` | string | 1–3 sentences explaining the verdict |
+| `objective_assessment` | string | Markdown: one bullet per stated goal with Status and Evidence |
+| `engineering_issues` | string | Markdown with three headings: `#### Critical (Must Fix Before Merge)`, `#### Important (Should Fix Before Merge)`, `#### Minor (Nice to Have)` |
+| `security_issues` | string | Markdown list, or `"None."` if none found |
+| `scope_assessment` | string | Markdown: `**Scope creep:**` and `**Missing from scope:**` lines |
+
+**Example:**
+
+```json
+{
+  "verdict": "Partially",
+  "ready_to_merge": "With fixes",
+  "reasoning": "The branch mostly meets the stated purpose but leaves one path unhandled.",
+  "objective_assessment": "- **Goal:** Post the automated review to GitHub\n- **Status:** Achieved\n- **Evidence:** `scripts/post-feature-branch-review.sh` renders the template.\n- **Gap:** None.",
+  "engineering_issues": "#### Critical (Must Fix Before Merge)\nNone.\n\n#### Important (Should Fix Before Merge)\nNone.\n\n#### Minor (Nice to Have)\nNone.",
+  "security_issues": "None.",
+  "scope_assessment": "**Scope creep:** None\n**Missing from scope:** None"
+}
+```
