@@ -33,6 +33,10 @@ DRY violations, intention-revealing names and structure, dead code, error handli
 **3. Security**
 Hardcoded secrets or credentials, unvalidated user input, untrusted dependencies, authorization/authentication gaps, information leakage, injection vectors.
 
+## Deduplication Rule
+
+If a previously raised issues set is provided in context, apply it during evaluation across all three dimensions. Flag a finding unless you are confident it was already raised. When in doubt, flag it.
+
 ## Triage Rules
 
 | Category | Action |
@@ -49,6 +53,8 @@ A branch is **ready to merge** when:
 - No unresolved critical or important engineering issues
 - No security gaps
 - Scope creep, if any, is acknowledged and justified
+
+**Note on prior feedback:** The verdict reflects the actual state of the branch, not only new findings. A branch that still has unresolved previously-raised issues is not ready to merge even if this review pass produces no new findings.
 
 ## Output
 
@@ -69,6 +75,8 @@ post-feature-branch-review.sh --review-json review.json
 | `engineering_issues` | string | Markdown with three headings: `#### Critical (Must Fix Before Merge)`, `#### Important (Should Fix Before Merge)`, `#### Minor (Nice to Have)` |
 | `security_issues` | string | Markdown list, or `"None."` if none found |
 | `scope_assessment` | string | Markdown: `**Scope creep:**` and `**Missing from scope:**` lines |
+
+**When prior feedback was provided:** If all findings in a section are already covered by previously-raised issues, write `"No new issues. All findings were previously raised."` rather than `"None."` for that section's field.
 
 **Example:**
 
