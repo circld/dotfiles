@@ -14,12 +14,18 @@ Load the reviewing-feature-branches skill for evaluation criteria and triage rul
 1. Get the stated purpose:
    - From PR: gh pr view <number> --json title,body
    - Or ask the user directly.
+1.5. Fetch existing PR feedback (if a PR exists):
+   - Retrieve all existing comments on the PR: review submissions, inline threads, and top-level comments
+   - Extract the substance of each issue already raised, stripping metadata (author, dates, thread IDs)
+   - Hold this as the "previously raised issues" set; pass it to the code-reviewer agent alongside the diff and spec
+   - If no PR exists, skip this step and treat all findings as new
 2. Get the diff: git diff <base_branch>...HEAD
 3. Dispatch the code-reviewer agent with:
    - The stated purpose (verbatim) as the spec
    - The full branch diff
    - Branch and base branch names
    - The skill's evaluation dimensions as the review criteria
+   - The previously raised issues set (from step 1.5), if any
    - Required output: per-goal status, engineering issues (critical/important/minor),
      security issues, scope assessment, verdict (achieves purpose? ready to merge?)
 4. Apply the skill's triage rules to the review results.
