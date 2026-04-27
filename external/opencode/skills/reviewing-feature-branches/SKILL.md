@@ -58,11 +58,33 @@ A branch is **ready to merge** when:
 
 ## Output
 
-Write the review result to a JSON file, then post it:
+### Step 1 — Write the review JSON
 
-```bash
-post-feature-branch-review.sh --review-json review.json
-```
+Assemble and write `review.json` as specified below.
+
+### Step 2 — Show an inline summary
+
+Before running any script, present a short prose summary in the conversation:
+
+- Verdict and ready-to-merge status on one line.
+- If the verdict is not "Approved", include the `reasoning` sentence.
+- One bullet per issue, grouped in this order: objective gaps → security → engineering critical → engineering important → engineering minor.
+- Omit any category that has no issues — do not write "None" entries.
+
+### Step 3 — Ask before posting
+
+Ask: *"Post this review to PR #N?"* and wait for an explicit yes or no before proceeding.
+
+### Step 4 — Post or discard
+
+- **Yes:** run the script: `post-feature-branch-review.sh --review-json review.json`
+- **No:** delete `review.json` and stop.
+
+### Step 5 — Completion
+
+Delete `review.json` and any other temporary artifacts. Confirm with a single short line (e.g. *"Done — review posted and temporary files removed."*). **Do not restate or summarise findings.**
+
+---
 
 **All fields must be strings** — never arrays, booleans, or objects. Multi-line strings use `\n` for newlines within the JSON value.
 
