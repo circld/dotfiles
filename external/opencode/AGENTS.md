@@ -1,3 +1,5 @@
+**Don't validate me — challenge me.**
+
 # Reading and writing code
 
 > The instructions in this section apply when generating, modifying, or reviewing code.
