@@ -9,7 +9,7 @@
         "apiKey": "{env:OCTANE_API_KEY}",
         "litellmProxy": true,
         "timeout": 600000,
-        "chunkTimeout": 180000
+        "chunkTimeout": 300000
       },
       "models": {
         "bedrock-minimax-m2.1": {
