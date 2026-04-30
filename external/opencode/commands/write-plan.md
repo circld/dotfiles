@@ -17,28 +17,15 @@ Load the writing-plans skill and follow it. Produce a draft plan. Do NOT save ye
 ## Goldfish Gate
 
 Before saving the plan, run the three-pass goldfish quality gate on the draft.
+Prepare the artifact, then dispatch the goldfish agent as a fresh subagent for each
+pass with zero prior context. The artifact type is plan.
 
-Load the run-goldfish-test skill.
+If any pass raises flags: adjudicate each flag before stopping. Flags that are
+non-issues or resolvable by adding context to the artifact must be resolved inline —
+do not stop for these. Hard-stop only on valid flags that genuinely require author
+input. If the artifact is updated substantively, re-run from Pass 1.
 
-Follow the artifact preparation steps from the skill using the draft plan.
-
-**Pass 1 — Comprehension.** Dispatch the goldfish agent as a fresh subagent using the
-Pass 1 prompt from the run-goldfish-test skill.
-
-If Pass 1 fails: stop. Update the draft. Re-run from Pass 1.
-
-**Pass 2 — Critic.** Dispatch the goldfish agent as a fresh subagent (new dispatch)
-using the Pass 2 prompt from the run-goldfish-test skill.
-
-If Pass 2 fails: stop. Update the draft. Re-run from Pass 1. Collect minor findings.
-
-**Pass 3 — Readiness.** Dispatch the goldfish agent as a fresh subagent (new dispatch)
-using the Pass 3 prompt from the run-goldfish-test skill. The artifact type is plan —
-use the corresponding Pass 3 question from the skill.
-
-If Pass 3 fails: stop. Update the draft. Re-run from Pass 1.
-
-All three passes complete: follow the verdict format from the run-goldfish-test skill.
+When all three passes complete without a hard stop: issue the certified verdict.
 
 ## Save and Execute
 

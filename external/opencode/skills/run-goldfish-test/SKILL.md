@@ -1,6 +1,9 @@
 ---
 name: run-goldfish-test
-description: Use when running the three-pass goldfish quality gate on an artifact before saving it — covers artifact preparation, pass content, verdict, caller review protocol, and re-run rules. Not for acting as a per-pass reviewer.
+description: Use when orchestrating the full goldfish quality gate — preparing an
+  artifact, dispatching all three evaluation passes, applying the Caller Review
+  Protocol to any flags, and issuing the certified verdict. Not for acting as a
+  per-pass evaluator.
 ---
 
 # Run Goldfish Test
