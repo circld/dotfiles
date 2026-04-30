@@ -21,48 +21,28 @@ If yes, produce the design doc draft. Do NOT save yet.
 
 Before saving the design doc, run the three-pass goldfish quality gate.
 
-Identify all files directly referenced in the draft design doc. Read each one. Do not
-follow transitive references.
+Load the run-goldfish-test skill.
 
-Assemble: draft design doc content + directly referenced file contents.
+Follow the artifact preparation steps from the skill using the draft design doc.
 
-**Context cap check:** If the combined content would exceed what fits in a single
-subagent dispatch alongside the pass prompt, stop and report:
-
-> ❌ Goldfish gate error: combined content exceeds available context for a single pass.
-> Narrow the design doc's direct references before proceeding.
-> An artifact that cannot be Goldfish-tested cannot be saved.
-
-**Pass 1 — Comprehension.** Dispatch the goldfish agent as a fresh subagent with:
-- Persona: curious newcomer
-- Question: "What is this trying to accomplish, and how does the surrounding system relate to it?"
-- Task: summarise the design doc; flag any gaps, unclear intent, or assumptions made
-- Failure condition: any explicit flag raised, or summary contains an inaccuracy
-- Content: draft design doc + referenced files, inlined
+**Pass 1 — Comprehension.** Dispatch the goldfish agent as a fresh subagent using the
+Pass 1 prompt from the run-goldfish-test skill.
 
 If Pass 1 fails: stop. Update the draft. Re-run from Pass 1.
 
-**Pass 2 — Critic.** Dispatch the goldfish agent as a fresh subagent (new dispatch) with:
-- Persona: expert skeptic
-- Question: "What did I miss? What's wrong, ambiguous, or unhandled?"
-- Task: list all critical and minor findings
-- Failure condition: any critical finding raised
-- Content: draft design doc + referenced files, inlined
+**Pass 2 — Critic.** Dispatch the goldfish agent as a fresh subagent (new dispatch)
+using the Pass 2 prompt from the run-goldfish-test skill.
 
 If Pass 2 fails: stop. Update the draft. Re-run from Pass 1. Collect minor findings.
 
-**Pass 3 — Readiness.** Dispatch the goldfish agent as a fresh subagent (new dispatch) with:
-- Persona: experienced practitioner
-- Question: "Could you write a complete implementation plan from this?"
-- Task: list every question needed to write the plan; mark each resolvable-from-doc or requires-external-knowledge
-- Failure condition: any question not resolvable from the design doc alone
-- Content: draft design doc + referenced files, inlined
+**Pass 3 — Readiness.** Dispatch the goldfish agent as a fresh subagent (new dispatch)
+using the Pass 3 prompt from the run-goldfish-test skill. The artifact type is design
+doc — use the corresponding Pass 3 question from the skill.
 
 If Pass 3 fails: stop. Update the draft. Re-run from Pass 1.
 
-All three passes complete: issue ✅ Goldfish Certified. Print any minor findings from
-Pass 2 as a numbered list. Save the certified design doc to
-`docs/plans/YYYY-MM-DD-<topic>-design.md` and commit.
+All three passes complete: follow the verdict format from the run-goldfish-test skill.
+Save the certified design doc to `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit.
 
 ## Phase 2 — Assess complexity.
 
