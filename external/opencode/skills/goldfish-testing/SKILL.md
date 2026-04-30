@@ -45,9 +45,9 @@ Each pass is run by a fresh evaluator with zero prior context.
 correctly produced without resolving it. A finding is minor if the next artifact can be
 produced but may be suboptimal or ambiguous on an edge.
 
-**Failure handling:** Any pass failure = hard stop. Update the artifact, then re-run all
-three passes from Pass 1. A revised artifact is a new artifact — no partial credit
-carries over.
+**Failure handling:** Any pass failure = hard stop. The caller reviews the findings,
+updates the artifact if needed, then re-runs all three passes from Pass 1. A revised
+artifact is a new artifact — no partial credit carries over.
 
 **Session boundary:** If the session ends for any reason before all three passes
 complete, re-run from Pass 1. A new session has no memory of prior passes.
@@ -70,15 +70,56 @@ designed to catch.
 
 Each pass receives:
 - The artifact content, inlined in full
-- The contents of directly referenced files, inlined
 
-No prior pass outputs are shared. The evaluator receives nothing beyond what the
-orchestrator explicitly passes. Transitive references are not followed — only direct
-references in the artifact itself.
+No prior pass outputs are shared. The evaluator receives nothing beyond the direct
+artifact the orchestrator explicitly passes. Referenced files, surrounding documents,
+and broader system context are intentionally excluded.
 
-If total inlined content would exceed the context available for a single pass dispatch,
-the gate errors. The author must narrow the artifact's references before proceeding. An
-artifact that cannot be evaluated in a single pass dispatch cannot be saved.
+If the inlined artifact would exceed the context available for a single pass dispatch,
+the gate errors. An artifact that cannot be evaluated in a single pass dispatch cannot
+be saved.
+
+## Caller Review Protocol
+
+Goldfish runs with zero external context on purpose. Its job is to surface issues in
+the direct artifact, not to decide whether those issues are valid in the broader
+problem domain.
+
+After any pass raises a flag, the caller reviews each item for:
+- Validity against the broader context, including outside sources referenced by the
+  artifact but not shown to Goldfish
+- Priority of the feedback
+
+Each flagged item must be adjudicated into one of three outcomes:
+
+1. **Valid:** Update the artifact to resolve the issue.
+2. **Invalid due to missing context:** Add the minimum context to the artifact when that
+   context is useful enough to prevent the same issue from being raised again.
+3. **Invalid non-issue:** State in the artifact that the item is a non-issue. Use this
+   outcome whenever the caller decides not to add more context.
+
+The goal is not to defend the artifact externally. The goal is to either improve the
+artifact or leave a clear note in the artifact that prevents the same flag from
+recurring in future Goldfish runs.
+
+If adjudication causes a substantive artifact change, re-run all three passes from Pass
+1.
+
+## Assumptions & Non-Issues
+
+When the caller dismisses a finding as a non-issue, record it in the artifact itself in
+an `Assumptions & Non-Issues` section. Keep entries brief and specific so a future
+Goldfish pass can see why the issue does not apply.
+
+Example format:
+
+```markdown
+## Assumptions & Non-Issues
+
+- **Retry handling:** Retries are owned by the caller outside this artifact.
+- **Config validity:** Inputs referenced here are pre-validated before this workflow
+  begins.
+```
 
 ## Substantive Edits
 
