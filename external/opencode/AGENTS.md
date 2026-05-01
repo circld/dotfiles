@@ -23,6 +23,29 @@
 - Separate program description from program execution
 - Prefer enums for sets of legal values to minimize magic values and maximize clarity
 
+## Testing
+
+> These rules apply whenever writing, modifying, or reviewing test code.
+
+- A test should cover a single behavior
+- Patches violate encapsulation boundaries; treat them as a last resort, not a default
+- Many patches in one test signal coupling or cohesion problems in the production code — refactor the production code first
+- Prefer the least powerful double that satisfies the test
+- Mocks assert on *interactions* (side effects); don't use them when asserting on return values or state — use stubs or fakes instead
+- Don't mock code you don't own
+- Prefer dependency injection over patching: pass collaborators as arguments rather than monkeypatching them at import time
+- Mocks target *roles* (interfaces/protocols), not concrete objects
+
+### Test double reference
+
+| name  | behavior                               |
+|-------|----------------------------------------|
+| mock  | records calls; asserts on side effects |
+| stub  | returns canned data, no logic          |
+| fake  | lightweight working implementation     |
+| dummy | placeholder; never called              |
+| spy   | records calls and delegates to real    |
+
 ## Language-specific Principles
 
 ### Python
