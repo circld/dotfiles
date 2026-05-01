@@ -32,6 +32,7 @@ in
     OCTANE_API_KEY = workConfig.octaneApiKey;
     OCTANE_MCP_BASE_URL = workConfig.octaneMcpBaseUrl;
     OCTANE_LLM_PROXY_URL = workConfig.octaneLlmProxyUrl;
+    SONARQUBE_TOKEN = workConfig.octaneSonarCloudToken;
   };
 
   home.packages = common.home.packages ++ [
