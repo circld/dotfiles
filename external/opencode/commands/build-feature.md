@@ -17,19 +17,20 @@ Ask: "Should I write this up as a design doc, or is the conversation sufficient?
 
 If yes, produce the design doc draft. Do NOT save yet.
 
-### Goldfish Gate (design doc)
+### Quality Gate (design doc)
 
-Before saving the design doc, run the three-pass goldfish quality gate. Prepare the
-artifact, then dispatch the goldfish agent as a fresh subagent for each pass with
-zero prior context. The artifact type is design doc.
+If the run-goldfish-test skill is available, load it and run the three-pass goldfish
+quality gate on the draft artifact before saving. Follow the skill's triage decision
+framework and re-run strategy.
 
-If any pass raises flags: adjudicate each flag before stopping. Flags that are
-non-issues or resolvable by adding context to the artifact must be resolved inline —
-do not stop for these. Hard-stop only on valid flags that genuinely require author
-input. If the artifact is updated substantively, re-run from Pass 1.
+The orchestrator dispatches fresh-context evaluator subagents for each pass and
+adjudicates findings between passes per the skill's protocol.
 
-When all three passes complete without a hard stop: issue the certified verdict.
-Save the certified design doc to `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit.
+If the run-goldfish-test skill is not available, present the draft to the user for
+review and explicit approval before saving.
+
+When certified (or approved), save the design doc to
+`docs/plans/YYYY-MM-DD-<topic>-design.md` and commit.
 
 ## Phase 2 — Assess complexity.
 
