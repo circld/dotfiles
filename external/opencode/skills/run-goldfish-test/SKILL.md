@@ -148,8 +148,9 @@ Failure condition: fail if you list any question not resolvable from the artifac
 
 ## Triage Decision Framework
 
-The orchestrator processes each goldfish finding in two steps: validity classification,
-then triage.
+The orchestrator processes each finding that caused a pass to fail in two steps:
+validity classification, then triage. Pass 2 minor findings are a separate output
+channel (see Re-run Strategy) and do not enter this flow.
 
 ### Step 1 — Validity Classification
 
@@ -320,4 +321,4 @@ RED phase of the skill-writing workflow. All subsequent edits are gated normally
 | "Pass 2 findings are obvious, I'll fix them in the plan" | If they're obvious, fix them now. Design gaps fixed at plan stage cost more than at design stage. |
 | "My session crashed after Pass 2, I'll just re-run Pass 3" | A new session has no memory. No passes have run. Re-run from Pass 1. |
 | "This fix is minor, I can skip the verification re-run" | Auto-fixes accumulate. The verification re-run exists to catch coherence issues they introduce. Skip it and you may certify a broken artifact. |
-| "Pass 2 only had minor findings, those are fine to ignore" | Minor findings are printed for a reason. If they're truly ignorable, they'll pass the verification re-run. If they don't, they weren't minor. |
+| "Pass 2 only had minor findings, those are fine to ignore" | Minor findings are printed for a reason — they're non-blocking, not non-existent. Review them; the next artifact may be suboptimal if you don't. |
