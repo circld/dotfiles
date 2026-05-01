@@ -1,8 +1,8 @@
 ---
 name: run-goldfish-test
 description: Use when orchestrating the full goldfish quality gate — preparing an
-  artifact, dispatching all three evaluation passes, applying the Caller Review
-  Protocol to any flags, and issuing the certified verdict. Not for acting as a
+  artifact, dispatching all three evaluation passes, applying the triage decision
+  framework to any flags, and issuing the certified verdict. Not for acting as a
   per-pass evaluator.
 ---
 
@@ -72,9 +72,10 @@ ask the user.
 correctly produced without resolving it. A finding is minor if the next artifact can be
 produced but may be suboptimal or ambiguous on an edge.
 
-**Failure handling:** Any pass failure = hard stop. Review the findings, update the
-artifact if needed, then re-run all three passes from Pass 1. A revised artifact is a
-new artifact — no partial credit carries over.
+**Failure handling:** See Re-run Strategy below for the full protocol. The key
+principles: auto-resolvable findings do not require a restart; human-prompted fixes
+(substantive changes) do. A revised artifact is a new artifact — no partial credit
+carries over.
 
 **Session boundary:** If the session ends for any reason before all three passes
 complete, re-run from Pass 1. A new session has no memory of prior passes.
@@ -145,6 +146,126 @@ Failure condition: fail if you list any question not resolvable from the artifac
 <inlined content of each directly referenced file, labelled by filename>
 ```
 
+## Triage Decision Framework
+
+The orchestrator processes each goldfish finding in two steps: validity classification,
+then triage.
+
+### Step 1 — Validity Classification
+
+Using its broader context (conversation history, user intent, project knowledge), the
+orchestrator determines whether each finding is valid. Context is valid grounds for
+dismissal only when that context is also available to the next consumer of the artifact
+— i.e., it is documented within the artifact's own scope. If the relevant context
+exists only in the current conversation, the procedure is: add it to the artifact
+first, then the finding can be resolved as invalid (missing context).
+
+- **Valid:** The finding identifies a real gap or issue in the artifact. Proceed to
+  Step 2.
+- **Invalid (missing context):** The finding is wrong because the goldfish lacked
+  context, and that context is now artifact-local (already documented or just added).
+  Auto-resolve: add the minimum clarifying context to the artifact to prevent
+  re-flagging. This context addition must be non-substantive — it must not change the
+  artifact's meaning, only its clarity. If the required clarification would change
+  meaning, reclassify the finding as valid and send it to Step 2.
+- **Invalid (non-issue/misreading):** The finding is factually incorrect or irrelevant.
+  Auto-resolve: add a note to the Assumptions & Non-Issues section. No other artifact
+  change needed.
+
+Invalid findings are always auto-resolved. They do not reach Step 2.
+
+### Step 2 — Triage Matrix (valid findings only)
+
+The orchestrator classifies each valid finding along two axes:
+
+**Resolution certainty:** Is there exactly one correct fix, or are there multiple valid
+approaches?
+
+**Impact scope:** Does the fix change the artifact's meaning/intent, or only its
+clarity (surface presentation, wording, and formatting)?
+
+| | Single clear fix | Multiple valid approaches |
+|---|---|---|
+| **Clarity only** | Auto-resolve | Prompt human |
+| **Changes meaning/intent** | Prompt human | Prompt human |
+
+The matrix is the single authoritative decision procedure. The category lists below are
+examples within the matrix's cells, not additional rules. If an example appears to
+conflict with the matrix, the matrix governs.
+
+### Auto-Resolve Examples
+
+These are findings that land in the matrix's "single clear fix + clarity only" cell:
+
+- **Surface corrections.** Fixing typos, formatting, or phrasing flagged by the goldfish.
+- **Context additions.** Adding minimal clarifying text to prevent re-flagging.
+- **Single-solution fixes.** Any valid finding with exactly one unambiguous,
+  high-certainty resolution that does not change the artifact's meaning or intent.
+
+### Human-Prompt Examples
+
+These are findings that land in one of the matrix's "prompt human" cells:
+
+- **Ambiguous resolution path.** The finding requires choosing between multiple valid
+  approaches.
+- **Scope/intent change.** The resolution would alter what the artifact is about or who
+  it's for.
+- **Insufficient context.** The finding reveals a genuine gap the orchestrator doesn't
+  have enough context to resolve.
+- **Challenged deliberate choice.** The goldfish questions something that may have been
+  an intentional author decision, but the orchestrator can't determine whether it was
+  deliberate.
+
+### Orchestrator Context Advantage
+
+The orchestrator has information the goldfish evaluator does not: full conversation
+history, the user's stated intent, awareness of the broader project context, and
+knowledge of other artifacts in the system. It uses this in both steps — to classify
+validity (Step 1) and to assess impact scope and resolution certainty (Step 2).
+
+## Re-run Strategy
+
+### During Initial Pass-Through (Passes 1→2→3)
+
+When a pass fails, the orchestrator triages each finding using the Triage Decision
+Framework above:
+
+1. **Auto-resolvable findings only:** Apply all auto-fixes, then continue to the next
+   pass. Do NOT restart from Pass 1.
+2. **Human-prompt findings only:** Stop, present findings to the user, wait for
+   resolution. After user resolves: restart from Pass 1 (substantive change = new
+   artifact).
+3. **Mixed (both types in the same pass):** Apply all auto-fixes first, then stop and
+   present the human-prompt findings to the user. The user sees the already-improved
+   artifact. After user resolves: restart from Pass 1.
+
+### Pass 2 Minor Findings
+
+Pass 2 minor findings are collected during the pass-through regardless of whether Pass
+2 passes or fails, and are printed with the final verdict. They do not trigger re-runs
+or human prompts. The term "minor" means non-blocking: a minor finding does not cause
+Pass 2 to fail (only critical findings do), but it is still collected and reported even
+if Pass 2 also raises a critical finding in the same run. Minor findings are a separate
+output channel from the triage flow, which only applies to findings that caused a pass
+to fail. Minor findings from the initial cycle are printed; if the verification re-run
+also runs Pass 2, any new minor findings from that run replace the initial set.
+
+### Conditional Verification Re-run
+
+After all three passes complete:
+
+- If **any auto-resolved fixes** were applied during the pass-through: run one full
+  verification cycle (all three passes) on the final artifact state.
+- If all three passes were clean on first try (no fixes needed): skip the verification
+  re-run and issue the verdict immediately.
+
+### Loop Cap
+
+To prevent infinite loops: after 2 full cycles (initial + verification) with continued
+failures, apply any auto-resolvable fixes from cycle 2, then stop and prompt the human
+regardless of triage category. Something structural is wrong if minor fixes keep
+cascading.
+
 ## Verdict
 
 When all three passes complete with no failures:
@@ -160,30 +281,6 @@ If there are minor findings from Pass 2, print them as a numbered list:
 > 2. [finding]
 
 The artifact may now be saved.
-
-## Caller Review Protocol
-
-Goldfish runs with zero external context on purpose. Its job is to surface issues in
-the direct artifact, not to decide whether those issues are valid in the broader
-problem domain.
-
-After any pass raises a flag, review each item for:
-- Validity against the broader context, including outside sources referenced by the
-  artifact but not shown to Goldfish
-- Priority of the feedback
-
-Each flagged item must be adjudicated into one of three outcomes:
-
-1. **Valid:** Update the artifact to resolve the issue.
-2. **Invalid due to missing context:** Add the minimum context to the artifact when that
-   context is useful enough to prevent the same issue from being raised again.
-3. **Invalid non-issue:** State in the artifact that the item is a non-issue.
-
-The goal is not to defend the artifact externally. The goal is to either improve the
-artifact or leave a clear note in the artifact that prevents the same flag from
-recurring in future Goldfish runs.
-
-If adjudication causes a substantive artifact change, re-run all three passes from Pass 1.
 
 ## Assumptions & Non-Issues
 
@@ -222,3 +319,5 @@ RED phase of the skill-writing workflow. All subsequent edits are gated normally
 | "The artifact barely changed, no need to re-run" | Certification is per artifact state. A revised artifact is a new artifact. |
 | "Pass 2 findings are obvious, I'll fix them in the plan" | If they're obvious, fix them now. Design gaps fixed at plan stage cost more than at design stage. |
 | "My session crashed after Pass 2, I'll just re-run Pass 3" | A new session has no memory. No passes have run. Re-run from Pass 1. |
+| "This fix is minor, I can skip the verification re-run" | Auto-fixes accumulate. The verification re-run exists to catch coherence issues they introduce. Skip it and you may certify a broken artifact. |
+| "Pass 2 only had minor findings, those are fine to ignore" | Minor findings are printed for a reason. If they're truly ignorable, they'll pass the verification re-run. If they don't, they weren't minor. |
