@@ -24,11 +24,12 @@ The orchestrator dispatches fresh-context evaluator subagents for each pass and
 adjudicates findings between passes per the skill's protocol.
 
 If the run-goldfish-test skill is not available, present the draft to the user for
-review and explicit approval before saving.
+review and explicit approval before saving. If not approved, revise the draft based
+on feedback and repeat until explicit approval.
 
 ## Save and Execute
 
-Save the certified plan to `docs/plans/YYYY-MM-DD-<feature-name>.md`.
+Save the certified or approved plan to `docs/plans/YYYY-MM-DD-<feature-name>.md`.
 
 Present execution choice:
 - A. Subagent-driven (this session) — invoke /execute-plan

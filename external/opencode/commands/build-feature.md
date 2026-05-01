@@ -27,7 +27,8 @@ The orchestrator dispatches fresh-context evaluator subagents for each pass and
 adjudicates findings between passes per the skill's protocol.
 
 If the run-goldfish-test skill is not available, present the draft to the user for
-review and explicit approval before saving.
+review and explicit approval before saving. If not approved, revise the draft based
+on feedback and repeat until explicit approval.
 
 When certified (or approved), save the design doc to
 `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit.
