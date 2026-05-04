@@ -1,9 +1,9 @@
 ---
 description: |
-  The goldfish evaluator subagent. Dispatch this agent — not the goldfish-reviewer skill —
-  for each pass of the goldfish quality gate. Receives the artifact and referenced files
-  inlined in full; the persona and pass question are injected in the task prompt.
-  Dispatched fresh once per pass; never reused across passes.
+  The goldfish evaluator subagent. Dispatched fresh once per pass of the
+  goldfish quality gate; never reused across passes. Receives the artifact
+  and referenced files inlined in full; the persona and pass question are
+  injected by the orchestrator at dispatch time.
 permission:
   edit: deny
   bash: deny
