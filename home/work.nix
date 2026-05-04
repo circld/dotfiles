@@ -12,7 +12,7 @@ let
       get)
         while IFS= read -r line && [ -n "$line" ]; do
           case "$line" in
-            host=*) host=''${line#host=} ;;
+            host=*) host="''${line#host=}" ;;
           esac
         done
         if [ "$host" = "github.com" ]; then
