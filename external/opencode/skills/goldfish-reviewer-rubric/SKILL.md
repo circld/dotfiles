@@ -1,5 +1,5 @@
 ---
-name: goldfish-reviewer
+name: goldfish-reviewer-rubric
 description: Use when you have been dispatched as the evaluator and need the
   rubric for your assigned pass — comprehension, critic, or readiness. Not for
   orchestrating the goldfish quality gate or dispatching evaluations.
