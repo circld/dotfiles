@@ -1,6 +1,6 @@
 ---
 name: goldfish
-description: Read-only artifact evaluator for goldfish testing. Dispatched fresh once per pass — never reused across passes. Receives the artifact and referenced files inlined in full. The persona and pass question are injected by the orchestrator at dispatch time.
+description: The goldfish evaluator subagent. Dispatched fresh once per pass of the goldfish quality gate; never reused across passes. Receives the artifact and referenced files inlined in full; the persona and pass question are injected by the orchestrator at dispatch time.
 tools: Read, Grep, Glob
 model: inherit
 skills:
