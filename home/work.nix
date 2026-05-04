@@ -7,6 +7,24 @@ let
   exclusiveModules = importModules ../modules/work/packages;
   common = import ../modules/common.nix { inherit config pkgs; };
   workConfig = import ../modules/work/untracked.nix;
+  workCredentialHelper = pkgs.writeShellScript "git-credential-work" ''
+    case "$1" in
+      get)
+        while IFS= read -r line && [ -n "$line" ]; do
+          case "$line" in
+            host=*) host=''${line#host=} ;;
+          esac
+        done
+        if [ "$host" = "github.com" ]; then
+          token=$(${pkgs.gh}/bin/gh auth token -u ${workConfig.gitUser} 2>/dev/null)
+          if [ -n "$token" ]; then
+            echo "username=${workConfig.gitUser}"
+            echo "password=$token"
+          fi
+        fi
+        ;;
+    esac
+  '';
 in
 {
   # expects list of module paths
@@ -60,6 +78,12 @@ in
         user = {
           name = workConfig.gitUser;
           email = workConfig.gitEmail;
+        };
+        credential = {
+          helper = [
+            ""
+            "!${workCredentialHelper}"
+          ];
         };
       };
     }
