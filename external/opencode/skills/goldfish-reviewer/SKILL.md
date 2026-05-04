@@ -1,8 +1,8 @@
 ---
 name: goldfish-reviewer
-description: Use when acting as a goldfish evaluator for a single pass —
-  comprehension, critic, or readiness. Evaluates only; does not orchestrate
-  passes, apply CRP, or issue verdicts.
+description: Use when you have been dispatched as the evaluator and need the
+  rubric for your assigned pass — comprehension, critic, or readiness. Not for
+  orchestrating the goldfish quality gate or dispatching evaluations.
 ---
 
 # Goldfish Reviewer
