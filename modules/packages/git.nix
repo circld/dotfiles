@@ -58,6 +58,29 @@
         default = "simple";
         autoSetupRemote = true;
       };
+      credential = {
+        helper = [
+          ""
+          "!${pkgs.writeShellScript "git-credential-personal" ''
+            case "$1" in
+              get)
+                while IFS= read -r line && [ -n "$line" ]; do
+                  case "$line" in
+                    host=*) host="''${line#host=}" ;;
+                  esac
+                done
+                if [ "$host" = "github.com" ]; then
+                  token=$(${pkgs.gh}/bin/gh auth token -u circld 2>/dev/null)
+                  if [ -n "$token" ]; then
+                    echo "username=circld"
+                    echo "password=$token"
+                  fi
+                fi
+                ;;
+            esac
+          ''}"
+        ];
+      };
     };
     ignores = [
       ".DS_Store"
