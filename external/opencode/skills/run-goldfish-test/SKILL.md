@@ -39,7 +39,8 @@ Before dispatching any pass:
 
 ## The Three Passes
 
-Each pass is dispatched as a fresh evaluator with zero prior context.
+Each pass is dispatched as an independent subagent task with zero prior context — a fresh
+instance that receives only the assembled content and the pass prompt below.
 
 | Pass | Persona | Question |
 |---|---|---|
