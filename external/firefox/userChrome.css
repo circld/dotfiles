@@ -43,16 +43,22 @@ https://gist.github.com/Arty2/e6e61801531ec5ee1f9f
     box-shadow: none !important;
     flex-direction: column !important;
   }
+  /* when bookmarks toolbar is visible (new tab page), offset urlbar above it */
+  #navigator-toolbox:has(#PersonalToolbar:not([collapsed])) #urlbar {
+    bottom: 28px !important;
+  }
   #urlbar[breakout] {
     display: block;
-    position: relative !important;
+    position: absolute !important;
     height: 1000;
   }
-  #urlbar > .urlbar-input-container > #urlbar-searchmode-switcher {
-    display: none;
+  /* override UA rule that hides .searchmode-switcher off-screen via position:fixed;top:-999px */
+  #urlbar > .urlbar-input-container > .searchmode-switcher {
+    position: static !important;
+    top: unset !important;
   }
-  #urlbar[focused] > .urlbar-input-container > #urlbar-searchmode-switcher {
-    display: inherit;
+  #urlbar:not([focused]) > .urlbar-input-container > .searchmode-switcher {
+    display: none !important;
   }
   #urlbar,
   #searchbar .searchbar-textbox {
