@@ -1,59 +1,33 @@
-**Don't validate me — challenge me.**
+# external/opencode — agentic tooling
 
-# Reading and writing code
+AI tool config for opencode and Claude Code.
 
-> The instructions in this section apply when generating, modifying, or reviewing code.
+## Edit propagation
 
-## Definitions: data, calculations, & actions
+- **Content edits**: live for both tools immediately.
+- **Add/remove a directory** (skills, commands): requires `home-manager switch`.
 
-- data: any artifact that contains no behavior. this category includes strings, numbers, collections, and data classes. it excludes functions and methods.
-- calculation: a pure function or method that when given a set of inputs always produces the same output. it is not a calculation if the function produces effects, such as disk IO, network IO, logging, or otherwise accesses external state. if a function calls a function that performs effects in its definition, it is also an impure function.
-- action: an impure function that can produces effects, such as disk IO, network IO, logging, or otherwise accesses external state. **important: if a function calls a function that produces effects, it is an action (statefulness is infectious).**
+## Agents: manual dual-maintenance
 
-## Generating code
+`external/opencode/agents/` and `external/claude/agents/` are **not** kept in sync by
+any codegen. Edit both when changing agent body content. Frontmatter schemas differ by
+tool — do not copy frontmatter between them.
 
-- Unless explicitly directed not to, attempt to match the coding style of existing code
-- Prefer data to calculations or actions
-- Prefer calculations to actions
-- Imperative shell/functional core: place actions at the edge of the application (bottom of call stack)
-- Use data classes to represent program values and state
-- Classes should not contain behavior (methods) unless it's part of a framework (e.g., Pydantic)
-- Keep function implementations at a level of abstraction aligned with its name. e.g., `upload_file_to_sftp` could call `connect_to_server`, `upload_file_to_remote_directory`, and `verify_upload`, rather than including the lower-level implementation logic directly in its body
-- Identify problem domain primitives (functions) to maximize re-use and expressiveness
-- Separate program description from program execution
-- Prefer enums for sets of legal values to minimize magic values and maximize clarity
+## Commands → Claude skills (codegen)
 
-## Testing
+Every `.md` in `commands/` is transformed by `scripts/transform-command-to-skill.awk`
+at `home-manager build/switch` and symlinked to `~/.claude/skills/cmd-<name>/SKILL.md`.
+Skills are **not** transformed — they are symlinked as-is.
 
-> These rules apply whenever writing, modifying, or reviewing test code.
+## Authoring reference
 
-- A test should cover a single behavior
-- Patches violate encapsulation boundaries; treat them as a last resort, not a default
-- Many patches in one test signal coupling or cohesion problems in the production code — refactor the production code first
-- Prefer the least powerful double that satisfies the test
-- Mocks assert on *interactions* (side effects); don't use them when asserting on return values or state — use stubs or fakes instead
-- Don't mock code you don't own
-- Prefer dependency injection over patching: pass collaborators as arguments rather than monkeypatching them at import time
-- Mocks target *roles* (interfaces/protocols), not concrete objects
+`docs/agentic-component-spec.md` is the canonical reference for skill/command/agent structure.
 
-### Test double reference
+## Gitignore
 
-| name  | behavior                               |
-|-------|----------------------------------------|
-| mock  | records calls; asserts on side effects |
-| stub  | returns canned data, no logic          |
-| fake  | lightweight working implementation     |
-| dummy | placeholder; never called              |
-| spy   | records calls and delegates to real    |
+`ol-*` directories (e.g., `skills/ol-sonar/`) are gitignored — work-specific components.
 
-## Language-specific Principles
+## instructions.md
 
-### Python
-
-- blank lines should not have any whitespace (e.g., indent)
-- do not use relative imports
-- use bash and pbcopy when asked to copy to clipboard
-
-# CLI utilities
-
-CLI utilities for system-wide use are located in ~/.nix-profile. Project CLI utilities may be available via nix shell.
+This directory's `instructions.md` is the AI behavior file loaded as system instructions
+by both tools via symlink. It is **not** this file.

@@ -73,7 +73,7 @@ in
   # Manage plain config files (moved into /nix/store)
   home.file = {
     ".claude/agents".source = ln "external/claude/agents";
-    ".claude/CLAUDE.md".source = ln "external/opencode/AGENTS.md";
+    ".claude/CLAUDE.md".source = ln "external/opencode/instructions.md";
     ".lua-format".source = ln "external/lua/.lua-format";
     ".yamlfmt".source = ln "external/yaml/.yamlfmt";
     ".zprofile".source = ln "external/zsh/.zprofile";
@@ -107,7 +107,7 @@ in
     # ghostty must be manually installed & managed until derivation is no longer marked as broken
     "ghostty".source = ln "external/ghostty";
     "nvim".source = ln "external/nvim";
-    "opencode/AGENTS.md".source = ln "external/opencode/AGENTS.md";
+    "opencode/AGENTS.md".source = ln "external/opencode/instructions.md";
     "opencode/agents".source = ln "external/opencode/agents";
     "opencode/commands".source = ln "external/opencode/commands";
     "opencode/skills".source = ln "external/opencode/skills";
