@@ -141,7 +141,15 @@
       }
     }
   },
+  "tools": {
+    "websearch_*": false
+  },
   "agent": {
+    "researcher": {
+      "tools": {
+        "websearch_*": true
+      }
+    },
     "goldfish-reviewer": {
       "model": "octane_llm_proxy_openai/gpt-5.4"
     },

@@ -112,6 +112,8 @@ in
     "opencode/commands".source = ln "external/opencode/commands";
     "opencode/skills".source = ln "external/opencode/skills";
     "opencode/themes".source = ln "external/opencode/themes";
+    "opencode/tools-lib".source = ln "external/opencode/tools-lib";
+    "opencode/tools".source = ln "external/opencode/tools";
     "opencode/tui.json".source = ln "external/opencode/tui.json";
     "taskell".source = ln "external/taskell";
     "zellij/themes".source = ln "external/zellij/themes";
