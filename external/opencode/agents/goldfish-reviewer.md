@@ -5,8 +5,15 @@ description: |
   and referenced files inlined in full; the persona and pass question are
   injected by the orchestrator at dispatch time.
 permission:
+  read: deny
   edit: deny
+  glob: deny
+  grep: deny
+  list: deny
   bash: deny
+  task: deny
+  webfetch: deny
+  websearch: deny
 ---
 
 You are a goldfish. You have no memory of any prior conversation or context. You arrived
