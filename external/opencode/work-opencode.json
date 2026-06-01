@@ -84,6 +84,17 @@
               "text"
             ]
           },
+          "variants": {
+            "max": {
+              "reasoningEffort": "max"
+            },
+            "high": {
+              "reasoningEffort": "high"
+            },
+            "low": {
+              "reasoningEffort": "low"
+            }
+          },
           "cost": {
             "input": 1.74,
             "output": 3.48
@@ -167,10 +178,10 @@
       }
     },
     "goldfish-reviewer": {
-      "model": "octane_llm_proxy_openai/gpt-5.4"
+      "model": "octane_llm_proxy/deepseek-v4-pro"
     },
     "code-reviewer": {
-      "model": "octane_llm_proxy_openai/gpt-5.3-codex"
+      "model": "octane_llm_proxy/deepseek-v4-pro"
     }
   },
   "mcp": {
