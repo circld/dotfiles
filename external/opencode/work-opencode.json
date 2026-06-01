@@ -31,8 +31,8 @@
             "cache_write": 0.0
           }
         },
-        "claude-opus-4.6": {
-          "name": "Claude Opus 4.6",
+        "claude-opus-4-7": {
+          "name": "Claude Opus 4.7",
           "attachment": true,
           "modalities": {
             "input": [
@@ -71,6 +71,22 @@
           "cost": {
             "input": 3.0,
             "output": 15.0
+          }
+        },
+        "deepseek-v4-pro": {
+          "name": "DeepSeek V4 Pro",
+          "attachment": false,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "cost": {
+            "input": 1.74,
+            "output": 3.48
           }
         }
       }
