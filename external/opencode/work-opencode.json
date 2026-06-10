@@ -99,6 +99,23 @@
             "input": 1.74,
             "output": 3.48
           }
+        },
+        "kimi-k2p6": {
+          "name": "Kimi K2.6",
+          "attachment": false,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "cost": {
+            "input": 0.95,
+            "output": 4.0
+          }
         }
       }
     },
@@ -178,10 +195,10 @@
       }
     },
     "goldfish-reviewer": {
-      "model": "octane_llm_proxy/deepseek-v4-pro"
+      "model": "octane_llm_proxy/kimi-k2p6"
     },
     "code-reviewer": {
-      "model": "octane_llm_proxy/deepseek-v4-pro"
+      "model": "octane_llm_proxy/kimi-k2p6"
     }
   },
   "mcp": {
