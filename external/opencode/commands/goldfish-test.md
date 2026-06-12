@@ -7,7 +7,7 @@ arguments:
     required: true
 ---
 
-Run the Goldfish quality gate on: {{artifact}}
+Run the Goldfish quality gate on: $ARGUMENTS
 
 Load the run-goldfish-test skill. Follow its complete protocol: prepare the artifact,
 dispatch fresh-context evaluator subagents for each pass, apply triage adjudication

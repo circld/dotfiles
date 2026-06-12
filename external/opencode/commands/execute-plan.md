@@ -7,7 +7,7 @@ arguments:
     required: true
 ---
 
-Execute the implementation plan at: {{plan_path}}
+Execute the implementation plan at: $ARGUMENTS
 
 ## Phase 1 — Setup.
 

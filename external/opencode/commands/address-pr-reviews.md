@@ -7,7 +7,7 @@ arguments:
     required: true
 ---
 
-Address review comments on PR: {{pr_reference}}
+Address review comments on PR: $ARGUMENTS
 
 Requires: file write, shell execution, git access.
 

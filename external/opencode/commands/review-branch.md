@@ -7,7 +7,7 @@ arguments:
     required: false
 ---
 
-Review the current feature branch: {{branch_or_pr}}
+Review the current feature branch: $ARGUMENTS
 
 Load the reviewing-feature-branches skill for evaluation criteria and triage rules.
 

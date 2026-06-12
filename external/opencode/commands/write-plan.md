@@ -7,7 +7,7 @@ arguments:
     required: true
 ---
 
-Write an implementation plan for: {{description}}
+Write an implementation plan for: $ARGUMENTS
 
 If not already in an isolated workspace and the scope warrants it, load the
 using-git-worktrees skill to set one up.

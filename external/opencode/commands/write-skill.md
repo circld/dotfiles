@@ -7,7 +7,7 @@ arguments:
     required: true
 ---
 
-Create or edit a skill: {{skill_name}}
+Create or edit a skill: $ARGUMENTS
 
 Load the writing-skills skill and follow it.
 

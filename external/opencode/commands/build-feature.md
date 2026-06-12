@@ -7,7 +7,7 @@ arguments:
     required: true
 ---
 
-Build the following feature: {{description}}
+Build the following feature: $ARGUMENTS
 
 ## Phase 1 — Clarify intent.
 

@@ -7,7 +7,7 @@ arguments:
     required: false
 ---
 
-Debug the following issue: {{issue}}
+Debug the following issue: $ARGUMENTS
 
 Load the systematic-debugging skill and follow it. Do not propose fixes until root cause is identified.
 
