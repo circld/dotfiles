@@ -12,13 +12,14 @@
         "chunkTimeout": 300000
       },
       "models": {
-        "bedrock-minimax-m2.1": {
-          "name": "MiniMax M2.1",
+        "minimax-m3": {
+          "name": "Minimax M3",
           "attachment": true,
           "modalities": {
             "input": [
               "text",
-              "image"
+              "image",
+              "video"
             ],
             "output": [
               "text"
@@ -26,13 +27,11 @@
           },
           "cost": {
             "input": 0.3,
-            "output": 1.2,
-            "cache_read": 0.125,
-            "cache_write": 0.0
+            "output": 1.2
           }
         },
-        "claude-opus-4-7": {
-          "name": "Claude Opus 4.7",
+        "claude-opus-4-8": {
+          "name": "Claude Opus 4.8",
           "attachment": true,
           "modalities": {
             "input": [
@@ -72,8 +71,8 @@
             "output": 15.0
           }
         },
-        "deepseek-v4-pro": {
-          "name": "DeepSeek V4 Pro",
+        "glm-5.2": {
+          "name": "GLM 5.2",
           "attachment": false,
           "modalities": {
             "input": [
@@ -83,37 +82,9 @@
               "text"
             ]
           },
-          "variants": {
-            "max": {
-              "reasoningEffort": "max"
-            },
-            "high": {
-              "reasoningEffort": "high"
-            },
-            "low": {
-              "reasoningEffort": "low"
-            }
-          },
           "cost": {
-            "input": 1.74,
-            "output": 3.48
-          }
-        },
-        "kimi-k2p6": {
-          "name": "Kimi K2.6",
-          "attachment": false,
-          "modalities": {
-            "input": [
-              "text",
-              "image"
-            ],
-            "output": [
-              "text"
-            ]
-          },
-          "cost": {
-            "input": 0.95,
-            "output": 4.0
+            "input": 1.4,
+            "output": 4.4
           }
         }
       }
@@ -149,8 +120,8 @@
             "cache_write": 0.0
           }
         },
-        "gpt-5.4": {
-          "name": "GPT-5.4",
+        "gpt-5.5": {
+          "name": "GPT-5.5",
           "attachment": true,
           "modalities": {
             "input": [
@@ -162,23 +133,9 @@
               "text"
             ]
           },
-          "variants": {
-            "high": {
-              "reasoningEffort": "high",
-              "textVerbosity": "low",
-              "reasoningSummary": "auto"
-            },
-            "low": {
-              "reasoningEffort": "low",
-              "textVerbosity": "low",
-              "reasoningSummary": "auto"
-            }
-          },
           "cost": {
-            "input": 1.25,
-            "output": 10.0,
-            "cache_read": 0.125,
-            "cache_write": 0.0
+            "input": 5.0,
+            "output": 30.0
           }
         }
       }
@@ -194,10 +151,10 @@
       }
     },
     "goldfish-reviewer": {
-      "model": "octane_llm_proxy/kimi-k2p6"
+      "model": "octane_llm_proxy/minimax-m3"
     },
     "code-reviewer": {
-      "model": "octane_llm_proxy/kimi-k2p6"
+      "model": "octane_llm_proxy/minimax-m3"
     }
   },
   "mcp": {
