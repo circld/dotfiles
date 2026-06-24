@@ -141,6 +141,12 @@
     "websearch_*": false
   },
   "agent": {
+    "explore": {
+      "model": "octane_llm_proxy/minimax-m3"
+    },
+    "general": {
+      "model": "octane_llm_proxy/minimax-m3"
+    },
     "researcher": {
       "tools": {
         "websearch_*": true
