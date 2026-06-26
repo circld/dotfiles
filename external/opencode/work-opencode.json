@@ -157,6 +157,12 @@
     },
     "code-reviewer": {
       "model": "octane_llm_proxy/minimax-m3"
+    },
+    "task-implementer": {
+      "model": "octane_llm_proxy/minimax-m3"
+    },
+    "spec-reviewer": {
+      "model": "octane_llm_proxy/minimax-m3"
     }
   },
   "mcp": {
