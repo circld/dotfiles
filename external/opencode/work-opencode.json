@@ -181,6 +181,13 @@
       "headers": {
         "OCTANE_API_KEY": "{env:OCTANE_API_KEY}"
       }
+    },
+    "librarian": {
+      "type": "remote",
+      "url": "https://tools.ai-dev.octane.co/mcp/librarian",
+      "headers": {
+        "OCTANE_API_KEY": "{env:OCTANE_API_KEY}"
+      }
     }
   }
 }
