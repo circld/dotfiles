@@ -160,6 +160,13 @@ https://gist.github.com/Arty2/e6e61801531ec5ee1f9f
   .tabbrowser-tab[fadein]:not([pinned]) .tab-icon-image {
     margin: 0 !important;
   }
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-audio-button {
+    display: none !important;
+  }
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-icon-overlay:is([soundplaying], [muted], [activemedia-blocked]) {
+    display: -moz-box !important;
+    opacity: 1 !important;
+  }
   .tabbrowser-tab[fadein]:not([pinned]):not([image]) .tab-icon-image {
     display: block !important;
     list-style-image: url("chrome://branding/content/icon16.png") !important;
