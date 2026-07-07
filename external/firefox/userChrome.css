@@ -164,6 +164,9 @@ https://gist.github.com/Arty2/e6e61801531ec5ee1f9f
     display: block !important;
     list-style-image: url("chrome://branding/content/icon16.png") !important;
   }
+  tab-group:not(:has(> .tabbrowser-tab[visuallyselected])) > .tabbrowser-tab {
+    display: none !important;
+  }
   .tab-close-button .toolbarbutton-icon {
     width: 12px !important;
     height: 12px !important;
