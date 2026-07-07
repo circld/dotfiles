@@ -23,6 +23,11 @@ https://gist.github.com/Arty2/e6e61801531ec5ee1f9f
 */
 
 @-moz-document url(chrome://browser/content/browser.xhtml) {
+  :root {
+    --user-icon-tab-size: var(--tab-pinned-width, 36px);
+    --user-tab-icon-size: var(--tab-icon-size, 16px);
+  }
+
   /* tabs on bottom of window */
   /*
 	  we want to move #navigator-toolbox, but since FF72, it is wrapped in
@@ -86,7 +91,7 @@ https://gist.github.com/Arty2/e6e61801531ec5ee1f9f
   }
   .titlebar-spacer[type="pre-tabs"],
   .titlebar-spacer[type="post-tabs"] {
-    width: 5px !important;
+    display: none !important;
   }
   #TabsToolbar:not([inFullScreen]) {
     height: var(--tab-min-height);
@@ -101,8 +106,63 @@ https://gist.github.com/Arty2/e6e61801531ec5ee1f9f
   .tabbrowser-tab {
     font-size: 80%;
   }
+  .tabbrowser-tab[hidden] {
+    display: none !important;
+  }
+  .tabbrowser-tab:not([pinned]):not([fadein]) {
+    flex: 0 0 0 !important;
+    margin: 0 !important;
+    max-width: 0 !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    width: 0 !important;
+  }
+  .tabbrowser-tab[fadein]:not([pinned]) {
+    box-sizing: border-box !important;
+    flex: 0 0 var(--user-icon-tab-size) !important;
+    min-width: var(--user-icon-tab-size) !important;
+    max-width: var(--user-icon-tab-size) !important;
+    width: var(--user-icon-tab-size) !important;
+  }
+  .tabbrowser-tab[fadein]:not([pinned]) > .tab-stack {
+    box-sizing: border-box !important;
+    min-width: var(--user-icon-tab-size) !important;
+    max-width: var(--user-icon-tab-size) !important;
+    width: var(--user-icon-tab-size) !important;
+  }
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-background,
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-content {
+    box-sizing: border-box !important;
+    min-width: var(--user-icon-tab-size) !important;
+    max-width: var(--user-icon-tab-size) !important;
+    width: var(--user-icon-tab-size) !important;
+  }
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-label-container,
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-secondary-label,
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-close-button {
+    display: none !important;
+  }
   .tab-content {
     padding: 0 5px;
+  }
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-content {
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+  }
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-icon-stack {
+    flex: 0 0 var(--user-tab-icon-size) !important;
+    height: var(--user-tab-icon-size) !important;
+    margin-inline: 0 !important;
+    min-width: var(--user-tab-icon-size) !important;
+    width: var(--user-tab-icon-size) !important;
+  }
+  .tabbrowser-tab[fadein]:not([pinned]) .tab-icon-image {
+    margin: 0 !important;
+  }
+  .tabbrowser-tab[fadein]:not([pinned]):not([image]) .tab-icon-image {
+    display: block !important;
+    list-style-image: url("chrome://branding/content/icon16.png") !important;
   }
   .tab-close-button .toolbarbutton-icon {
     width: 12px !important;
