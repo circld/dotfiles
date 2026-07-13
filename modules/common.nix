@@ -94,6 +94,7 @@ in
     # to use a separate database (opencode-stable.db) from non-nix installs
     # (opencode.db). This flag forces a single db regardless of channel.
     OPENCODE_DISABLE_CHANNEL_DB = "1";
+    CAVEMAN_DEFAULT_MODE = "full";
   };
 
   # Configure HM-managed programs & configuration

@@ -57,3 +57,7 @@
 # CLI utilities
 
 CLI utilities for system-wide use are located in ~/.nix-profile. Project CLI utilities may be available via nix shell.
+
+# Subagent delegation
+
+When launching any subagent, include caveman mode in the subagent prompt unless the user says `stop caveman`, `normal mode`, or explicitly asks for normal prose.
