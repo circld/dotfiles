@@ -34,7 +34,7 @@ function OpenGithub()
   local branch = last_line_of_cmd("git rev-parse --abbrev-ref HEAD")
 
   -- Extract remote URL and parse it
-  local remotes = vim.fn.systemlist("git remote -v")
+  local remotes = vim.fn.systemlist("git remote -v | grep 'origin'")
   local remote_line = remotes[2] or remotes[1] or ""
   local remote = string.gsub(remote_line, "%.git", "")
   local remote = string.match(remote, "github.com[:/](.-)%s")

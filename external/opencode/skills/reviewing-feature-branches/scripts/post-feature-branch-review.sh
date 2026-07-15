@@ -137,10 +137,14 @@ fi
 	missing_pr_number
 }
 
-RENDERED_FILE="$(mktemp /tmp/feature-branch-review-XXXX.md)"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+TMP_DIR="$REPO_ROOT/tmp"
+mkdir -p "$TMP_DIR"
+RENDERED_FILE="$(mktemp "$TMP_DIR/feature-branch-review-XXXX.md")"
 cleanup() {
 	if [[ "$KEEP_RENDERED_FILE" -eq 0 ]]; then
 		rm -f "$RENDERED_FILE"
+		rmdir "$TMP_DIR" 2>/dev/null || true
 	fi
 }
 trap cleanup EXIT
