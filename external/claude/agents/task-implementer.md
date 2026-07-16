@@ -52,6 +52,12 @@ Review your work with fresh eyes. Ask yourself:
 - Did I only build what was requested?
 - Did I follow existing patterns in the codebase?
 
+**Duplication check (rule of three):**
+- Scan touched files for repeated shapes you added: imports, constructors, literals, boilerplate, condition chains, near-identical helpers.
+- Grep the whole file, not just the diff: `grep -n "^    from" file.py`, `grep -c "SomeConstructor(" file.py`, `grep -n "if status ==" file.py`.
+- 3rd occurrence in the file = extract now.
+- Cross-file duplication belongs to code review.
+
 **Testing:**
 - Do tests actually verify behavior (not just mock behavior)?
 - Did I follow TDD (wrote test first, watched it fail)?

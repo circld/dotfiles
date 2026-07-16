@@ -30,7 +30,9 @@ When reviewing, you will:
 - Check for proper error handling, type safety, and defensive programming
 - Evaluate code organization, naming conventions, and maintainability
 - Look for potential security vulnerabilities or performance issues
-- Check for DRY violations, dead code, and unclear abstractions
+- Check DRY violations, dead code, and unclear abstractions:
+  - For each changed file, grep sibling files for distinctive added shapes: import block, constructor, literal, helper signature.
+  - 3+ occurrences across files = Important; recommend shared module, factory, constant, or helper.
 
 ## 3. Architecture and Design Review
 
