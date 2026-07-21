@@ -89,8 +89,14 @@ Then: Cleanup worktree (Step 5)
 ```bash
 # Push branch
 git push -u origin <feature-branch>
+```
 
-# Create PR
+Check for a template first — `.github/PULL_REQUEST_TEMPLATE.md`,
+`.github/pull_request_template.md`, `docs/PULL_REQUEST_TEMPLATE.md`, or
+`PULL_REQUEST_TEMPLATE.md`. If one exists, fill it in (no placeholders) and
+pass it via `gh pr create --body-file <filled-template>`. Otherwise:
+
+```bash
 gh pr create --title "<title>" --body "$(cat <<'EOF'
 ## Summary
 <2-3 bullets of what changed>
