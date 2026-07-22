@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 let
   utils = import ./utils.nix { inherit config pkgs; };
   ln = utils.ln;
@@ -32,6 +32,14 @@ let
     name = ".claude/skills/cmd-${name}";
     value = { source = "${claudeCommandSkills}/cmd-${name}"; };
   }) commandNames);
+
+  # caveman (https://github.com/JuliusBrussee/caveman) is referenced by absolute
+  # path from opencode/opencode.json but isn't fetched by Nix (no fixed-output
+  # hash available) — activation clones/pins it into ~/code/caveman instead.
+  # Skips silently if that path is already a dirty/non-caveman checkout, so it
+  # never clobbers local hacking on the clone.
+  cavemanCheckoutDir = "${config.home.homeDirectory}/code/caveman";
+  cavemanRev = "v1.9.1";
 in
 {
   # You should not change this value, even if you update Home Manager. If you do
@@ -111,6 +119,7 @@ in
     "opencode/AGENTS.md".source = ln "external/opencode/instructions.md";
     "opencode/agents".source = ln "external/opencode/agents";
     "opencode/commands".source = ln "external/opencode/commands";
+    "opencode/opencode.json".source = ln "external/opencode/default-opencode.json";
     "opencode/skills".source = ln "external/opencode/skills";
     "opencode/themes".source = ln "external/opencode/themes";
     "opencode/tools-lib".source = ln "external/opencode/tools-lib";
@@ -119,4 +128,11 @@ in
     "taskell".source = ln "external/taskell";
     "zellij/themes".source = ln "external/zellij/themes";
   };
+
+  home.activation.cloneCaveman = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ ! -e "${cavemanCheckoutDir}/.git" ]; then
+      $DRY_RUN_CMD ${pkgs.git}/bin/git clone --branch ${cavemanRev} --depth 1 \
+        https://github.com/JuliusBrussee/caveman.git "${cavemanCheckoutDir}"
+    fi
+  '';
 }

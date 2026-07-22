@@ -1,9 +1,9 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 let
   utils = import ../modules/utils.nix { inherit config pkgs; };
   managedModules = utils.collectModules ../modules/packages;
   exclusiveModules = utils.collectModules ../modules/personal/packages;
-  common = import ../modules/common.nix { inherit config pkgs; };
+  common = import ../modules/common.nix { inherit config pkgs lib; };
 in
 {
   # expects list of module paths

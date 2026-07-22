@@ -1,11 +1,11 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 let
   utils = import ../modules/utils.nix { inherit config pkgs; };
   importModules = utils.collectModules;
   ln = utils.ln;
   managedModules = importModules ../modules/packages;
   exclusiveModules = importModules ../modules/work/packages;
-  common = import ../modules/common.nix { inherit config pkgs; };
+  common = import ../modules/common.nix { inherit config pkgs lib; };
   workConfig = import ../modules/work/untracked.nix;
   workCredentialHelper = pkgs.writeShellScript "git-credential-work" ''
     case "$1" in
@@ -38,7 +38,7 @@ in
   home.homeDirectory = workConfig.homeDirectory;
 
   xdg.configFile = common.xdg.configFile // {
-    "opencode/opencode.json".source = ln "external/opencode/work-opencode.json";
+    "opencode/opencode.json".source = lib.mkForce (ln "external/opencode/work-opencode.json");
   };
 
   home.sessionVariables = common.home.sessionVariables // {

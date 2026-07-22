@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "~/code/caveman/src/rules/caveman-activate.md"
+  ],
+  "skills": {
+    "paths": [
+      "~/code/caveman/skills"
+    ]
+  },
+  "plugin": [
+    "@dietrichgebert/ponytail",
+    "~/code/caveman/src/plugins/opencode/plugin.js"
+  ]
+}
