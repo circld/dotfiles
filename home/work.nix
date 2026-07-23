@@ -37,10 +37,6 @@ in
   home.username = workConfig.userName;
   home.homeDirectory = workConfig.homeDirectory;
 
-  xdg.configFile = common.xdg.configFile // {
-    "opencode/opencode.json".source = lib.mkForce (ln "external/opencode/work-opencode.json");
-  };
-
   home.sessionVariables = common.home.sessionVariables // {
     AWS_CA_BUNDLE = workConfig.customCaCertFile;
     NIX_SSL_CERT_FILE = workConfig.customCaCertFile;
@@ -51,6 +47,7 @@ in
     OCTANE_MCP_BASE_URL = workConfig.octaneMcpBaseUrl;
     OCTANE_LLM_PROXY_URL = workConfig.octaneLlmProxyUrl;
     SONARQUBE_TOKEN = workConfig.octaneSonarCloudToken;
+    OPENCODE_CONFIG = "${config.home.homeDirectory}/dotfiles/external/opencode/work-overrides.json";
   };
 
   home.packages = common.home.packages ++ [

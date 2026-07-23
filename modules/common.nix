@@ -119,7 +119,7 @@ in
     "opencode/AGENTS.md".source = ln "external/opencode/instructions.md";
     "opencode/agents".source = ln "external/opencode/agents";
     "opencode/commands".source = ln "external/opencode/commands";
-    "opencode/opencode.json".source = ln "external/opencode/default-opencode.json";
+    "opencode/opencode.json".source = ln "external/opencode/base-opencode.json";
     "opencode/skills".source = ln "external/opencode/skills";
     "opencode/themes".source = ln "external/opencode/themes";
     "opencode/tools-lib".source = ln "external/opencode/tools-lib";
@@ -134,5 +134,41 @@ in
       $DRY_RUN_CMD ${pkgs.git}/bin/git clone --branch ${cavemanRev} --depth 1 \
         https://github.com/JuliusBrussee/caveman.git "${cavemanCheckoutDir}"
     fi
+  '';
+
+  # Install caveman + ponytail plugins into Claude Code. Both are distributed
+  # via marketplace repos whose `.claude-plugin/marketplace.json` names the
+  # plugin after the repo, yielding the `<name>@<name>` plugin id Claude Code
+  # uses when plugin name == marketplace name. Idempotent: `claude plugin list`
+  # is grep'd and both `marketplace add` + `install` are skipped if already
+  # present, so re-running activation does no network I/O once installed.
+  home.activation.installClaudeCodePlugins = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    command -v claude >/dev/null 2>&1 || exit 0
+    # EXDEV workaround: Claude Code's plugin installer renames from
+    # ~/.claude/plugins/cache/ into the OS temp dir, which fails cross-filesystem
+    # on some setups. Pin TMPDIR/TEMP/TMP inside ~/.claude/ to keep the rename
+    # on one filesystem. Mirrors caveman installer's sameFilesystemTmpEnv.
+    claudeTmp="${config.home.homeDirectory}/.claude/tmp"
+    mkdir -p "$claudeTmp"
+    TMPDIR="$claudeTmp"
+    TEMP="$claudeTmp"
+    TMP="$claudeTmp"
+    export TMPDIR TEMP TMP
+    unset claudeTmp
+    installedPlugins="$(claude plugin list 2>/dev/null || true)"
+    for spec in \
+      "caveman@caveman:JuliusBrussee/caveman" \
+      "ponytail@ponytail:DietrichGebert/ponytail"; do
+      plugin="''${spec%%:*}"
+      repo="''${spec#*:}"
+      if printf '%s\n' "$installedPlugins" | grep -qiF -- "$plugin"; then
+        echo "claude plugin '$plugin' already installed; skipping marketplace + install."
+        continue
+      fi
+      $DRY_RUN_CMD claude plugin marketplace add "$repo" \
+        || echo "warning: claude plugin marketplace add for '$plugin' failed; continuing." >&2
+      $DRY_RUN_CMD claude plugin install "$plugin" \
+        || echo "warning: claude plugin install for '$plugin' failed; continuing." >&2
+    done
   '';
 }
