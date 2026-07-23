@@ -4,7 +4,7 @@ import
     url = "https://github.com/NixOS/nixpkgs/archive/nixpkgs-unstable.tar.gz";
   })
   {
-    system = pkgs.system;
+    system = pkgs.stdenv.hostPlatform.system;
     config.allowUnfree = true;
     config.allowBroken = true;
   }

@@ -60,7 +60,7 @@ in
   programs.fish.shellAbbrs.ecr = workConfig.ecrCommand;
 
   # Global git config for SSL (applies everywhere, including pre-commit cache)
-  programs.git.extraConfig = {
+  programs.git.settings = {
     http = {
       sslCAInfo = workConfig.customCaCertFile;
       proactiveAuth = "basic";

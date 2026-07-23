@@ -54,7 +54,7 @@ in
     pkgs.aerospace
     pkgs.bash-language-server
     pkgs.bruno
-    pkgs.nodePackages.vscode-langservers-extracted
+    pkgs.vscode-langservers-extracted
     pkgs.coreutils
     pkgs.exercism
     pkgs.entr
@@ -66,7 +66,7 @@ in
     pkgs.luaformatter
     pkgs.nerd-fonts.hasklug
     pkgs.nil
-    pkgs.nixfmt-rfc-style
+    pkgs.nixfmt
     unstablePkgs.opencode
     unstablePkgs.repomix
     pkgs.shellcheck
@@ -75,6 +75,7 @@ in
     pkgs.tree
     pkgs.yamlfmt
     pkgs.yq-go
+    pkgs.nodejs_22
     unstablePkgs.claude-code
   ];
 
@@ -142,33 +143,47 @@ in
   # uses when plugin name == marketplace name. Idempotent: `claude plugin list`
   # is grep'd and both `marketplace add` + `install` are skipped if already
   # present, so re-running activation does no network I/O once installed.
-  home.activation.installClaudeCodePlugins = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    command -v claude >/dev/null 2>&1 || exit 0
-    # EXDEV workaround: Claude Code's plugin installer renames from
-    # ~/.claude/plugins/cache/ into the OS temp dir, which fails cross-filesystem
-    # on some setups. Pin TMPDIR/TEMP/TMP inside ~/.claude/ to keep the rename
-    # on one filesystem. Mirrors caveman installer's sameFilesystemTmpEnv.
-    claudeTmp="${config.home.homeDirectory}/.claude/tmp"
-    mkdir -p "$claudeTmp"
-    TMPDIR="$claudeTmp"
-    TEMP="$claudeTmp"
-    TMP="$claudeTmp"
-    export TMPDIR TEMP TMP
-    unset claudeTmp
-    installedPlugins="$(claude plugin list 2>/dev/null || true)"
-    for spec in \
-      "caveman@caveman:JuliusBrussee/caveman" \
-      "ponytail@ponytail:DietrichGebert/ponytail"; do
-      plugin="''${spec%%:*}"
-      repo="''${spec#*:}"
-      if printf '%s\n' "$installedPlugins" | grep -qiF -- "$plugin"; then
-        echo "claude plugin '$plugin' already installed; skipping marketplace + install."
-        continue
+  #
+  # NOTE: home.activation blocks are spliced into one shell script that runs
+  # with `set -eu` and a hardcoded, minimal PATH (no ~/.nix-profile/bin) --
+  # `exit 0` here would abort the *entire* activation script, silently
+  # skipping every later step (including installPackages, which is what
+  # actually updates package binaries in the Nix profile). Wrap in an `if`
+  # instead of exiting, and call the derivation's claude directly rather than
+  # relying on PATH.
+  home.activation.installClaudeCodePlugins = lib.hm.dag.entryAfter [ "writeBoundary" ] (
+    let
+      claude = "${unstablePkgs.claude-code}/bin/claude";
+    in
+    ''
+      if [ -x "${claude}" ]; then
+        # EXDEV workaround: Claude Code's plugin installer renames from
+        # ~/.claude/plugins/cache/ into the OS temp dir, which fails cross-filesystem
+        # on some setups. Pin TMPDIR/TEMP/TMP inside ~/.claude/ to keep the rename
+        # on one filesystem. Mirrors caveman installer's sameFilesystemTmpEnv.
+        claudeTmp="${config.home.homeDirectory}/.claude/tmp"
+        mkdir -p "$claudeTmp"
+        TMPDIR="$claudeTmp"
+        TEMP="$claudeTmp"
+        TMP="$claudeTmp"
+        export TMPDIR TEMP TMP
+        unset claudeTmp
+        installedPlugins="$(${claude} plugin list 2>/dev/null || true)"
+        for spec in \
+          "caveman@caveman:JuliusBrussee/caveman" \
+          "ponytail@ponytail:DietrichGebert/ponytail"; do
+          plugin="''${spec%%:*}"
+          repo="''${spec#*:}"
+          if printf '%s\n' "$installedPlugins" | grep -qiF -- "$plugin"; then
+            echo "claude plugin '$plugin' already installed; skipping marketplace + install."
+            continue
+          fi
+          $DRY_RUN_CMD ${claude} plugin marketplace add "$repo" \
+            || echo "warning: claude plugin marketplace add for '$plugin' failed; continuing." >&2
+          $DRY_RUN_CMD ${claude} plugin install "$plugin" \
+            || echo "warning: claude plugin install for '$plugin' failed; continuing." >&2
+        done
       fi
-      $DRY_RUN_CMD claude plugin marketplace add "$repo" \
-        || echo "warning: claude plugin marketplace add for '$plugin' failed; continuing." >&2
-      $DRY_RUN_CMD claude plugin install "$plugin" \
-        || echo "warning: claude plugin install for '$plugin' failed; continuing." >&2
-    done
-  '';
+    ''
+  );
 }

@@ -8,6 +8,9 @@
   programs.yazi = {
     enable = true;
     enableFishIntegration = false;
+    # pin pre-26.05 default explicitly; avoid the stateVersion-gated warning
+    # without bumping home.stateVersion (frozen per repo convention)
+    shellWrapperName = "yy";
     settings = {
       # https://github.com/sxyazi/yazi/blob/shipped/yazi-config/preset/yazi-default.toml
       mgr = {

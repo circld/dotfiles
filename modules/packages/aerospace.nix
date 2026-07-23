@@ -6,8 +6,11 @@
 {
   programs.aerospace = {
     enable = true;
+    # HM manages the launchd agent directly (rather than AeroSpace's own
+    # start-at-login) to avoid both managing startup simultaneously.
+    launchd.enable = true;
     # https://nikitabobko.github.io/AeroSpace/guide#default-config
-    userSettings = {
+    settings = {
       start-at-login = true;
       default-root-container-layout = "accordion";
       default-root-container-orientation = "auto";

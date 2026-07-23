@@ -70,14 +70,11 @@ require("gitsigns").setup {
 }
 
 -- https://github.com/neovim/nvim-lspconfig
--- nvim-lspconfig setup for Pyright
-local lspconfig = require('lspconfig')
-
 -- https://github.com/bash-lsp/bash-language-server
 
 -- Configure Pyright as the LSP server for Python
 -- https://github.com/microsoft/pyright
-lspconfig.pyright.setup {
+vim.lsp.config('pyright', {
   on_attach = function(client, bufnr)
     -- Enable signature help if supported by the LSP server
     if client.server_capabilities.signatureHelp then
@@ -95,14 +92,12 @@ lspconfig.pyright.setup {
       },
     },
   },
-}
+})
 -- https://github.com/oxalica/nil
-require('lspconfig').nil_ls.setup {
-  autostart = true,
-  capabilities = caps,
+vim.lsp.config('nil_ls', {
   cmd = { "nil" },
   settings = { ['nil'] = { formatting = { command = { "nixfmt" } } } },
-}
+})
 
 vim.lsp.config('rust_analyzer', { settings = { ['rust-analyzer'] = { diagnostics = { enable = false } } } })
 
@@ -210,24 +205,83 @@ snacks = require("snacks").setup {
   },
 }
 -- https://github.com/nvim-treesitter/nvim-treesitter
-require("nvim-treesitter.configs").setup {
-  highlight = {
-    enable = true,
-    -- Disable slow treesitter highlight for large files
-    disable = function(lang, buf)
-      local max_filesize = 100 * 1024 -- 100 KB
-      local ok, stats = pcall(vim.loop.fs_stat, vim.api.nvim_buf_get_name(buf))
-      if ok and stats and stats.size > max_filesize then return true end
-    end,
-  },
-  -- Enable incremental selection
-  incremental_selection = {
-    enable = true,
-    keymaps = { init_selection = "gnn", node_incremental = "gk", scope_incremental = "gK", node_decremental = "gj" },
-  },
-  -- Enable indentation
-  indent = { enable = true },
-}
+require("nvim-treesitter").setup {}
+local ts_selection_stacks = {}
+
+local function select_ts_node(node)
+  local start_row, start_col, end_row, end_col = node:range()
+  if end_col == 0 and end_row > start_row then
+    end_row = end_row - 1
+    end_col = #vim.api.nvim_buf_get_lines(0, end_row, end_row + 1, false)[1]
+  else
+    end_col = math.max(end_col - 1, 0)
+  end
+
+  vim.cmd('normal! \27')
+  vim.api.nvim_win_set_cursor(0, { start_row + 1, start_col })
+  vim.cmd('normal! v')
+  vim.api.nvim_win_set_cursor(0, { end_row + 1, end_col })
+end
+
+local function ts_parent(node)
+  local start_row, start_col, end_row, end_col = node:range()
+  local parent = node:parent()
+  while parent do
+    local parent_start_row, parent_start_col, parent_end_row, parent_end_col = parent:range()
+    if parent_start_row ~= start_row or parent_start_col ~= start_col or parent_end_row ~= end_row or parent_end_col ~= end_col then
+      return parent
+    end
+    parent = parent:parent()
+  end
+end
+
+local function start_ts_selection()
+  local node = vim.treesitter.get_node()
+  if not node then return end
+
+  ts_selection_stacks[vim.api.nvim_get_current_buf()] = { node }
+  select_ts_node(node)
+end
+
+local function expand_ts_selection()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local stack = ts_selection_stacks[bufnr]
+  local node = stack and stack[#stack] or vim.treesitter.get_node()
+  if not node then return end
+
+  local parent = ts_parent(node)
+  if not parent then return end
+
+  stack = stack or { node }
+  table.insert(stack, parent)
+  ts_selection_stacks[bufnr] = stack
+  select_ts_node(parent)
+end
+
+local function shrink_ts_selection()
+  local stack = ts_selection_stacks[vim.api.nvim_get_current_buf()]
+  if not stack or #stack < 2 then return end
+
+  table.remove(stack)
+  select_ts_node(stack[#stack])
+end
+
+vim.keymap.set('n', 'gnn', start_ts_selection, { desc = 'Start Tree-sitter selection' })
+vim.keymap.set('x', 'gk', expand_ts_selection, { desc = 'Expand Tree-sitter selection' })
+vim.keymap.set('x', 'gK', expand_ts_selection, { desc = 'Expand Tree-sitter selection' })
+vim.keymap.set('x', 'gj', shrink_ts_selection, { desc = 'Shrink Tree-sitter selection' })
+
+vim.api.nvim_create_autocmd('FileType', {
+  callback = function(args)
+    local max_filesize = 100 * 1024 -- 100 KB
+    local ok, stats = pcall(vim.uv.fs_stat, vim.api.nvim_buf_get_name(args.buf))
+    if ok and stats and stats.size > max_filesize then return end
+
+    if pcall(vim.treesitter.start, args.buf) then
+      vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+    end
+  end,
+})
 
 -- https://github.com/Tummetott/unimpaired.nvim
 require("unimpaired").setup {}

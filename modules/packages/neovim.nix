@@ -39,6 +39,15 @@ in
     vimAlias = true;
     viAlias = true;
     vimdiffAlias = true;
+    # pin pre-26.05 defaults explicitly; avoid the stateVersion-gated warnings
+    # without bumping home.stateVersion (frozen per repo convention)
+    withRuby = true;
+    withPython3 = true;
+    # HM 26.05 always writes host-provider bootstrap into init.lua, which
+    # collides with the whole-directory nvim symlink (external/nvim, wired
+    # up in common.nix) that already manages init.lua ourselves. Sideload
+    # instead: HM injects its Lua via wrapper args rather than the config file.
+    sideloadInitLua = true;
     plugins = with pkgs.vimPlugins; [
       blink-cmp
       conform-nvim
