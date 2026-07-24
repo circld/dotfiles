@@ -3,8 +3,10 @@
 // Global opencode plugin. Writes one state file per agent to
 // ~/.local/state/agent-fleet/<key>.json on every relevant lifecycle event,
 // where <key> is a sha256 prefix of the absolute cwd (identity that survives worktrees),
-// and fires an osascript notification on transitions INTO needs-attention
-// (not on every event, to avoid notification noise).
+// and fires an osascript notification on transitions INTO needs-attention (red, blocked
+// on human) OR done (green, agent finished and ready for review) — not on every event,
+// to avoid notification noise — and only when the repo isn't already the frontmost
+// window (see isRepoVisible in agent-fleet-sensor-core.mjs).
 //
 // Board-red rule: needs-attention means "opencode is blocked on the human" — anything
 // that halts the agent's turn pending a human response goes red, not just permission
@@ -35,6 +37,7 @@ import {
   buildStateRecord,
   planTransition,
   escapeAppleScriptString,
+  isRepoVisible,
 } from './agent-fleet-sensor-core.mjs';
 
 const STATE_DIR = path.join(os.homedir(), '.local', 'state', 'agent-fleet');
@@ -61,29 +64,49 @@ function writeStateRecord(statePath, record) {
   renameSync(tmp, statePath);
 }
 
-// -- action: fire macOS notification (I/O; must never block or break the hook) --
+// -- action: read the frontmost window's title via aerospace (I/O) --
+// Fails to null on ANY error — aerospace not installed, not running, no focused window,
+// unparseable output. isRepoVisible (core.mjs) treats null as "not visible", which fails
+// OPEN toward still notifying — see that function's comment. Bounded by the same
+// `timeout N` pattern as osascript below; this call is only ever awaited from INSIDE
+// notify()'s fire-and-forget body (see notify's own comment for why that placement
+// matters), never from transition() directly.
+async function getFocusedWindowTitle($) {
+  try {
+    const out = await $`timeout 2 aerospace list-windows --focused --json`.quiet().text();
+    return JSON.parse(out)[0]?.['window-title'] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// -- action: fire macOS notification, gated on visibility (I/O; must never block or break
+// the hook) --
 // CRITICAL: this runs inside the `permission.ask` hook, whose returned promise opencode
 // AWAITS before proceeding with the permission prompt. A try/catch only swallows a
-// non-zero EXIT — it does NOT protect against a HANG. If osascript blocks (no GUI
-// session, a stuck WindowServer, a pending TCC prompt), `await`ing it here would stall
-// opencode's entire permission flow indefinitely. So the notification is FIRE-AND-FORGET
-// (never awaited by the hook) AND wrapped in a hard timeout as a second guard:
-//   - `timeout 5 osascript ...` bounds any hang to 5s (coreutils `timeout` is on PATH via
-//     nix-profile; verified). If it's ever absent the `.catch` still swallows the error.
+// non-zero EXIT — it does NOT protect against a HANG. If osascript (or now aerospace)
+// blocks (no GUI session, a stuck WindowServer, a pending TCC prompt), `await`ing it here
+// would stall opencode's entire permission flow indefinitely. So BOTH the visibility check
+// and the notification itself are FIRE-AND-FORGET as a single unit (never awaited by the
+// hook) AND each wrapped in its own hard timeout as a second guard:
+//   - `timeout 2 aerospace ...` / `timeout 5 osascript ...` bound any hang (coreutils
+//     `timeout` is on PATH via nix-profile; verified). If it's ever absent the outer
+//     `.catch` still swallows the error.
 //   - the caller does NOT await notify() — a returned promise is intentionally dropped,
-//     so notification latency/failure can never enter the hook's critical path.
+//     so aerospace/osascript latency or failure can never enter the hook's critical path.
 //
 // See escapeAppleScriptString in agent-fleet-sensor-core.mjs for the injection guard.
-// Returns immediately; the osascript call runs detached with a hard timeout. Never throws.
-function notifyNeedsAttention($, repo, reason) {
-  const title = 'opencode';
-  const message = escapeAppleScriptString(`${repo} needs attention (${reason})`);
-  const safeTitle = escapeAppleScriptString(title);
-  const script = 'display notification "' + message + '" with title "' + safeTitle + '"';
-  // fire-and-forget: build the promise, attach a no-op catch, and DO NOT return/await it.
-  // `timeout 5` bounds any osascript hang; `.quiet()` suppresses output; `.catch` eats
-  // non-zero exit / timeout kill so a notification failure is never fatal.
-  $`timeout 5 osascript -e ${script}`.quiet().catch(() => {});
+// Returns immediately; the async work runs detached. Never throws (async body is wrapped
+// so a rejection inside it can't become an unhandled promise rejection at the top level).
+function notify($, repo, message) {
+  (async () => {
+    const focusedTitle = await getFocusedWindowTitle($);
+    if (isRepoVisible(focusedTitle, repo)) return;   // human's already looking — skip
+    const safeTitle = escapeAppleScriptString('opencode');
+    const safeMessage = escapeAppleScriptString(message);
+    const script = 'display notification "' + safeMessage + '" with title "' + safeTitle + '"';
+    await $`timeout 5 osascript -e ${script}`.quiet();
+  })().catch(() => {});
 }
 
 function statePathFor(key) {
@@ -112,9 +135,12 @@ export const AgentFleetSensorPlugin = async ({ directory, $ }) => {
     });
     writeStateRecord(statePath, record);
     if (plan.notify) {
-      // fire-and-forget: NOT awaited, so a hung/slow osascript can never stall the
-      // permission.ask hook (which opencode awaits). See notifyNeedsAttention.
-      notifyNeedsAttention($, repo, reason ?? 'unknown');
+      const message = state === 'done'
+        ? `${repo} is done and ready`
+        : `${repo} needs attention (${reason ?? 'unknown'})`;
+      // fire-and-forget: NOT awaited, so a hung/slow aerospace or osascript can never
+      // stall the permission.ask hook (which opencode awaits). See notify().
+      notify($, repo, message);
     }
   }
 

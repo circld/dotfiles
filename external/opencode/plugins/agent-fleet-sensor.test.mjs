@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 // opencode treats each named export of a plugin module as a separate plugin
 // factory and invokes it; exposing these pure helpers from sensor.js would
 // break plugin loading. See the core module's header for the full rationale.
-import { idleShouldWriteDone, planTransition, stateKeyFromCwd, repoNameFromCwd, escapeAppleScriptString } from './agent-fleet-sensor-core.mjs';
+import { idleShouldWriteDone, planTransition, stateKeyFromCwd, repoNameFromCwd, escapeAppleScriptString, isRepoVisible } from './agent-fleet-sensor-core.mjs';
 
 // idle must NOT clobber an unanswered needs-attention state (feedback #4)
 assert.equal(idleShouldWriteDone({ state: 'needs-attention', reason: 'permission' }), false);
@@ -34,12 +34,25 @@ assert.deepEqual(planTransition({ state: 'needs-attention' }, 'working'),
 // chat.message -> working: write, never notify
 assert.deepEqual(planTransition({ state: 'done' }, 'working'),
   { write: true, notify: false });
-// session.idle -> done from working: write, no notify
+// session.idle -> done from working: write + notify (rising edge into green — this is
+// the human-UX signal this feature adds; see the done-notify block below for the rest
+// of this transition's table).
 assert.deepEqual(planTransition({ state: 'working' }, 'done'),
-  { write: true, notify: false });
+  { write: true, notify: true });
 // session.idle -> done while red: DROPPED (guard), no write, no notify
 assert.deepEqual(planTransition({ state: 'needs-attention', reason: 'permission' }, 'done'),
   { write: false, notify: false });
+
+// --- done-notify (green, "agent finished and ready for review") ---
+// fresh agent (no existing record) going straight to done: write + notify
+assert.deepEqual(planTransition(null, 'done'),
+  { write: true, notify: true });
+// done -> done (e.g. a second idle tick while already green) must not re-notify.
+// Unreachable via the current event wiring (idle is the only done-producer and a
+// live opencode pane doesn't idle twice without an intervening working state) but
+// the notify-only-on-rising-edge invariant must hold regardless of caller behavior.
+assert.deepEqual(planTransition({ state: 'done' }, 'done'),
+  { write: true, notify: false });
 
 // question.asked -> needs-attention: same transition as permission.asked (board-red
 // rule is "blocked on human", not "permission specifically") — write + notify on the
@@ -83,5 +96,17 @@ assert.equal(escapeAppleScriptString('a"b'), 'a\\"b');
 assert.equal(escapeAppleScriptString('a\\b'), 'a\\\\b');
 // the exploit payload must contain NO unescaped quote after escaping
 assert.ok(!/(^|[^\\])"/.test(escapeAppleScriptString('foo" & (do shell script "x") & "bar')));
+
+// visibility gate: skip notify when the repo's window is already frontmost.
+// opencode writes window titles as "<repo> | OC | <chat title>" — prefix match on that.
+assert.equal(isRepoVisible('dotfiles | OC | some chat title', 'dotfiles'), true);
+assert.equal(isRepoVisible('octane | OC | some chat title', 'dotfiles'), false);
+// fail OPEN to "not visible" (i.e. still notify) when aerospace gave nothing usable —
+// a broken visibility check must never silently swallow a real attention-needed signal.
+assert.equal(isRepoVisible(null, 'dotfiles'), false);
+assert.equal(isRepoVisible('', 'dotfiles'), false);
+// a title that merely CONTAINS the repo name (not as the prefix) must not match —
+// avoids a chat-title substring accidentally suppressing a different repo's notify.
+assert.equal(isRepoVisible('other-repo | OC | mentions dotfiles in passing', 'dotfiles'), false);
 
 console.log('PASS: sensor pure-logic unit checks');

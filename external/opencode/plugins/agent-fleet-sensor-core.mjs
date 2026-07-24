@@ -77,15 +77,41 @@ export function idleShouldWriteDone(existing) {
 // blocking event (permission OR question OR future additions) maps to the exact
 // same ('needs-attention', <reason>) call; this function doesn't know or care which.
 //   - a `done` request is dropped when idle must not clobber needs-attention (guard above)
-//   - notify fires ONLY on the rising edge into needs-attention (not attention->attention),
-//     so a second permission prompt while already red does not re-notify
+//   - notify fires on the rising edge into needs-attention OR done (not attention->attention
+//     or done->done), so a second permission prompt while already red, or a second idle
+//     tick while already done, does not re-notify. done-notify is the human-UX signal that
+//     an agent finished its turn and is ready for review — symmetric to the red "blocked on
+//     human" signal, just the opposite direction (agent waiting FOR vs agent waiting ON).
 export function planTransition(existing, state) {
   if (state === 'done' && !idleShouldWriteDone(existing)) {
     return { write: false, notify: false };
   }
   const wasAttention = existing?.state === 'needs-attention';
-  const notify = state === 'needs-attention' && !wasAttention;
+  const wasDone = existing?.state === 'done';
+  const notify = (state === 'needs-attention' && !wasAttention)
+    || (state === 'done' && !wasDone);
   return { write: true, notify };
+}
+
+// -- calculation: does the frontmost window's title indicate this repo is on screen? --
+// Notifications exist to alert a human who is NOT looking at the terminal already —
+// firing them while the agent's own repo is the focused window is pure noise (you're
+// already looking at the thing that just changed). opencode itself writes window titles
+// as "<repo> | OC | <chat title>" (verified live against opencode 1.18.3 + Ghostty via
+// `aerospace list-windows --focused --json`), so a prefix match against that title is a
+// cheap, precise-enough visibility proxy — no Accessibility API, no new dependency.
+//
+// Ceiling (ponytail: named, not hidden): single-frontmost-window heuristic only. A
+// second monitor showing the repo in a non-focused window still reads as "not visible"
+// here and WILL notify. Upgrade path if that gap matters: `aerospace list-windows --all`
+// + monitor geometry instead of `--focused`.
+//
+// null title (aerospace missing/not running, or no focused window) fails OPEN to "not
+// visible" — same fail-safe direction as every other guard in this file: a broken
+// visibility check must never silently swallow a real attention-needed signal.
+export function isRepoVisible(focusedTitle, repo) {
+  if (!focusedTitle) return false;
+  return focusedTitle.startsWith(`${repo} |`);
 }
 
 // -- AppleScript injection guard for the notification string literal --
