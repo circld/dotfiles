@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Requires bash >= 4 for associative arrays (task_rank, seen_cwd). macOS /bin/bash is 3.2.
+# Requires bash >= 4 for associative arrays (session_rank, seen_cwd). macOS /bin/bash is 3.2.
 if (( BASH_VERSINFO[0] < 4 )); then
   echo "agent-fleet-render: needs bash >= 4 (got $BASH_VERSION); ensure ~/.nix-profile/bin is on PATH" >&2
   exit 1
@@ -45,10 +45,11 @@ age_for() {
 
 mkdir -p "$STATE_DIR"
 
-# Set of cwds that currently have a live zellij OPENCODE pane (across all sessions).
-# --all is required for pane_cwd/pane_command to be present; absent on plugin/no-command
-# panes. Filter on pane_command=="opencode": a fish/nvim pane sharing the agent's cwd
-# must NOT keep a ghost row alive — only a live agent pane counts.
+# Set of cwds that currently have a live zellij OPENCODE pane (across all sessions),
+# paired with the session each lives in. --all is required for pane_cwd/pane_command
+# to be present; absent on plugin/no-command panes. Filter on pane_command=="opencode":
+# a fish/nvim pane sharing the agent's cwd must NOT keep a ghost row alive — only a
+# live agent pane counts.
 # `{ zellij ... || true; }` absorbs `zellij list-sessions -s` exiting non-zero when
 # there are zero sessions (verified: zellij 0.44.3 exits 1 with "No active zellij
 # sessions found." on stderr, suppressed). Without this, `set -e` + `pipefail` would
@@ -60,7 +61,14 @@ mkdir -p "$STATE_DIR"
 # gets zellij's stdout. Pipeline still produces empty stdout when there are no
 # sessions, which is exactly what we want: no live cwds == every state file becomes
 # a ghost == empty board (verified in Step 2).
-live_cwds=$(
+#
+# Session is read HERE, from the live pane table, rather than trusted from the state
+# record's cached `.session` field: cwd is the only stable identity (session/repo/tab
+# names all diverge and can change — a session can be renamed, or a record predates
+# this feature and carries a stale/null session). Deriving group membership from the
+# live pane table keeps grouping self-correcting, same rationale as the existing
+# render-time repo-label fallback below.
+live_table=$(
   { zellij list-sessions -s 2>/dev/null || true; } | while IFS= read -r sess; do
     [ -n "$sess" ] || continue
     # A session can die between `list-sessions` and this call (poll-loop race).
@@ -71,34 +79,34 @@ live_cwds=$(
     # output to jq once we've confirmed it's actually JSON.
     panes=$(zellij --session "$sess" action list-panes --json --all 2>/dev/null) || continue
     [[ "$panes" == \[* ]] || continue
-    jq -r '.[] | select(.is_plugin==false and .pane_command=="opencode") | .pane_cwd // empty' <<< "$panes"
-  done | sort -u
+    jq -r --arg sess "$sess" \
+      '.[] | select(.is_plugin==false and .pane_command=="opencode" and (.pane_cwd // "") != "")
+       | "\(.pane_cwd)\t\($sess)"' <<< "$panes"
+  done
 )
 
-# tasks.toml -> JSON map: cwd-or-repo-basename -> task name. Parsed once per render.
-# CRITICAL: yq exits non-zero on malformed TOML. This render script runs under
-# `set -euo pipefail`, and the board wrapper does `"$RENDER" || true`, so a single
-# hand-edit typo in tasks.toml would kill render EVERY poll and blank the board
-# silently forever. Tolerate a bad file: fall back to an empty map (everything
-# groups under "Standalone") instead of dying. 2>/dev/null suppresses the yq error
-# text; `|| printf '{}'` guarantees a valid JSON map.
-TASKS_FILE="${AGENT_FLEET_TASKS_FILE:-$HOME/.config/agent-fleet/tasks.toml}"
-tasks_json="{}"
-if [ -f "$TASKS_FILE" ]; then
-  tasks_json=$(yq -p toml -o json '.repos // {}' "$TASKS_FILE" 2>/dev/null || printf '{}')
-fi
+live_cwds=$(cut -f1 <<< "$live_table" | sort -u)
 
-# Build "task<TAB>repo<TAB>state<TAB>reason<TAB>ts" rows.
-# Ordering requirement (fixes duplicate task headers): rows of the SAME task must be
-# CONTIGUOUS, or the group-header loop below re-emits a task's header every time the
-# task reappears after an intervening different-state row. So the sort is:
-#   1. task priority = the BEST (lowest) state rank present in that task  (attention-first BETWEEN tasks)
-#   2. task name                                                          (keeps a task's rows together)
-#   3. state rank                                                         (attention-first WITHIN a task)
+# cwd -> session, for grouping. Populated from the SAME live_table (one source of
+# truth for both the ghost filter and the group key), in the MAIN shell so the lookup
+# survives past this block.
+declare -A cwd_session
+while IFS=$'\t' read -r lc ls; do
+  [ -n "$lc" ] || continue
+  cwd_session["$lc"]="$ls"
+done <<< "$live_table"
+
+# Build "session<TAB>repo<TAB>state<TAB>reason<TAB>ts" rows.
+# Ordering requirement (fixes duplicate session headers): rows of the SAME session must
+# be CONTIGUOUS, or the group-header loop below re-emits a session's header every time
+# the session reappears after an intervening different-state row. So the sort is:
+#   1. session priority = the BEST (lowest) state rank present in that session (attention-first BETWEEN sessions)
+#   2. session name                                                            (keeps a session's rows together)
+#   3. state rank                                                              (attention-first WITHIN a session)
 #   4. ts, newest first
-# Sorting by state rank first (the old bug) split a task across state groups and
-# duplicated its header — verified: a task with one needs-attention + one done row
-# printed the task header twice.
+# Sorting by state rank first (the old bug) split a session across state groups and
+# duplicated its header — verified: a session with one needs-attention + one done row
+# printed the session header twice.
 rows=()
 # cwd -> 1 for every state file that produced a row. Built in the MAIN shell during
 # the per-file build loop (NOT inside a pipe subshell), so the synthetic-row loop
@@ -125,8 +133,12 @@ for f in "$STATE_DIR"/*.json; do
   fi
   seen_cwd["$cwd"]=1
   repo=$(jq -r '.repo' <<< "$obj")
-  # cwd key wins (survives worktrees); repo basename is the fallback.
-  task=$(jq -r --arg c "$cwd" --arg r "$repo" '.[$c] // .[$r] // "Standalone"' <<< "$tasks_json")
+  # Group key is the LIVE session from the pane table, not the state record's cached
+  # `.session` field — see the live_table comment above. A cwd with no live entry here
+  # can't happen (the ghost filter above already required cwd in $live_cwds), except
+  # when the live pane's session env var was empty; that falls into Standalone too.
+  session="${cwd_session[$cwd]:-}"
+  [ -n "$session" ] || session="Standalone"
   state=$(jq -r '.state' <<< "$obj")
   reason=$(jq -r '.reason // ""' <<< "$obj")
   ts=$(jq -r '.ts' <<< "$obj")
@@ -134,7 +146,7 @@ for f in "$STATE_DIR"/*.json; do
   # IFS whitespace and COLLAPSES adjacent empty fields, so an empty field in the
   # MIDDLE silently shifts every later column left (verified). Keeping the only
   # possibly-empty field terminal makes that collapse harmless.
-  rows+=("$task"$'\t'"$repo"$'\t'"$state"$'\t'"$ts"$'\t'"$reason")
+  rows+=("$session"$'\t'"$repo"$'\t'"$state"$'\t'"$ts"$'\t'"$reason")
 done
 
 # Fallback (Task 5 Step 1b): surface any live opencode pane whose cwd has NO state
@@ -143,18 +155,17 @@ done
 # `pane_command=="opencode"`, so a separate scan would be redundant — reuse it.
 # Runs in the MAIN shell (here-string into the while-read, NOT a piped subshell), so
 # the `rows+=(...)` appends persist into the sort/group pipeline below.
-# ponytail: synthetic unknowns land in the Standalone bucket, not their real task —
-# they're transient (gone once the agent restarts into the sensor). Map them to
-# their tasks.toml task only if sensor-less agents become a lasting state.
 live_opencode_cwds="$live_cwds"
 while IFS= read -r oc; do
   [ -n "$oc" ] || continue
   [ -n "${seen_cwd[$oc]:-}" ] && continue     # already has a state file
-  # 5-field shape matches Task 2's per-file rows: task<TAB>repo<TAB>state<TAB>ts<TAB>reason
-  # state=unknown -> sort_key 3 (sorts last within its task), icon_for unknown -> ⚪,
+  session="${cwd_session[$oc]:-}"
+  [ -n "$session" ] || session="Standalone"
+  # 5-field shape matches Task 2's per-file rows: session<TAB>repo<TAB>state<TAB>ts<TAB>reason
+  # state=unknown -> sort_key 3 (sorts last within its session), icon_for unknown -> ⚪,
   # reason carries the hint. ts=now so a real row that later appears for this cwd
   # will sort ahead (newer ts wins within the same state rank).
-  rows+=("Standalone"$'\t'"$(repo_label_for "$oc")"$'\t'"unknown"$'\t'"$(($(date +%s)*1000))"$'\t'"no sensor yet — restart agent")
+  rows+=("$session"$'\t'"$(repo_label_for "$oc")"$'\t'"unknown"$'\t'"$(($(date +%s)*1000))"$'\t'"no sensor yet — restart agent")
 done <<< "$live_opencode_cwds"
 
 sort_key() {
@@ -166,32 +177,32 @@ sort_key() {
   esac
 }
 
-# pass 1: per-task best (lowest) state rank, so a task with any red sorts above an all-green task
-declare -A task_rank
+# pass 1: per-session best (lowest) state rank, so a session with any red sorts above an all-green session
+declare -A session_rank
 for r in "${rows[@]:-}"; do
   [ -z "$r" ] && continue
-  IFS=$'\t' read -r task _ state _ _ <<< "$r"
+  IFS=$'\t' read -r session _ state _ _ <<< "$r"
   sk=$(sort_key "$state")
-  if [ -z "${task_rank[$task]:-}" ] || [ "$sk" -lt "${task_rank[$task]}" ]; then
-    task_rank[$task]=$sk
+  if [ -z "${session_rank[$session]:-}" ] || [ "$sk" -lt "${session_rank[$session]}" ]; then
+    session_rank[$session]=$sk
   fi
 done
 
-# pass 2: emit "taskrank<TAB>task<TAB>staterank<TAB>ts<TAB>repo<TAB>state<TAB>reason",
-# sort by taskrank, task, staterank, ts-desc, then render with contiguous groups.
+# pass 2: emit "sessionrank<TAB>session<TAB>staterank<TAB>ts<TAB>repo<TAB>state<TAB>reason",
+# sort by sessionrank, session, staterank, ts-desc, then render with contiguous groups.
 # reason stays LAST (may be empty — see the collapse note above).
-printf '%s\n' "${rows[@]:-}" | while IFS=$'\t' read -r task repo state ts reason; do
-  [ -z "$task" ] && continue
+printf '%s\n' "${rows[@]:-}" | while IFS=$'\t' read -r session repo state ts reason; do
+  [ -z "$session" ] && continue
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "${task_rank[$task]}" "$task" "$(sort_key "$state")" "$ts" "$repo" "$state" "$reason"
+    "${session_rank[$session]}" "$session" "$(sort_key "$state")" "$ts" "$repo" "$state" "$reason"
 done | sort -t $'\t' -k1,1n -k2,2 -k3,3n -k4,4nr | \
 {
-  current_task=""
-  while IFS=$'\t' read -r _ task _ ts repo state reason; do
-    if [ "$task" != "$current_task" ]; then
-      [ -n "$current_task" ] && echo
-      echo "── ${task^^} ──────────────"
-      current_task="$task"
+  current_session=""
+  while IFS=$'\t' read -r _ session _ ts repo state reason; do
+    if [ "$session" != "$current_session" ]; then
+      [ -n "$current_session" ] && echo
+      echo "── ${session^^} ──────────────"
+      current_session="$session"
     fi
     icon=$(icon_for "$state")
     label="$state"

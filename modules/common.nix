@@ -74,7 +74,6 @@ in
     pkgs.tldr
     pkgs.tree
     pkgs.yamlfmt
-    pkgs.yq-go
     pkgs.nodejs_22
     unstablePkgs.claude-code
   ];
@@ -111,7 +110,6 @@ in
 
   # Link to externally managed configuration from XDG_CONFIG_HOME
   xdg.configFile = {
-    "agent-fleet/tasks.toml".source = ln "external/agent-fleet/tasks.toml";
     "fish/completions".source = ln "external/fish/completions";
     "fish/functions".source = ln "external/fish/functions";
     "fish/themes".source = ln "external/fish/themes";
