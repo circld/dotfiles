@@ -121,6 +121,7 @@ in
     "opencode/agents".source = ln "external/opencode/agents";
     "opencode/commands".source = ln "external/opencode/commands";
     "opencode/opencode.json".source = ln "external/opencode/base-opencode.json";
+    "opencode/plugins".source = ln "external/opencode/plugins";
     "opencode/skills".source = ln "external/opencode/skills";
     "opencode/themes".source = ln "external/opencode/themes";
     "opencode/tools-lib".source = ln "external/opencode/tools-lib";
