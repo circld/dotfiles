@@ -27,7 +27,7 @@ If the run-doc-review skill is not available, present the draft to the user
 for review and explicit approval before saving. If not approved, revise the
 draft based on feedback and repeat until explicit approval.
 
-When certified (or approved), save the design doc to
+When clean (or approved), save the design doc to
 `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit.
 
 ## Phase 2 — Assess complexity.

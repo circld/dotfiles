@@ -26,7 +26,7 @@ draft based on feedback and repeat until explicit approval.
 
 ## Save and Execute
 
-Save the certified or approved plan to `docs/plans/YYYY-MM-DD-<feature-name>.md`.
+Save the clean or approved plan to `docs/plans/YYYY-MM-DD-<feature-name>.md`.
 
 Present execution choice:
 - A. Subagent-driven (this session) — invoke /execute-plan
