@@ -26,14 +26,23 @@ resolve_live() {
   awk -F '\t' -v c="$want_cwd" '$1==c {print $2 "\t" $3 "\t" $4; exit}' <<< "$table"
 }
 
-# -- calculation: ordered list of needs-attention cwds, newest ts first --
+# -- calculation: ordered list of actionable (needs-attention or done) cwds --
+# Both states are notify-worthy rising edges per the sensor (agent-fleet-sensor-core.mjs:79-93):
+# needs-attention = blocked on human input, done = agent finished and ready for review.
+# needs-attention outranks done regardless of age (a stale prompt still needs a human more
+# than a finished run does); within the same rank, newest ts first.
 red_cwds_newest_first() {
   for f in "$STATE_DIR"/*.json; do
     [ -e "$f" ] || continue
     obj=$(jq -c '.' "$f" 2>/dev/null) || continue
-    [ "$(jq -r '.state' <<< "$obj")" = "needs-attention" ] || continue
-    printf '%s\t%s\n' "$(jq -r '.ts // 0' <<< "$obj")" "$(jq -r '.cwd' <<< "$obj")"
-  done | sort -t $'\t' -k1,1nr | cut -f2-
+    state="$(jq -r '.state' <<< "$obj")"
+    case "$state" in
+      needs-attention) rank=1 ;;
+      done) rank=0 ;;
+      *) continue ;;
+    esac
+    printf '%s\t%s\t%s\n' "$rank" "$(jq -r '.ts // 0' <<< "$obj")" "$(jq -r '.cwd' <<< "$obj")"
+  done | sort -t $'\t' -k1,1nr -k2,2nr | cut -f3-
 }
 
 live_table="$(live_panes)"
@@ -54,7 +63,7 @@ else
     [ -n "$target_session" ] && break
   done < <(red_cwds_newest_first)
   if [ -z "$target_session" ]; then
-    echo "no live agent needs attention (all red state files are stale/ghosts)" >&2
+    echo "no live agent needs attention or is done (all actionable state files are stale/ghosts)" >&2
     exit 1
   fi
 fi
