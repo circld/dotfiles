@@ -163,6 +163,12 @@
     },
     "spec-reviewer": {
       "model": "octane_llm_proxy/minimax-m3"
+    },
+    "doc-critic": {
+      "model": "octane_llm_proxy/minimax-m3"
+    },
+    "doc-updater": {
+      "model": "octane_llm_proxy/minimax-m3"
     }
   },
   "mcp": {
