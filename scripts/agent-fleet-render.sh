@@ -68,6 +68,19 @@ live_cwds=$(
   done | sort -u
 )
 
+# tasks.toml -> JSON map: cwd-or-repo-basename -> task name. Parsed once per render.
+# CRITICAL: yq exits non-zero on malformed TOML. This render script runs under
+# `set -euo pipefail`, and the board wrapper does `"$RENDER" || true`, so a single
+# hand-edit typo in tasks.toml would kill render EVERY poll and blank the board
+# silently forever. Tolerate a bad file: fall back to an empty map (everything
+# groups under "Standalone") instead of dying. 2>/dev/null suppresses the yq error
+# text; `|| printf '{}'` guarantees a valid JSON map.
+TASKS_FILE="${AGENT_FLEET_TASKS_FILE:-$HOME/.config/agent-fleet/tasks.toml}"
+tasks_json="{}"
+if [ -f "$TASKS_FILE" ]; then
+  tasks_json=$(yq -p toml -o json '.repos // {}' "$TASKS_FILE" 2>/dev/null || printf '{}')
+fi
+
 # Build "task<TAB>repo<TAB>state<TAB>reason<TAB>ts" rows.
 # Ordering requirement (fixes duplicate task headers): rows of the SAME task must be
 # CONTIGUOUS, or the group-header loop below re-emits a task's header every time the
@@ -104,8 +117,9 @@ for f in "$STATE_DIR"/*.json; do
     continue  # ghost entry — no live opencode pane runs in this cwd anymore
   fi
   seen_cwd["$cwd"]=1
-  task=$(jq -r '.task // "Standalone"' <<< "$obj")
   repo=$(jq -r '.repo' <<< "$obj")
+  # cwd key wins (survives worktrees); repo basename is the fallback.
+  task=$(jq -r --arg c "$cwd" --arg r "$repo" '.[$c] // .[$r] // "Standalone"' <<< "$tasks_json")
   state=$(jq -r '.state' <<< "$obj")
   reason=$(jq -r '.reason // ""' <<< "$obj")
   ts=$(jq -r '.ts' <<< "$obj")
