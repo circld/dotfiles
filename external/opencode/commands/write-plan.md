@@ -16,20 +16,17 @@ Load the writing-plans skill and follow it. Produce a draft plan. Do NOT save ye
 
 ## Quality Gate
 
-If the run-goldfish-test skill is available, load it and run the three-pass goldfish
-quality gate on the draft artifact before saving. Follow the skill's triage decision
-framework and re-run strategy.
+If the run-doc-review skill is available, load it and run the doc-review
+loop on the draft artifact before saving. Follow the skill's protocol for
+dispatching critique/update rounds and handling the round-cap checkpoint.
 
-The orchestrator dispatches fresh-context evaluator subagents for each pass and
-adjudicates findings between passes per the skill's protocol.
-
-If the run-goldfish-test skill is not available, present the draft to the user for
-review and explicit approval before saving. If not approved, revise the draft based
-on feedback and repeat until explicit approval.
+If the run-doc-review skill is not available, present the draft to the user
+for review and explicit approval before saving. If not approved, revise the
+draft based on feedback and repeat until explicit approval.
 
 ## Save and Execute
 
-Save the certified or approved plan to `docs/plans/YYYY-MM-DD-<feature-name>.md`.
+Save the clean or approved plan to `docs/plans/YYYY-MM-DD-<feature-name>.md`.
 
 Present execution choice:
 - A. Subagent-driven (this session) — invoke /execute-plan

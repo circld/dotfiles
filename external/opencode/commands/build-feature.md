@@ -19,18 +19,15 @@ If yes, produce the design doc draft. Do NOT save yet.
 
 ### Quality Gate (design doc)
 
-If the run-goldfish-test skill is available, load it and run the three-pass goldfish
-quality gate on the draft artifact before saving. Follow the skill's triage decision
-framework and re-run strategy.
+If the run-doc-review skill is available, load it and run the doc-review
+loop on the draft artifact before saving. Follow the skill's protocol for
+dispatching critique/update rounds and handling the round-cap checkpoint.
 
-The orchestrator dispatches fresh-context evaluator subagents for each pass and
-adjudicates findings between passes per the skill's protocol.
+If the run-doc-review skill is not available, present the draft to the user
+for review and explicit approval before saving. If not approved, revise the
+draft based on feedback and repeat until explicit approval.
 
-If the run-goldfish-test skill is not available, present the draft to the user for
-review and explicit approval before saving. If not approved, revise the draft based
-on feedback and repeat until explicit approval.
-
-When certified (or approved), save the design doc to
+When clean (or approved), save the design doc to
 `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit.
 
 ## Phase 2 — Assess complexity.
