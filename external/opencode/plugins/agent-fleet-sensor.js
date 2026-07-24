@@ -6,6 +6,14 @@
 // and fires an osascript notification on transitions INTO needs-attention
 // (not on every event, to avoid notification noise).
 //
+// Board-red rule: needs-attention means "opencode is blocked on the human" — anything
+// that halts the agent's turn pending a human response goes red, not just permission
+// prompts. Currently: permission.asked, question.asked (interactive question tool),
+// session.error. Adding a new blocking condition later is a 2-line change: one
+// `needs-attention` transition on the blocking event, one `working`/`done` transition
+// on its resolution — see the permission.asked/replied and question.asked/replied
+// pairs below as the template.
+//
 // Identity note: cwd is the key. session/repo/tab names all diverge in practice,
 // so they are recorded for display but never used as the join key.
 //
@@ -124,6 +132,19 @@ export const AgentFleetSensorPlugin = async ({ directory, $ }) => {
       // stayed yellow/"working" through an entire live permission prompt as a result —
       // the exact bug this fixes.
       if (event.type === 'permission.asked') await transition('needs-attention', 'permission');
+      // The `question` tool (interactive multi-choice prompt) blocks the agent exactly
+      // like a permission prompt: opencode awaits the human's answer before the turn
+      // can continue. Same event-dispatcher pattern as permission.asked/replied above —
+      // verified present as event types on opencode 1.18.3 (`strings` on the binary
+      // shows question.asked/replied/rejected; no dedicated plugin hook exists for it,
+      // same as permission). Board must go red for ANY blocking-on-human condition,
+      // not just permission — this is that broader rule's second instance.
+      if (event.type === 'question.asked') await transition('needs-attention', 'question');
+      // .rejected (user dismissed without answering) still resolves the block — the
+      // agent is no longer waiting, so it must clear needs-attention same as .replied.
+      if (event.type === 'question.replied' || event.type === 'question.rejected') {
+        await transition('working', null);
+      }
     },
 
     'chat.message': async () => {

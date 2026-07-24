@@ -56,9 +56,10 @@ export function buildStateRecord({ repo, cwd, session, state, reason, previousTa
 }
 
 // -- calculation: should this idle event be allowed to write `done`? --
-// Guard: never let an idle event clobber an unanswered needs-attention/permission state.
-// opencode can emit session.idle while a permission prompt is still pending; writing `done`
-// there would drop the red board state before the human acts.
+// Guard: never let an idle event clobber an unanswered needs-attention state, regardless
+// of WHY it's red (permission prompt, question tool, etc. — see planTransition below).
+// opencode can emit session.idle while a prompt is still pending; writing `done` there
+// would drop the red board state before the human acts.
 export function idleShouldWriteDone(existing) {
   if (!existing) return true;
   if (existing.state === 'needs-attention') return false;
@@ -69,9 +70,12 @@ export function idleShouldWriteDone(existing) {
 // Given the existing record and the requested (state, reason), return:
 //   { write: boolean, notify: boolean }
 // This is the ONE place the transition table's semantics live, so it is unit-tested
-// directly (all rows: permission.asked event, session.error, session.idle,
-// permission.replied event, chat.message) without needing a running opencode.
-// transition() below is a thin action wrapper that just executes this plan.
+// directly (all rows: permission.asked/replied, question.asked/replied/rejected,
+// session.error, session.idle, chat.message) without needing a running opencode.
+// transition() below is a thin action wrapper that just executes this plan. The
+// board-red condition is generic — "opencode is blocked on the human" — so every
+// blocking event (permission OR question OR future additions) maps to the exact
+// same ('needs-attention', <reason>) call; this function doesn't know or care which.
 //   - a `done` request is dropped when idle must not clobber needs-attention (guard above)
 //   - notify fires ONLY on the rising edge into needs-attention (not attention->attention),
 //     so a second permission prompt while already red does not re-notify

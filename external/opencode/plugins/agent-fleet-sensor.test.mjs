@@ -41,6 +41,20 @@ assert.deepEqual(planTransition({ state: 'working' }, 'done'),
 assert.deepEqual(planTransition({ state: 'needs-attention', reason: 'permission' }, 'done'),
   { write: false, notify: false });
 
+// question.asked -> needs-attention: same transition as permission.asked (board-red
+// rule is "blocked on human", not "permission specifically") — write + notify on the
+// rising edge, and a 2nd question while already red must not re-notify.
+assert.deepEqual(planTransition({ state: 'working' }, 'needs-attention'),
+  { write: true, notify: true });
+assert.deepEqual(planTransition({ state: 'needs-attention', reason: 'question' }, 'needs-attention'),
+  { write: true, notify: false });
+// question.replied / question.rejected -> working: write, never notify (same as
+// permission.replied — both are "the human answered, unblock the agent")
+assert.deepEqual(planTransition({ state: 'needs-attention', reason: 'question' }, 'working'),
+  { write: true, notify: false });
+// session.idle must not clobber a pending question either — same guard as permission
+assert.equal(idleShouldWriteDone({ state: 'needs-attention', reason: 'question' }), false);
+
 // identity key is a sha256 prefix of the absolute cwd, distinct + collision-proof
 // (the old "/" -> "_" scheme collided: "/a_b" and "/a/b" both -> "a_b")
 const main = stateKeyFromCwd('/Users/x/dotfiles');
