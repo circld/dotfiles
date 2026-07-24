@@ -152,9 +152,6 @@
         "websearch_*": true
       }
     },
-    "goldfish-reviewer": {
-      "model": "octane_llm_proxy/minimax-m3"
-    },
     "code-reviewer": {
       "model": "octane_llm_proxy/minimax-m3"
     },
