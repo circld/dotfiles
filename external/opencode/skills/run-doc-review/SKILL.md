@@ -81,8 +81,8 @@ Report to the user:
 - **Document:** the path, for the user's own final review
 
 There is no certification banner and no gating on whether the document may
-be saved further — the document has already been edited in place by
-doc-updater across the rounds; this report is a summary for the human, not a
+be saved further — the document has already been edited in place by the
+update pass across the rounds; this report is a summary for the human, not a
 gate.
 
 ## What This Skill Does Not Do
