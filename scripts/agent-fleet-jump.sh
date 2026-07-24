@@ -4,21 +4,26 @@ set -euo pipefail
 STATE_DIR="${AGENT_FLEET_STATE_DIR:-$HOME/.local/state/agent-fleet}"
 ARG="${1:-}"
 
-# -- action: build "cwd<TAB>session<TAB>terminal_<id>" for every live OPENCODE pane, once --
+# -- action: build "cwd<TAB>session<TAB>terminal_<id><TAB>tab_id" for every live OPENCODE pane, once --
+# tab_id is required to actually SWITCH THE VISIBLE TAB: `focus-pane-id` only moves
+# pane-level focus within whichever tab is already on screen, it never brings a
+# different tab into view (verified: from tab "ai", focus-pane-id on a pane living in
+# tab "dotfiles" left "ai" as the visible tab). `go-to-tab-by-id` is the piece that's
+# missing without this column — see the caller below.
 live_panes() {
   while IFS= read -r sess; do
     [ -n "$sess" ] || continue
     zellij --session "$sess" action list-panes --json --all 2>/dev/null \
       | jq -r --arg sess "$sess" \
           '.[] | select(.is_plugin==false and .pane_command=="opencode" and (.pane_cwd // "") != "")
-           | "\(.pane_cwd)\t\($sess)\tterminal_\(.id)"'
+           | "\(.pane_cwd)\t\($sess)\tterminal_\(.id)\t\(.tab_id)"'
   done < <(zellij list-sessions -s 2>/dev/null)
 }
 
-# -- calculation: resolve (session, pane) for a target cwd from the live-pane table --
+# -- calculation: resolve (session, pane, tab_id) for a target cwd from the live-pane table --
 resolve_live() {
   local want_cwd="$1" table="$2"
-  awk -F '\t' -v c="$want_cwd" '$1==c {print $2 "\t" $3; exit}' <<< "$table"
+  awk -F '\t' -v c="$want_cwd" '$1==c {print $2 "\t" $3 "\t" $4; exit}' <<< "$table"
 }
 
 # -- calculation: ordered list of needs-attention cwds, newest ts first --
@@ -35,8 +40,9 @@ live_table="$(live_panes)"
 
 target_session=""
 target_pane=""
+target_tab_id=""
 if [ -n "$ARG" ]; then
-  IFS=$'\t' read -r target_session target_pane < <(resolve_live "$ARG" "$live_table") || true
+  IFS=$'\t' read -r target_session target_pane target_tab_id < <(resolve_live "$ARG" "$live_table") || true
   if [ -z "$target_session" ]; then
     echo "no live zellij pane found with cwd=$ARG" >&2
     exit 1
@@ -44,7 +50,7 @@ if [ -n "$ARG" ]; then
 else
   while IFS= read -r cwd; do
     [ -n "$cwd" ] || continue
-    IFS=$'\t' read -r target_session target_pane < <(resolve_live "$cwd" "$live_table") || true
+    IFS=$'\t' read -r target_session target_pane target_tab_id < <(resolve_live "$cwd" "$live_table") || true
     [ -n "$target_session" ] && break
   done < <(red_cwds_newest_first)
   if [ -z "$target_session" ]; then
@@ -56,9 +62,14 @@ fi
 # -- axis 1: OS/aerospace — raise the dev workspace (works detached) --
 aerospace workspace 1 || true
 
-# Focus the matched pane. switch-session --pane-id is a NO-OP when the target
-# session equals the client's current session, so branch:
+# Bring the target tab into view, THEN focus the pane within it. switch-session
+# --pane-id already does both atomically when hopping sessions; focus-pane-id alone
+# does NOT switch tabs when the target is same-session (see live_panes comment above),
+# so go-to-tab-by-id is required first in that branch — this is the actual fix for the
+# "pane opens and disappears, no visible jump" bug: the old same-session branch called
+# focus-pane-id alone, which silently focused a pane in a tab that was never displayed.
 if [ "$target_session" = "${ZELLIJ_SESSION_NAME:-}" ]; then
+  zellij action go-to-tab-by-id "$target_tab_id"
   zellij action focus-pane-id "$target_pane"
 else
   zellij action switch-session --pane-id "$target_pane" "$target_session"

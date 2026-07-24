@@ -63,8 +63,15 @@ mkdir -p "$STATE_DIR"
 live_cwds=$(
   { zellij list-sessions -s 2>/dev/null || true; } | while IFS= read -r sess; do
     [ -n "$sess" ] || continue
-    zellij --session "$sess" action list-panes --json --all 2>/dev/null \
-      | jq -r '.[] | select(.is_plugin==false and .pane_command=="opencode") | .pane_cwd // empty'
+    # A session can die between `list-sessions` and this call (poll-loop race).
+    # On a missing session zellij prints "Session '<x>' not found..." + an
+    # ANSI-colored session list to STDOUT (not stderr) with exit 0 — 2>/dev/null
+    # doesn't catch it and jq chokes on the ANSI escape as invalid JSON
+    # (verified: "Invalid numeric literal at line 1, column 2"). Only hand
+    # output to jq once we've confirmed it's actually JSON.
+    panes=$(zellij --session "$sess" action list-panes --json --all 2>/dev/null) || continue
+    [[ "$panes" == \[* ]] || continue
+    jq -r '.[] | select(.is_plugin==false and .pane_command=="opencode") | .pane_cwd // empty' <<< "$panes"
   done | sort -u
 )
 

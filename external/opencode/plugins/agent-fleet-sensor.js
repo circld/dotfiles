@@ -116,10 +116,14 @@ export const AgentFleetSensorPlugin = async ({ directory, $ }) => {
       if (event.type === 'session.error') await transition('needs-attention', 'error');
       if (event.type === 'session.idle') await transition('done', null);
       if (event.type === 'permission.replied') await transition('working', null);
-    },
-
-    'permission.ask': async (_input, _output) => {
-      await transition('needs-attention', 'permission');
+      // NOT the 'permission.ask' hook key (see below): opencode 1.18.3 declares it in
+      // @opencode-ai/plugin's Hooks type but never invokes it — verified live against a
+      // real Desktop-access prompt: the dedicated hook never fired while the prompt sat
+      // on screen, and only the generic `event` dispatcher saw the permission lifecycle,
+      // as `permission.asked` / `permission.replied` EVENT TYPES (not hook keys). Board
+      // stayed yellow/"working" through an entire live permission prompt as a result —
+      // the exact bug this fixes.
+      if (event.type === 'permission.asked') await transition('needs-attention', 'permission');
     },
 
     'chat.message': async () => {
