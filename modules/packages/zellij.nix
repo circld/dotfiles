@@ -297,6 +297,14 @@ in
           "Alt /" = {
             EditScrollback = [ ];
           };
+          "Alt y" = {
+            # Verified shape: home-manager's toKDL renders `_args` as the
+            # action's positional KDL args and every OTHER key as a child-block property.
+            "Run" = {
+              _args = [ "bash" "-lc" "~/dotfiles/scripts/agent-fleet-jump.sh" ];
+              close_on_exit = true;   # transient pane disposes itself after the jump
+            };
+          };
         };
         "shared_except \"locked\"" = binds {
           "Esc" = {
