@@ -36,7 +36,11 @@ Repeat starting at round 1:
 
 1. **Dispatch critique.** Dispatch M subagent instance(s) capable of
    read-only document critique against the document path. Each instance is
-   independent and fresh-context — do not share state between them.
+   independent and fresh-context — do not share state between them. The
+   dispatch prompt must be identical every round: document path and role
+   instructions only. Never include the round number, prior findings, fix
+   summaries, or loop progress — a primed critic confirms clean instead of
+   verifying, degrading the stop condition to a rubber stamp.
 2. **Union findings.** Combine all findings from all M instances into one
    list, unmodified. Do not deduplicate, merge, or filter — pass every
    finding through as-is, even if multiple instances raised the same point
