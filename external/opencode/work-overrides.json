@@ -162,10 +162,10 @@
       "model": "octane_llm_proxy/minimax-m3"
     },
     "doc-critic": {
-      "model": "octane_llm_proxy/minimax-m3"
+      "model": "octane_llm_proxy_openai/gpt-5.5"
     },
     "doc-updater": {
-      "model": "octane_llm_proxy/minimax-m3"
+      "model": "octane_llm_proxy/claude-opus-4-8"
     }
   },
   "mcp": {
