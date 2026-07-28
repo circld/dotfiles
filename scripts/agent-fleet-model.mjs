@@ -156,9 +156,14 @@ function model() {
     const v2Files = v2.get(cwd);
     if (v2Files?.length === 1) {
       const { key, obj } = v2Files[0];
+      const sessionRows = [];
       for (const [sid, entry] of Object.entries(obj.sessions ?? {})) {
         if (sid === '__pane__') continue;
-        rows.push(baseRow({ cwd, live: pane, key, obj, sid, entry, source: 'v2' }));
+        sessionRows.push(baseRow({ cwd, live: pane, key, obj, sid, entry, source: 'v2' }));
+      }
+      rows.push(...sessionRows);
+      if (sessionRows.length > 0 && sessionRows.every((row) => row.state === 'done' && row.suppressed)) {
+        rows.push({ cwd, session: pane.session, pane: pane.pane, tabId: pane.tabId, key, pid: obj.pid ?? null, repo: obj.repo || repoNameFromCwd(cwd), sid: null, state: 'idle', reason: 'all chats viewed', ts: Math.max(...sessionRows.map((row) => row.ts)), title: null, label: obj.repo || repoNameFromCwd(cwd), suppressed: false, rank: null, source: 'idle' });
       }
       continue;
     }

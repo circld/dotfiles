@@ -437,9 +437,9 @@ test_no_state_file_synthetic_unknown_row() {
   assert_contains "case10 synthetic: repo label (basename of /ghost)" "$RENDER_OUT" "ghost"
 }
 
-# --- 11. ZERO visible sessions for a process (all suppressed): process row
-#         NOT emitted. Empty contribution. ---
-test_zero_visible_sessions_drops_process() {
+# --- 11. ZERO visible sessions for a process because all chats are viewed+done:
+#         keep one idle row so live opencode panes stay visible. ---
+test_viewed_done_sessions_show_idle_process() {
   local sandbox="$ROOT/case11"
   mkdir -p "$sandbox"
   local pid=110100
@@ -449,27 +449,26 @@ test_zero_visible_sessions_drops_process() {
   cat > "$sandbox/${key}-${pid}.json" <<EOF
 {"repo":"zero","cwd":"/zero","session":"sx","pid":${pid},
  "sessions":{
-   "ses_done_viewed":{"state":"done","reason":null,"ts":100,"task":null,"title":"d"},
-   "ses_attn_viewed":{"state":"needs-attention","reason":"perm","ts":200,"task":null,"title":"n"}
- }}
+    "ses_done_viewed":{"state":"done","reason":null,"ts":100,"task":null,"title":"done old"},
+    "ses_done_viewed_2":{"state":"done","reason":null,"ts":200,"task":null,"title":"done new"}
+  }}
 EOF
   cat > "$sandbox/${key}-${pid}.viewed.json" <<'EOF'
-{"ses_done_viewed": 150, "ses_attn_viewed": 250}
+{"ses_done_viewed": 150, "ses_done_viewed_2": 250}
 EOF
   run_render "$sandbox" "$pso" $'/zero\tsx\tterminal_0\t0'
-  # Both sessions suppressed ⇒ process row not emitted.
-  # (No synthetic either — there's a USABLE v2 file (process pid alive +
-  # comm opencode); the cwd is just below the visible threshold.)
-  assert_not_contains "case11 zero visible: pid= header NOT emitted"    "$RENDER_OUT" "pid=${pid}"
-  # The session ids and titles from the v2 file MUST NOT appear:
+  # Done sessions are still suppressed, but the live opencode process remains visible.
+  assert_contains "case11 idle: repo label shown" "$RENDER_OUT" "zero"
+  assert_contains "case11 idle: idle state shown" "$RENDER_OUT" "idle"
+  # The viewed terminal sessions themselves MUST NOT appear:
   assert_not_contains "case11 zero visible: session id ses_done_viewed NOT shown" \
     "$RENDER_OUT" "ses_done_viewed"
-  assert_not_contains "case11 zero visible: session id ses_attn_viewed NOT shown" \
-    "$RENDER_OUT" "ses_attn_viewed"
-  # The cwd's basename '/zero' is 'zero'. The repo from the v2 file was also 'zero'.
-  # Test that no actionable icon (red/green) is present (all suppressed):
-  assert_not_contains "case11 zero visible: no red icon (all suppressed)"     "$RENDER_OUT" "🔴"
-  assert_not_contains "case11 zero visible: no green icon (all suppressed)"   "$RENDER_OUT" "🟢"
+  assert_not_contains "case11 zero visible: session id ses_done_viewed_2 NOT shown" \
+    "$RENDER_OUT" "ses_done_viewed_2"
+  assert_not_contains "case11 idle: viewed done title NOT shown" "$RENDER_OUT" "done old"
+  assert_not_contains "case11 idle: viewed done title 2 NOT shown" "$RENDER_OUT" "done new"
+  assert_not_contains "case11 idle: no red icon"     "$RENDER_OUT" "🔴"
+  assert_not_contains "case11 idle: no green icon"   "$RENDER_OUT" "🟢"
 }
 
 # --- 12. The multi-cwd scenario. Multiple simultaneously-live cwds, mixing
@@ -627,7 +626,7 @@ run_test test_v1_v2_super_a_usable_v2_suppresses_v1
 run_test test_v1_v2_super_b_dead_v2_does_not_suppress_v1
 run_test test_suppresses_viewed_terminal_never_working
 run_test test_no_state_file_synthetic_unknown_row
-run_test test_zero_visible_sessions_drops_process
+run_test test_viewed_done_sessions_show_idle_process
 run_test test_multi_cwd_independent_render
 run_test test_long_labels_do_not_shift_age_column
 
