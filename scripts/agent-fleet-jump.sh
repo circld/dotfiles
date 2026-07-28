@@ -62,7 +62,7 @@ _live_panes() {
     zellij --session "$sess" action list-panes --json --all 2>/dev/null \
       | jq -r --arg sess "$sess" \
           '.[] | select(.is_plugin==false and .pane_command=="opencode" and (.pane_cwd // "") != "")
-           | "\(.pane_cwd)\t\($sess)\tterminal_\(.id)\t\(.tab_id)"'
+           | "\(.pane_cwd)\t\($sess)\tterminal_\(.id)\t\(.tab_id)"' 2>/dev/null || true
   done < <(zellij list-sessions -s 2>/dev/null)
 }
 
@@ -171,10 +171,10 @@ goto_act() {
   local sess="${ACTION_TARGET_SESSION:-}" pane="${ACTION_TARGET_PANE:-}" tab="${ACTION_TARGET_TAB:-}"
   if [ -n "$sess" ] && [ -n "$pane" ]; then
     if [ "$sess" = "${ZELLIJ_SESSION_NAME:-}" ]; then
-      zellij action go-to-tab-by-id "$tab"
-      zellij action focus-pane-id "$pane"
+      zellij action go-to-tab-by-id "$tab" || true
+      zellij action focus-pane-id "$pane" || true
     else
-      zellij action switch-session --pane-id "$pane" "$sess"
+      zellij action switch-session --pane-id "$pane" "$sess" || true
     fi
   fi
   return 0
@@ -464,4 +464,3 @@ fi
 
 emit_decision "DECISION:kind=noop"
 exit 0
-

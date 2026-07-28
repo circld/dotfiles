@@ -1,6 +1,10 @@
 // external/opencode/plugins/agent-fleet-sensor.test.mjs
 // Run: node external/opencode/plugins/agent-fleet-sensor.test.mjs
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 // Helpers live in agent-fleet-sensor-core.mjs (not ./agent-fleet-sensor.js):
 // opencode treats each named export of a plugin module as a separate plugin
 // factory and invokes it; exposing these pure helpers from sensor.js would
@@ -263,5 +267,49 @@ assert.deepEqual(
 assert.deepEqual(
   planSelect({ sessionID: 'ses_abc' }, 'true'),
   { markViewed: false, deleteMailbox: true });
+
+// Regression: plugin poll must consume the .select mailbox with paths scoped to
+// the plugin instance. A prior module-scoped poll referenced factory-local vars
+// directly, threw ReferenceError every tick, and silently left .select unread.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-select-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-select-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(path.join(stateDir, key + '.json'), JSON.stringify({
+        repo: 'agent-fleet-select-repo', cwd: directory, session: null, pid: process.pid,
+        sessions: { ses_hidden: { state: 'needs-attention', reason: 'question', ts: 123, title: 'hidden' } },
+      }));
+      writeFileSync(path.join(stateDir, key + '.select'), JSON.stringify({ sessionID: 'ses_hidden' }));
+      const calls = [];
+      await plugin({
+        directory,
+        $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+        client: { tui: { _client: { post: async ({ body }) => { calls.push(body.sessionID); return { data: true }; } } } },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const viewedPath = path.join(stateDir, key + '.viewed.json');
+      if (calls[0] !== 'ses_hidden') throw new Error('select not posted: ' + JSON.stringify(calls));
+      if (existsSync(path.join(stateDir, key + '.select'))) throw new Error('.select not deleted');
+      if (JSON.parse(readFileSync(viewedPath, 'utf8')).ses_hidden !== 123) throw new Error('viewed not written');
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
 
 console.log('PASS: sensor pure-logic unit checks');

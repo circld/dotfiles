@@ -265,7 +265,7 @@ function planViewedTsForSession(statePath, sessionID) {
   return existing?.sessions?.[sessionID]?.ts ?? Date.now();
 }
 
-async function pollSelectMailbox(client) {
+async function pollSelectMailbox(client, { selectPath, viewedPath, statePath }) {
   const mailbox = readSelectMailbox(selectPath);
   const sessionID = mailbox?.sessionID;
   // Treat a parse-succeeded-but-shape-missing `mailbox` like a malformed one: there
@@ -396,7 +396,7 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
   // enqueued tick reads null and short-circuits — the chain self-throttles.
   const POLL_INTERVAL_MS = 400;
   setInterval(() => {
-    enqueue(key, () => pollSelectMailbox(client)).catch(() => {});
+    enqueue(key, () => pollSelectMailbox(client, { selectPath, viewedPath, statePath })).catch(() => {});
   }, POLL_INTERVAL_MS);
 
   // -- action: read-modify-write the v2 record for one top-level session --
