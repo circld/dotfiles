@@ -113,24 +113,25 @@
       "model": "octane_llm_proxy/minimax-m3"
     },
     "researcher": {
+      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
       "tools": {
         "websearch_*": true
       }
     },
     "code-reviewer": {
-      "model": "octane_llm_proxy/minimax-m3"
+      "model": "octane_llm_proxy_openai/gpt-5.6-luna"
     },
     "task-implementer": {
       "model": "octane_llm_proxy/minimax-m3"
     },
     "spec-reviewer": {
-      "model": "octane_llm_proxy/minimax-m3"
+      "model": "octane_llm_proxy_openai/gpt-5.6-luna"
     },
     "doc-critic": {
-      "model": "octane_llm_proxy_openai/gpt-5.5"
+      "model": "octane_llm_proxy/claude-opus-5"
     },
     "doc-updater": {
-      "model": "octane_llm_proxy/claude-opus-4-8"
+      "model": "octane_llm_proxy_openai/kimi-k3"
     }
   },
   "mcp": {
