@@ -88,31 +88,31 @@ printf '%s\n' "${emit_rows[@]:-}" | sort -t $'\t' -k1,1 -k3,3n -k4,4 -k2,2n \
     while IFS=$'\t' read -r sess kind_idx group cwd kind payload; do
       [ -n "$sess" ] || continue
       if [ "$sess" != "$current_session" ]; then
-        [ -n "$current_session" ] && echo
-        echo "── ${sess^^} ──────────────"
+        [ -n "$current_session" ] && printf '\e[K\n'
+        printf '── %s ──────────────\e[K\n' "${sess^^}"
         current_session="$sess"
       fi
       case "$kind" in
         warning)
-          printf '  ⚠️  %-32s %s\n' "$cwd" "$payload"
+          printf '  ⚠️  %-32s %s\e[K\n' "$cwd" "$payload"
           ;;
         process_header)
           IFS=$'\t' read -r pidlabel repo <<<"$payload"
-          printf '  %s · %s\n' "$pidlabel" "$repo"
+          printf '  %s · %s\e[K\n' "$pidlabel" "$repo"
           ;;
         collapse_row)
           IFS=$'\t' read -r label state reason ts icon <<<"$payload"
           [ "$reason" = "-" ] && reason=""
           state_col="$state"
           [ -n "$reason" ] && [ "$reason" != "null" ] && state_col="$state: $reason"
-          printf '  %s %-22s %-32s %s\n' "$icon" "$label" "$state_col" "$(age_for "$ts")"
+          printf '  %s %-22s %-32s %s\e[K\n' "$icon" "$label" "$state_col" "$(age_for "$ts")"
           ;;
         child_row)
           IFS=$'\t' read -r label state reason ts icon <<<"$payload"
           [ "$reason" = "-" ] && reason=""
           state_col="$state"
           [ -n "$reason" ] && [ "$reason" != "null" ] && state_col="$state: $reason"
-          printf '    %s %-22s %-32s %s\n' "$icon" "$label" "$state_col" "$(age_for "$ts")"
+          printf '    %s %-22s %-32s %s\e[K\n' "$icon" "$label" "$state_col" "$(age_for "$ts")"
           ;;
       esac
     done
