@@ -128,6 +128,12 @@ export function isSuppressed(state, entryTs, viewedTs) {
   return viewedTs >= entryTs;
 }
 
+export function stateRank(state) {
+  if (state === 'needs-attention') return 1;
+  if (state === 'done') return 0;
+  return null;
+}
+
 // -- calculation: decide the outcome of a transition (pure; no I/O; ts-aware) --
 // Given (existingEntry, nextState, nextReason, now), returns:
 //   { write: boolean, notify: boolean, ts: number | undefined }
@@ -190,6 +196,21 @@ export function isRepoVisible(focusedTitle, repo) {
   return focusedTitle.startsWith(`${repo} |`);
 }
 
+export function notificationMessage({ repo, zellijSession, chatTitle, state, reason }) {
+  const target = [zellijSession, chatTitle].filter(Boolean).join(' / ') || repo;
+  if (state === 'done') return `${target} is done and ready`;
+  return `${target} needs attention (${reason ?? 'unknown'})`;
+}
+
+export function notificationSoundForState(state, env = {}) {
+  const sound = state === 'needs-attention'
+    ? env.AGENT_FLEET_SOUND_BLOCKING
+    : state === 'done'
+      ? env.AGENT_FLEET_SOUND_DONE
+      : null;
+  return sound || null;
+}
+
 // -- AppleScript injection guard for the notification string literal --
 // SECURITY: repo/reason are interpolated into an AppleScript string literal.
 // A repo/worktree dir name can legally contain `"` and `\`, and a hostile
@@ -198,6 +219,14 @@ export function isRepoVisible(focusedTitle, repo) {
 // Escape `\` first, then `"`, so the value stays inert data inside the quotes.
 export function escapeAppleScriptString(s) {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+export function notificationScript(message, soundName) {
+  const safeTitle = escapeAppleScriptString('opencode');
+  const safeMessage = escapeAppleScriptString(message);
+  const base = 'display notification "' + safeMessage + '" with title "' + safeTitle + '"';
+  if (!soundName) return base;
+  return base + ' sound name "' + escapeAppleScriptString(soundName) + '"';
 }
 
 // -- calculation: mailbox handling decision — what to do after the poll reads <key>.select --

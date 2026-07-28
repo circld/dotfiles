@@ -14,6 +14,7 @@ import {
   buildV2StateRecord,
   idleShouldWriteDone,
   isSuppressed,
+  stateRank,
   planSelect,
   planTransition,
   repoNameFromCwd,
@@ -21,6 +22,9 @@ import {
   stateKeyFromCwd,
   escapeAppleScriptString,
   isRepoVisible,
+  notificationMessage,
+  notificationScript,
+  notificationSoundForState,
 } from './agent-fleet-sensor-core.mjs';
 
 // Fixed "now" so ts-stamping assertions are deterministic. planTransition
@@ -152,6 +156,11 @@ assert.equal(isSuppressed('needs-attention', 100, 50), false);
 assert.equal(isSuppressed('done', 100, null), false);
 assert.equal(isSuppressed('needs-attention', 100, null), false);
 
+// ranking used by model/jump: needs-attention outranks done; other states are not actionable.
+assert.equal(stateRank('needs-attention'), 1);
+assert.equal(stateRank('done'), 0);
+assert.equal(stateRank('working'), null);
+
 // --- buildSessionEntry: ts is INPUT (no Date.now inside the helper), and the v2
 //     per-session slot is the actually-used shape downstream (Tasks 5/6). Locks
 //     the `previousTask -> task` field rename + null-coalescing for reason/task/title. ---
@@ -221,6 +230,30 @@ assert.equal(isRepoVisible('', 'dotfiles'), false);
 // a title that merely CONTAINS the repo name (not as the prefix) must not match —
 // avoids a chat-title substring accidentally suppressing a different repo's notify.
 assert.equal(isRepoVisible('other-repo | OC | mentions dotfiles in passing', 'dotfiles'), false);
+
+// notification target uses useful granularity: zellij session -> chat session.
+assert.equal(
+  notificationMessage({ repo: 'dotfiles', zellijSession: 'agents', chatTitle: 'write plan', state: 'needs-attention', reason: 'question' }),
+  'agents / write plan needs attention (question)');
+assert.equal(
+  notificationMessage({ repo: 'dotfiles', zellijSession: 'agents', chatTitle: 'write plan', state: 'done', reason: null }),
+  'agents / write plan is done and ready');
+// fallback: no zellij session or chat title still gives a stable, non-empty target.
+assert.equal(
+  notificationMessage({ repo: 'dotfiles', zellijSession: null, chatTitle: null, state: 'done', reason: null }),
+  'dotfiles is done and ready');
+
+// sound config: explicit env vars only; empty string means no sound.
+assert.equal(notificationSoundForState('needs-attention', { AGENT_FLEET_SOUND_BLOCKING: 'Glass' }), 'Glass');
+assert.equal(notificationSoundForState('done', { AGENT_FLEET_SOUND_DONE: 'Ping' }), 'Ping');
+assert.equal(notificationSoundForState('done', { AGENT_FLEET_SOUND_DONE: '' }), null);
+assert.equal(notificationSoundForState('working', { AGENT_FLEET_SOUND_DONE: 'Ping' }), null);
+assert.equal(
+  notificationScript('agents / write plan is done and ready', 'Glass'),
+  'display notification "agents / write plan is done and ready" with title "opencode" sound name "Glass"');
+assert.equal(
+  notificationScript('agents / write plan is done and ready', null),
+  'display notification "agents / write plan is done and ready" with title "opencode"');
 
 // --- mailbox decision (Task 4) ---
 // select call succeeded on a well-formed mailbox: BOTH mark viewed AND delete mailbox.

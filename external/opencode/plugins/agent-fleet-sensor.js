@@ -44,8 +44,10 @@ import {
   buildV2StateRecord,
   planSelect,
   planTransition,
-  escapeAppleScriptString,
   isRepoVisible,
+  notificationMessage,
+  notificationScript,
+  notificationSoundForState,
 } from './agent-fleet-sensor-core.mjs';
 
 const STATE_DIR = path.join(os.homedir(), '.local', 'state', 'agent-fleet');
@@ -224,13 +226,11 @@ async function getFocusedWindowTitle($) {
 // See escapeAppleScriptString in agent-fleet-sensor-core.mjs for the injection guard.
 // Returns immediately; the async work runs detached. Never throws (async body is wrapped
 // so a rejection inside it can't become an unhandled promise rejection at the top level).
-function notify($, repo, message) {
+function notify($, repo, message, soundName) {
   (async () => {
     const focusedTitle = await getFocusedWindowTitle($);
     if (isRepoVisible(focusedTitle, repo)) return;   // human's already looking — skip
-    const safeTitle = escapeAppleScriptString('opencode');
-    const safeMessage = escapeAppleScriptString(message);
-    const script = 'display notification "' + safeMessage + '" with title "' + safeTitle + '"';
+    const script = notificationScript(message, soundName);
     await $`timeout 5 osascript -e ${script}`.quiet();
   })().catch(() => {});
 }
@@ -433,12 +433,16 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
     writeStateRecord(statePath, nextRecord);
     reapLegacyV1(directory);          // idempotent — see reapLegacyV1's header
     if (plan.notify) {
-      const message = state === 'done'
-        ? `${repo} is done and ready`
-        : `${repo} needs attention (${reason ?? 'unknown'})`;
+      const message = notificationMessage({
+        repo,
+        zellijSession: session,
+        chatTitle: entry.title,
+        state,
+        reason,
+      });
       // fire-and-forget: NOT awaited, so a hung/slow aerospace or osascript can never
       // stall the permission.ask hook (which opencode awaits). See notify().
-      notify($, repo, message);
+      notify($, repo, message, notificationSoundForState(state, process.env));
     }
     return { ts: plan.ts };
   }

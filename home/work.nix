@@ -1,4 +1,9 @@
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 let
   utils = import ../modules/utils.nix { inherit config pkgs; };
   importModules = utils.collectModules;
@@ -48,6 +53,7 @@ in
     OCTANE_LLM_PROXY_URL = workConfig.octaneLlmProxyUrl;
     SONARQUBE_TOKEN = workConfig.octaneSonarCloudToken;
     OPENCODE_CONFIG = "${config.home.homeDirectory}/dotfiles/external/opencode/work-overrides.json";
+    AGENT_FLEET_SOUND_BLOCKING = "Glass";
   };
 
   home.packages = common.home.packages ++ [
