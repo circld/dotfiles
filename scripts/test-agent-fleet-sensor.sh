@@ -38,7 +38,6 @@ cd "$SANDBOX_REPO"
 # string with no trailing newline). SHA the realpath explicitly to keep both sides in sync.
 SANDBOX_REPO_REAL="$(cd "$SANDBOX_REPO" && pwd -P)"
 STATE_KEY="$(printf '%s' "$SANDBOX_REPO_REAL" | shasum -a 256 | cut -c1-16)"
-STATE_FILE="$SANDBOX_HOME/.local/state/agent-fleet/${STATE_KEY}.json"
 
 # NO `|| true` here. The established sibling test (scripts/test-opencode-custom-tool-layout.sh)
 # lets `opencode run` fail the script under `set -e`, and so must this one: masking a non-zero
@@ -52,8 +51,34 @@ if ! XDG_CONFIG_HOME="$SANDBOX_XDG" HOME="$SANDBOX_HOME" \
   exit 1
 fi
 
-if [ ! -f "$STATE_FILE" ]; then
-  echo "FAIL: sensor plugin did not write a state file at $STATE_FILE"
+# v2 filename: "${STATE_KEY}-<pid>.json" (was v1 "${STATE_KEY}.json"). The test does not
+# know the sensor's pid a priori, so glob the per-pid file. Task 4 writes a <key>.viewed.json
+# sidecar; exclude from the state-file glob so this test stays valid after Task 4 lands.
+shopt -s nullglob
+STATE_FILE_CANDIDATES=( "$SANDBOX_HOME"/.local/state/agent-fleet/"${STATE_KEY}"-*.json )
+shopt -u nullglob
+STATE_FILE=""
+NON_VIEWED_COUNT=0
+for candidate in "${STATE_FILE_CANDIDATES[@]}"; do
+  case "$candidate" in
+    *.viewed.json) ;;
+    *) STATE_FILE="$candidate"; NON_VIEWED_COUNT=$((NON_VIEWED_COUNT + 1)) ;;
+  esac
+done
+if [ "$NON_VIEWED_COUNT" -eq 0 ]; then
+  echo "FAIL: no v2 state file found for STATE_KEY=${STATE_KEY} (candidates: ${STATE_FILE_CANDIDATES[*]:-none})"
+  echo "--- opencode log ---"
+  cat "$LOG_FILE"
+  exit 1
+fi
+if [ "$NON_VIEWED_COUNT" -gt 1 ]; then
+  echo "FAIL: expected exactly one non-viewed state file for STATE_KEY=${STATE_KEY}, found $NON_VIEWED_COUNT:"
+  for candidate in "${STATE_FILE_CANDIDATES[@]}"; do
+    case "$candidate" in
+      *.viewed.json) ;;
+      *) echo "  $candidate" ;;
+    esac
+  done
   echo "--- opencode log ---"
   cat "$LOG_FILE"
   exit 1
@@ -66,6 +91,28 @@ if ! jq -e '.repo == "test-repo"' "$STATE_FILE" >/dev/null; then
 fi
 if ! jq -e '.cwd == "'"$SANDBOX_REPO_REAL"'"' "$STATE_FILE" >/dev/null; then
   echo "FAIL: state file cwd is not the absolute agent cwd"
+  cat "$STATE_FILE"
+  exit 1
+fi
+# v2 shape: state/reason/ts/task live under record.sessions[<topLevelSessionID>], NOT at top level.
+# A v1 file (top-level `.state`) would FAIL this assertion — which is the point of the check:
+# it locks in the per-process/per-session migration against accidental v1 regression.
+if ! jq -e '.sessions | type == "object"' "$STATE_FILE" >/dev/null; then
+  echo "FAIL: state file has no .sessions object (v1 shape detected)"
+  cat "$STATE_FILE"
+  exit 1
+fi
+if jq -e '.state? // empty' "$STATE_FILE" >/dev/null; then
+  echo "FAIL: state file has a top-level .state field (v1 shape detected)"
+  cat "$STATE_FILE"
+  exit 1
+fi
+# chat.message + session.idle fire during the run; together they MUST write exactly one
+# session entry (the create-on-first-event path keeps a single per-session slot). A count of
+# 0 means the sensor never fired; >1 means a second write fragmented the same session id —
+# both are wrong regressions to catch.
+if ! jq -e '.sessions | to_entries | length == 1' "$STATE_FILE" >/dev/null; then
+  echo "FAIL: state file sessions map does not contain exactly one entry"
   cat "$STATE_FILE"
   exit 1
 fi

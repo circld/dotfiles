@@ -42,16 +42,49 @@ export function repoNameFromCwd(cwd) {
   return path.basename(cwd);
 }
 
-// -- calculation: build the next state record (pure, no I/O) --
-export function buildStateRecord({ repo, cwd, session, state, reason, previousTask }) {
+// -- calculation: per-session slot for the v2 record (pure, no I/O; ts is INPUT) --
+// v2 shape moves `state`/`reason`/`ts`/`task` off the file-level row and into
+// record.sessions[<topLevelSessionID>] (one entry per opencode session active
+// in this pane). `ts` is INPUT (not Date.now() inside the helper): the action
+// layer stamps via planTransition's returned ts and pipes it in — keeping
+// the helper pure is what makes the unit test deterministic (tests pass a
+// fixed NOW constant). `title` is display-only (resolved via
+// client.session.get in the action layer; falls back to a truncated sessionID
+// on the render side if absent — the action layer still passes what it has
+// here). previousTask -> task field on the record (the public/persistent
+// field name diverges from the helper argument name — the JSON file uses
+// `task` everywhere; the helper's argument name is `previousTask` because
+// callers pass `existing?.sessions?.[id]?.task`).
+//
+// This is the entry-shape helper downstream readers (Tasks 5/6) should
+// lock against: it intentionally does NOT carry file-level identity (no
+// repo/cwd/session/pid — those live on the envelope), so callers assembling
+// a full file just compose: buildV2StateRecord({ ..., sessions: { [id]:
+// buildSessionEntry({ ... }) } }).
+export function buildSessionEntry({ state, reason, previousTask, ts, title }) {
   return {
-    repo,
-    cwd,
-    session,
     state,
     reason: reason ?? null,
     task: previousTask ?? null,
-    ts: Date.now(),
+    ts,
+    title: title ?? null,
+  };
+}
+
+// -- calculation: v2 file-level envelope (pure, no I/O) --
+// Assembles the on-disk record shape: file-level identity (repo/cwd/session/
+// pid) wraps a per-session map. The plugin's atomic-write helper
+// (sensor.js: writeStateRecord) serializes THIS object; readers
+// (Tasks 5/6) consume via the same shape. Pure so callers don't accidentally
+// capture I/O / `Date.now()` here — those belong in the action layer. Naming
+// ("StateRecord") matches the prior v1 helper to keep call-sites legible.
+export function buildV2StateRecord({ repo, cwd, session, pid, sessions }) {
+  return {
+    repo,
+    cwd,
+    session: session ?? null,
+    pid,
+    sessions,
   };
 }
 
@@ -66,31 +99,74 @@ export function idleShouldWriteDone(existing) {
   return true;
 }
 
-// -- calculation: decide the outcome of a transition (pure; no I/O) --
-// Given the existing record and the requested (state, reason), return:
-//   { write: boolean, notify: boolean }
+// -- calculation: per-process identity key (cwd + pid; jump.sh targets a specific tmux pane) --
+// Returns "<cwd-hash>-<pid>" when pid is present (the live-process case — jump.sh
+// uses this to find a specific shell's state file, since two opencode panes can
+// share the same cwd in worktrees). Falls back to the bare cwd-hash when pid is
+// absent (legacy / cross-pane lookups, e.g. board rendering by cwd alone). The
+// fallback intentionally does NOT include a trailing "-" — downstream scripts
+// grep/match on the bare hash and would miss "hash-" if we used a sentinel.
+export function stateKeyForProcess(cwd, pid) {
+  const base = stateKeyFromCwd(cwd);
+  return pid != null ? `${base}-${pid}` : base;
+}
+
+// -- calculation: is this row suppressed (previously viewed)? --
+// Only terminal/blocked states ('done', 'needs-attention') can be suppressed.
+// 'working' is never suppressed — a long-running agent's age advancing past the
+// viewer's last-seen ts is the normal case, not a suppression signal; rendering
+// must always show working rows. The viewedTs >= entryTs rule means "the user
+// has already seen this specific event since it landed", which is what makes
+// the per-event ts the right key (not some coarser window): a state flip while
+// the user wasn't looking produces a fresh entryTs > old viewedTs, hence
+// NOT suppressed, hence surfaces on the board as the new event. A null viewedTs
+// (never viewed) is NOT suppressed, by design — freshly-arrived rows always
+// render until the user has explicitly marked them seen.
+export function isSuppressed(state, entryTs, viewedTs) {
+  if (state !== 'done' && state !== 'needs-attention') return false;
+  if (viewedTs == null) return false;
+  return viewedTs >= entryTs;
+}
+
+// -- calculation: decide the outcome of a transition (pure; no I/O; ts-aware) --
+// Given (existingEntry, nextState, nextReason, now), returns:
+//   { write: boolean, notify: boolean, ts: number | undefined }
 // This is the ONE place the transition table's semantics live, so it is unit-tested
 // directly (all rows: permission.asked/replied, question.asked/replied/rejected,
 // session.error, session.idle, chat.message) without needing a running opencode.
-// transition() below is a thin action wrapper that just executes this plan. The
-// board-red condition is generic — "opencode is blocked on the human" — so every
-// blocking event (permission OR question OR future additions) maps to the exact
-// same ('needs-attention', <reason>) call; this function doesn't know or care which.
-//   - a `done` request is dropped when idle must not clobber needs-attention (guard above)
+// `now` is PASSED IN BY THE CALLER (sensor.js does `Date.now()` in the action layer);
+// planTransition must NOT call Date.now() itself — keeping the helper pure is what
+// makes the unit tests deterministic (tests pass a fixed NOW constant).
+//
+// Why ts is part of the returned plan (Task 2): the no-change repeat rule. If
+// (nextState, nextReason) === (existingEntry.state, existingEntry.reason) the
+// event is a true repeat and the existing ts is preserved. Otherwise ts = now.
+// "Reason" must be part of the identity check (NOT just state): a fresh `needs-
+// attention/question` arriving on top of a previously-viewed `needs-attention/
+// permission` is a NEW actionable event. Keying the repeat check on state alone
+// would keep the old ts, let isSuppressed hide the new entry against the
+// viewer's stale viewedTs, and silently drop a real attention signal.
+//
+//   - a `done` request is dropped when idle must not clobber needs-attention (guard above).
+//     The dropped case has no ts: the caller won't build a record when write=false.
 //   - notify fires on the rising edge into needs-attention OR done (not attention->attention
-//     or done->done), so a second permission prompt while already red, or a second idle
-//     tick while already done, does not re-notify. done-notify is the human-UX signal that
-//     an agent finished its turn and is ready for review — symmetric to the red "blocked on
+//     or done->done), so a 2nd prompt of the SAME kind while already red, or a 2nd idle tick
+//     while already green, does not re-notify. done-notify is the human-UX signal that an
+//     agent finished its turn and is ready for review — symmetric to the red "blocked on
 //     human" signal, just the opposite direction (agent waiting FOR vs agent waiting ON).
-export function planTransition(existing, state) {
-  if (state === 'done' && !idleShouldWriteDone(existing)) {
+export function planTransition(existingEntry, nextState, nextReason, now) {
+  if (nextState === 'done' && !idleShouldWriteDone(existingEntry)) {
     return { write: false, notify: false };
   }
-  const wasAttention = existing?.state === 'needs-attention';
-  const wasDone = existing?.state === 'done';
-  const notify = (state === 'needs-attention' && !wasAttention)
-    || (state === 'done' && !wasDone);
-  return { write: true, notify };
+  const sameState = existingEntry?.state === nextState;
+  const sameReason = (existingEntry?.reason ?? null) === (nextReason ?? null);
+  const isRepeat = sameState && sameReason;
+  const ts = isRepeat && existingEntry ? existingEntry.ts : now;
+  const wasAttention = existingEntry?.state === 'needs-attention';
+  const wasDone = existingEntry?.state === 'done';
+  const notify = (nextState === 'needs-attention' && !wasAttention)
+    || (nextState === 'done' && !wasDone);
+  return { write: true, notify, ts };
 }
 
 // -- calculation: does the frontmost window's title indicate this repo is on screen? --
@@ -122,4 +198,45 @@ export function isRepoVisible(focusedTitle, repo) {
 // Escape `\` first, then `"`, so the value stays inert data inside the quotes.
 export function escapeAppleScriptString(s) {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+// -- calculation: mailbox handling decision — what to do after the poll reads <key>.select --
+// Caller (sensor.js, action layer) does the I/O — reads `<key>.select`, calls
+// `client.tui._client.post('/tui/select-session')`, captures success/failure — and
+// pipes the two inputs in here to get the resulting write plan. This split keeps
+// the I/O dependent step out of the unit test (no filesystem, no live TUI) and
+// locks the decision rules as tests run against pure data:
+//   - mailbox==null OR mailbox.sessionID is falsy/empty (parse failed / missing /
+//     partial JSON / sessionID missing or empty string): DELETE the mailbox and
+//     DO NOT mark viewed. `delete:true` is the wedge-prevention rule — a partly-
+//     written, shape-wrong, or empty-sessionID `.select` must not stick around
+//     to be retried forever; `markViewed:false` is correctness, because there is
+//     no actionable sessionID to pin a viewed mark against. The sessionID check
+//     is defense-in-depth — sensor.js already short-circuits empty-string sessionID
+//     before reaching planSelect via `sessionID ? mailbox : null`, but the helper
+//     is robust to direct calls so future callers can't silently produce
+//     markViewed:true against a junk sessionID.
+//   - mailbox!=null, selectOk===true (strict equality — `1`, `'true'`, etc.
+//     collapse to failure): BOTH mark viewed AND delete. markViewed is what makes
+//     the next render's isSuppressed(viewedTs >= entryTs) actually hide the row —
+//     a successful jump means the user is now looking at it. Strict-===lock so a
+//     future non-boolean truthy return from the TUI call cannot silently claim a
+//     failed jump as a viewed one.
+//   - mailbox!=null, selectOk===false: DELETE the mailbox (don't wedge) but DO
+//     NOT mark viewed — a failed jump didn't put the user on that session, so
+//     claiming they viewed it would silently hide a row they never saw.
+// All three paths emit `deleteMailbox:true` so a single consumer branch in the
+// action layer (`if (plan.deleteMailbox) unlink(...)`) covers every case and the
+// poll never wedges.
+// Purity contract: takes parsed mailbox + boolean selectOk, returns the plan, no
+// I/O, no Date.now() — anything time-/file-dependent belongs in the action layer
+// (e.g. the Date.now() fallback for the viewed ts when no entry exists yet).
+export function planSelect(mailbox, selectOk) {
+  if (mailbox == null || !mailbox.sessionID) {
+    return { markViewed: false, deleteMailbox: true };
+  }
+  return {
+    markViewed: selectOk === true,
+    deleteMailbox: true,
+  };
 }

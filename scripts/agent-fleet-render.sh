@@ -1,7 +1,64 @@
 #!/usr/bin/env bash
+# scripts/agent-fleet-render.sh
+#
+# Format (v2 / Jump-aware):
+#
+#   ── SESSIONNAME ──
+#     ⚠️  /duplicate-cwd                duplicate opencode instance — pick one
+#
+#     🟡 worktree-name                 state[: reason]              age
+#     🔴 worktree-name                 state[: reason]              age
+#
+#     pid=12345 · multi-session-repo
+#       🔴 ses_blocked               state[: reason]              age
+#       🟢 ses_done_older            state[: reason]              age
+#       🟡 ses_working               state[: reason]              age
+#
+#     ⚪ ghost-worktree              unknown: no sensor yet — restart agent  age
+#
+# Design notes — why each decision (logged so future readers don't have to
+# re-derive):
+#
+#   Single visible session (after suppression) ⇒ COLLAPSE to one
+#   legacy-style "🟡 repo state[:reason] age" line (no pid row, no indent
+#   beyond the normal two-space margin). Multi visible sessions ⇒ emit a
+#   process row "pid=<pid> · <repo>" + indented children
+#     "    <icon> <label> <state[:reason]> <age>".
+#   This matches Step 5 (one visible session collapses) and Step 6
+#   (multiple nest under a process row).
+#
+#   working NEVER suppressed (a long-running agent's age advancing past
+#   viewedTs is normal; suppress is for terminal states only). Suppression
+#   rule mirrors sensor-core.isSuppressed and jump.sh's _is_suppressed:
+#   done|needs-attention AND viewedTs >= entryTs ⇒ suppress; working &
+#   unknown ⇒ never suppress.
+#
+#   Per-cwd rows are grouped under their zellij session header (read
+#   from the LIVE pane table, not the state file's cached `.session`
+#   field — same rationale as the existing pre-Task-5 render: cwd is the
+#   only stable identity).
+#
+#   Within a session group: warning rows first (highest-signal), then in
+#   alphabetical cwd order so duplicates of an ambiguous cwd are obvious,
+#   then per-cwd rows interleaved.
+#
+#   All per-cwd data ($live_count, $v2_obj, $v1_obj, $live_session,
+#   $ambiguous) is indexed by cwd and is never read across cwds during
+#   the build pass — a global-vs-scoped mistake is structurally
+#   impossible (lesson from the previous review cycle).
+#
+# Test injection seams (mirror agent-fleet-jump.sh so the two never
+# silently disagree about what's live / ambiguous / suppressed / dead):
+#
+#   AGENT_FLEET_LIVE_PANES_OVERRIDE   file: cwd<TAB>sess<TAB>terminal_<id><TAB>tab_id
+#                                    (replaces the real zellij lookup).
+#   AGENT_FLEET_PS_OVERRIDE          file: lines "OPENCODE<TAB><pid>" (alive + opencode
+#                                    comm) or "DEAD<TAB><pid>" (dead). Drives the
+#                                    pid-reuse guard without a real ps process.
+#   AGENT_FLEET_STATE_DIR            sandbox STATE_DIR (default ~/.local/state/agent-fleet).
 set -euo pipefail
 
-# Requires bash >= 4 for associative arrays (session_rank, seen_cwd). macOS /bin/bash is 3.2.
+# bash >= 4 for associative arrays.
 if (( BASH_VERSINFO[0] < 4 )); then
   echo "agent-fleet-render: needs bash >= 4 (got $BASH_VERSION); ensure ~/.nix-profile/bin is on PATH" >&2
   exit 1
@@ -9,206 +66,401 @@ fi
 
 STATE_DIR="${AGENT_FLEET_STATE_DIR:-$HOME/.local/state/agent-fleet}"
 
+# --- icons / labels (pure) ---
 icon_for() {
   case "$1" in
     needs-attention) echo "🔴" ;;
     working)         echo "🟡" ;;
     done)            echo "🟢" ;;
+    unknown)         echo "⚪" ;;
     *)               echo "⚪" ;;
   esac
 }
 
-# repo label from cwd — bash twin of the sensor's repoNameFromCwd (keep in sync).
-# Used for SYNTHETIC (sensor-less) rows, whose label is computed here at render time
-# rather than read from a state file. Real rows already carry the JS-computed label.
+# repo label from cwd — bash twin of sensor-core.repoNameFromCwd.
 # Worktree (.../<repo>/.worktrees/<wt>) -> "<repo>:<wt>", else basename.
 repo_label_for() {
   local cwd="$1"
-  local trimmed="${cwd%/}"                 # drop a trailing slash
+  local trimmed="${cwd%/}"
   case "$trimmed" in
     */.worktrees/*)
       local before="${trimmed%%/.worktrees/*}"
       local after="${trimmed##*/.worktrees/}"
-      after="${after%%/*}"                 # first segment after .worktrees
+      after="${after%%/*}"
       echo "$(basename "$before"):${after}"
       ;;
     *) basename "$trimmed" ;;
   esac
 }
 
+# Session label: title if present/non-empty/non-null, else truncated id.
+session_label_for() {
+  local title="$1" sid="$2"
+  if [ -n "$title" ] && [ "$title" != "null" ]; then
+    printf '%s' "$title"
+    return
+  fi
+  local short="${sid:0:8}"
+  if [ "${#sid}" -gt 8 ]; then
+    printf '%s…' "$short"
+  else
+    printf '%s' "$sid"
+  fi
+}
+
 age_for() {
   local ts_ms=$1
-  local now_ms=$(($(date +%s) * 1000))
+  local now_ms
+  now_ms=$(($(date +%s) * 1000))
   local delta_s=$(((now_ms - ts_ms) / 1000))
+  if [ "$delta_s" -lt 0 ]; then delta_s=0; fi
   printf '%d:%02d' $((delta_s / 60)) $((delta_s % 60))
 }
 
-mkdir -p "$STATE_DIR"
-
-# Set of cwds that currently have a live zellij OPENCODE pane (across all sessions),
-# paired with the session each lives in. --all is required for pane_cwd/pane_command
-# to be present; absent on plugin/no-command panes. Filter on pane_command=="opencode":
-# a fish/nvim pane sharing the agent's cwd must NOT keep a ghost row alive — only a
-# live agent pane counts.
-# `{ zellij ... || true; }` absorbs `zellij list-sessions -s` exiting non-zero when
-# there are zero sessions (verified: zellij 0.44.3 exits 1 with "No active zellij
-# sessions found." on stderr, suppressed). Without this, `set -e` + `pipefail` would
-# abort on the common "no sessions yet" case. Wrapping in `{ ... ; }` is required for
-# precedence: a bare `zellij ... || true | while ...` parses as `(zellij) || (true |
-# while ...)` — `||` is lower-precedence than `|` — which discards zellij's output
-# entirely and emits a single newline-free empty pipe into `while` (verified). The
-# braces make `|| true` an argument modifier INSIDE the subshell, so the pipe still
-# gets zellij's stdout. Pipeline still produces empty stdout when there are no
-# sessions, which is exactly what we want: no live cwds == every state file becomes
-# a ghost == empty board (verified in Step 2).
-#
-# Session is read HERE, from the live pane table, rather than trusted from the state
-# record's cached `.session` field: cwd is the only stable identity (session/repo/tab
-# names all diverge and can change — a session can be renamed, or a record predates
-# this feature and carries a stale/null session). Deriving group membership from the
-# live pane table keeps grouping self-correcting, same rationale as the existing
-# render-time repo-label fallback below.
-live_table=$(
-  { zellij list-sessions -s 2>/dev/null || true; } | while IFS= read -r sess; do
+# --- action: live opencode pane table (overridable for tests) ---
+_live_panes() {
+  if [ -n "${AGENT_FLEET_LIVE_PANES_OVERRIDE:-}" ] && [ -r "${AGENT_FLEET_LIVE_PANES_OVERRIDE}" ]; then
+    cat "${AGENT_FLEET_LIVE_PANES_OVERRIDE}"
+    return
+  fi
+  while IFS= read -r sess; do
     [ -n "$sess" ] || continue
-    # A session can die between `list-sessions` and this call (poll-loop race).
-    # On a missing session zellij prints "Session '<x>' not found..." + an
-    # ANSI-colored session list to STDOUT (not stderr) with exit 0 — 2>/dev/null
-    # doesn't catch it and jq chokes on the ANSI escape as invalid JSON
-    # (verified: "Invalid numeric literal at line 1, column 2"). Only hand
-    # output to jq once we've confirmed it's actually JSON.
     panes=$(zellij --session "$sess" action list-panes --json --all 2>/dev/null) || continue
     [[ "$panes" == \[* ]] || continue
     jq -r --arg sess "$sess" \
       '.[] | select(.is_plugin==false and .pane_command=="opencode" and (.pane_cwd // "") != "")
-       | "\(.pane_cwd)\t\($sess)"' <<< "$panes"
-  done
-)
+       | "\(.pane_cwd)\t\($sess)\tterminal_\(.id)\t\(.tab_id)"' <<< "$panes"
+  done < <({ zellij list-sessions -s 2>/dev/null || true; })
+}
 
-live_cwds=$(cut -f1 <<< "$live_table" | sort -u)
-
-# cwd -> session, for grouping. Populated from the SAME live_table (one source of
-# truth for both the ghost filter and the group key), in the MAIN shell so the lookup
-# survives past this block.
-declare -A cwd_session
-while IFS=$'\t' read -r lc ls; do
-  [ -n "$lc" ] || continue
-  cwd_session["$lc"]="$ls"
-done <<< "$live_table"
-
-# Build "session<TAB>repo<TAB>state<TAB>reason<TAB>ts" rows.
-# Ordering requirement (fixes duplicate session headers): rows of the SAME session must
-# be CONTIGUOUS, or the group-header loop below re-emits a session's header every time
-# the session reappears after an intervening different-state row. So the sort is:
-#   1. session priority = the BEST (lowest) state rank present in that session (attention-first BETWEEN sessions)
-#   2. session name                                                            (keeps a session's rows together)
-#   3. state rank                                                              (attention-first WITHIN a session)
-#   4. ts, newest first
-# Sorting by state rank first (the old bug) split a session across state groups and
-# duplicated its header — verified: a session with one needs-attention + one done row
-# printed the session header twice.
-rows=()
-# cwd -> 1 for every state file that produced a row. Built in the MAIN shell during
-# the per-file build loop (NOT inside a pipe subshell), so the synthetic-row loop
-# below can diff against the live-pane inventory after the build loop ends.
-declare -A seen_cwd
-for f in "$STATE_DIR"/*.json; do
-  [ -e "$f" ] || continue
-  # Skip any file that isn't valid JSON *right now*. Even with the plugin's atomic
-  # temp+rename write, a foreign/legacy writer or a truncated leftover must never crash
-  # the board: `jq` on partial JSON exits non-zero and `set -e` would kill this loop
-  # (verified: partial JSON -> jq rc=5 -> render dies -> board `while true` exits).
-  # One validating read, one decode; a bad file is silently skipped this frame and
-  # picked up on the next render once it's whole.
-  obj=$(jq -c '.' "$f" 2>/dev/null) || continue
-  [ -n "$obj" ] || continue
-  # Ghost filter (Task 5): hide any state file whose agent has no live zellij opencode
-  # pane in this cwd. Join on cwd+opencode (NOT cwd alone — a fish/nvim pane can share
-  # the agent's cwd and would otherwise keep a ghost row alive). Read from the already
-  # decoded $obj — never re-read the file. Empty $live_cwds (no live sessions) means
-  # EVERY state file is a ghost, which is the desired "board is empty" state.
-  cwd=$(jq -r '.cwd' <<< "$obj")
-  if ! grep -qxF "$cwd" <<< "$live_cwds"; then
-    continue  # ghost entry — no live opencode pane runs in this cwd anymore
+# --- action: ps lookup for pid-reuse guard ---
+_pid_alive_opencode() {
+  local pid="$1"
+  if [ -n "${AGENT_FLEET_PS_OVERRIDE:-}" ] && [ -r "${AGENT_FLEET_PS_OVERRIDE}" ]; then
+    while IFS=$'\t' read -r status p; do
+      [ "$p" = "$pid" ] || continue
+      case "$status" in
+        OPENCODE) return 0 ;;
+        DEAD)     return 1 ;;
+      esac
+    done < "${AGENT_FLEET_PS_OVERRIDE}"
+    # No explicit entry in override for this pid → fall through to real ps.
   fi
-  seen_cwd["$cwd"]=1
-  repo=$(jq -r '.repo' <<< "$obj")
-  # Group key is the LIVE session from the pane table, not the state record's cached
-  # `.session` field — see the live_table comment above. A cwd with no live entry here
-  # can't happen (the ghost filter above already required cwd in $live_cwds), except
-  # when the live pane's session env var was empty; that falls into Standalone too.
-  session="${cwd_session[$cwd]:-}"
-  [ -n "$session" ] || session="Standalone"
-  state=$(jq -r '.state' <<< "$obj")
-  reason=$(jq -r '.reason // ""' <<< "$obj")
-  ts=$(jq -r '.ts' <<< "$obj")
-  # reason is LAST because it can be empty (done/working rows): `read` treats tab as
-  # IFS whitespace and COLLAPSES adjacent empty fields, so an empty field in the
-  # MIDDLE silently shifts every later column left (verified). Keeping the only
-  # possibly-empty field terminal makes that collapse harmless.
-  rows+=("$session"$'\t'"$repo"$'\t'"$state"$'\t'"$ts"$'\t'"$reason")
-done
+  kill -0 "$pid" 2>/dev/null || return 1
+  local comm
+  comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
+  [[ "$comm" == *opencode* ]]
+}
 
-# Fallback (Task 5 Step 1b): surface any live opencode pane whose cwd has NO state
-# file as a synthetic `⚪ unknown` row, so the board is never blind to a running-but-
-# not-yet-restarted agent. The ghost filter above already restricts $live_cwds to
-# `pane_command=="opencode"`, so a separate scan would be redundant — reuse it.
-# Runs in the MAIN shell (here-string into the while-read, NOT a piped subshell), so
-# the `rows+=(...)` appends persist into the sort/group pipeline below.
-live_opencode_cwds="$live_cwds"
-while IFS= read -r oc; do
-  [ -n "$oc" ] || continue
-  [ -n "${seen_cwd[$oc]:-}" ] && continue     # already has a state file
-  session="${cwd_session[$oc]:-}"
-  [ -n "$session" ] || session="Standalone"
-  # 5-field shape matches Task 2's per-file rows: session<TAB>repo<TAB>state<TAB>ts<TAB>reason
-  # state=unknown -> sort_key 3 (sorts last within its session), icon_for unknown -> ⚪,
-  # reason carries the hint. ts=now so a real row that later appears for this cwd
-  # will sort ahead (newer ts wins within the same state rank).
-  rows+=("$session"$'\t'"$(repo_label_for "$oc")"$'\t'"unknown"$'\t'"$(($(date +%s)*1000))"$'\t'"no sensor yet — restart agent")
-done <<< "$live_opencode_cwds"
+# --- calculation: tolerant JSON read ---
+_read_json() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+  jq -c '.' "$f" 2>/dev/null || return 1
+}
 
-sort_key() {
-  case "$1" in
-    needs-attention) echo 0 ;;
-    working)         echo 1 ;;
-    done)            echo 2 ;;
-    *)               echo 3 ;;
+# --- calculation: tolerant .viewed.json read. Always returns {} on any
+#     failure (Step 7 explicit: never crash render). ---
+_read_viewed_for() {
+  local p="$1"
+  [ -f "$p" ] || { echo "{}"; return 0; }
+  jq -c '.' "$p" 2>/dev/null || echo "{}"
+}
+
+# --- calculation: is a session entry suppressed? (mirrors sensor-core
+#     isSuppressed and jump.sh _is_suppressed: done|needs-attention AND
+#     viewedTs >= entryTs ⇒ suppress; working & unknown NEVER suppressed.) ---
+_is_suppressed() {
+  local state="$1" entry_ts="$2" viewed_ts="$3"
+  case "$state" in
+    needs-attention|done) ;;
+    *) return 1 ;;
   esac
+  [ "${viewed_ts:-0}" -ge "${entry_ts:-0}" ] 2>/dev/null
 }
 
-# pass 1: per-session best (lowest) state rank, so a session with any red sorts above an all-green session
-declare -A session_rank
-for r in "${rows[@]:-}"; do
-  [ -z "$r" ] && continue
-  IFS=$'\t' read -r session _ state _ _ <<< "$r"
-  sk=$(sort_key "$state")
-  if [ -z "${session_rank[$session]:-}" ] || [ "$sk" -lt "${session_rank[$session]}" ]; then
-    session_rank[$session]=$sk
+mkdir -p "$STATE_DIR"
+
+# === parse live pane table ===
+live_table=$(_live_panes)
+declare -A live_count live_session
+if [ -n "$live_table" ]; then
+  while IFS=$'\t' read -r cwd sess pane tab; do
+    [ -n "$cwd" ] || continue
+    live_count["$cwd"]=$(( ${live_count[$cwd]:-0} + 1 ))
+    live_session["$cwd"]="$sess"
+  done <<< "$live_table"
+fi
+
+# === scan STATE_DIR ===
+# v1: <cwd-hash>.json (top-level .state, no .sessions, no .pid)
+# v2: <cwd-hash>-<pid>.json (.sessions object)
+# Sidecars (excluded before classifying): *.viewed.json, *.select.
+#
+# Step-1 supersession safety: stale-pid drop runs BEFORE the live-count
+# ghost filter AND BEFORE supersession — a dead v2 cannot silently
+# suppress v1's fallback row for the same cwd.
+declare -A v2_count v2_obj v2_key v1_obj v1_key
+
+shopt -s nullglob
+state_paths=( "$STATE_DIR"/*.json )
+shopt -u nullglob
+
+for sp in "${state_paths[@]:-}"; do
+  [ -e "$sp" ] || continue
+  case "$sp" in
+    *.viewed.json|*.select) continue ;;
+  esac
+  obj=$(_read_json "$sp") || continue
+  [ -n "$obj" ] || continue
+  if jq -e '.sessions | type == "object"' <<< "$obj" >/dev/null 2>&1; then
+    pid=$(jq -r '.pid // ""' <<< "$obj")
+    cwd=$(jq -r '.cwd // ""' <<< "$obj")
+    [ -n "$pid" ] && [ -n "$cwd" ] || continue
+    # Step 2: pid-reuse guard. alive + comm contains "opencode" required.
+    if ! _pid_alive_opencode "$pid"; then
+      continue
+    fi
+    # ghost filter (matches jump.sh): v2 cwd must have a live opencode pane.
+    if [ "${live_count[$cwd]:-0}" -lt 1 ]; then
+      continue
+    fi
+    key="${sp##*/}"
+    key="${key%.json}"
+    v2_obj["$cwd"]="$obj"
+    v2_key["$cwd"]="$key"
+    v2_count["$cwd"]=$(( ${v2_count[$cwd]:-0} + 1 ))
+  else
+    cwd=$(jq -r '.cwd // ""' <<< "$obj")
+    [ -n "$cwd" ] || continue
+    # ghost filter for v1 too — same rule as v2 (matches jump.sh).
+    if [ "${live_count[$cwd]:-0}" -lt 1 ]; then
+      continue
+    fi
+    key="${sp##*/}"
+    key="${key%.json}"
+    v1_obj["$cwd"]="$obj"
+    v1_key["$cwd"]="$key"
   fi
 done
 
-# pass 2: emit "sessionrank<TAB>session<TAB>staterank<TAB>ts<TAB>repo<TAB>state<TAB>reason",
-# sort by sessionrank, session, staterank, ts-desc, then render with contiguous groups.
-# reason stays LAST (may be empty — see the collapse note above).
-printf '%s\n' "${rows[@]:-}" | while IFS=$'\t' read -r session repo state ts reason; do
-  [ -z "$session" ] && continue
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "${session_rank[$session]}" "$session" "$(sort_key "$state")" "$ts" "$repo" "$state" "$reason"
-done | sort -t $'\t' -k1,1n -k2,2 -k3,3n -k4,4nr | \
-{
-  current_session=""
-  while IFS=$'\t' read -r _ session _ ts repo state reason; do
-    if [ "$session" != "$current_session" ]; then
-      [ -n "$current_session" ] && echo
-      echo "── ${session^^} ──────────────"
-      current_session="$session"
-    fi
-    icon=$(icon_for "$state")
-    label="$state"
-    [ -n "$reason" ] && [ "$reason" != "null" ] && label="$state: $reason"
-    # repo column widened to 18: disambiguated worktree labels ("dotfiles:feat")
-    # are longer than a bare basename; %-18s keeps the state column aligned.
-    printf '  %s %-18s %-20s %s\n' "$icon" "$repo" "$label" "$(age_for "$ts")"
-  done
+# === ambiguity detection (Step 3) ===
+# UNION of (a) ≥ 2 live opencode panes per cwd AND (b) ≥ 2 USABLE v2
+# files per cwd. Identical rule to jump.sh so the board and jump agree.
+declare -A ambiguous
+for cwd in "${!live_count[@]}"; do
+  if [ "${live_count[$cwd]}" -ge 2 ]; then
+    ambiguous["$cwd"]=1
+  fi
+done
+for cwd in "${!v2_count[@]}"; do
+  if [ "${v2_count[$cwd]}" -ge 2 ]; then
+    ambiguous["$cwd"]=1
+  fi
+done
+
+# === build row stream ===
+# Each emitted row is a single TAB-separated line:
+#   sess<TAB>kind_idx<TAB>group<TAB>cwd<TAB>kind<TAB>payload
+# kind_idx drives intra-group ordering:
+#   0 = warning, 1 = process_header, 2 = collapse_row, 3 = child_row
+# group keeps process_header + its child_row contiguous (both carry
+# group=1) so they always sort as a single block; collapse_row gets
+# group=2 so it interleaves correctly between cwd groups when a single
+# cwd has only one visible session. Sort: sess, group, cwd, kind_idx.
+# Per-kind payload (TAB-separated):
+#   warning:        msg
+#   process_header: pidlabel<TAB>repo
+#   collapse_row:   repo<TAB>label<TAB>state<TAB>reason<TAB>ts<TAB>icon
+#   child_row:      label<TAB>state<TAB>reason<TAB>ts<TAB>icon
+# Column 4 (cwd) is repeated for every row so the render pass has it
+# available without looking across cwds.
+declare -a emit_rows
+now_ms=$(($(date +%s) * 1000))
+row=""
+
+emit_warning() {
+  local sess="$1" cwd="$2" msg="$3"
+  printf -v row '%s\t0\t0\t%s\twarning\t%s' "$sess" "$cwd" "$msg"
+  emit_rows+=( "$row" )
 }
+
+emit_process_header() {
+  local sess="$1" cwd="$2" pidlabel="$3" repo="$4"
+  printf -v row '%s\t1\t1\t%s\tprocess_header\t%s\t%s' "$sess" "$cwd" "$pidlabel" "$repo"
+  emit_rows+=( "$row" )
+}
+
+emit_collapse_row() {
+  local sess="$1" cwd="$2" label="$3" state="$4" reason="$5" ts="$6" icon="$7"
+  # Spec step 5: single-line collapse shows the SESSION LABEL (title else
+  # sid fallback else repo for legacy v1). NOT the repo of the cwd.
+  # Process header carries repo separately for multi-session cases.
+  # Field order: label<TAB>state<TAB>reason<TAB>ts<TAB>icon
+  printf -v row '%s\t2\t2\t%s\tcollapse_row\t%s\t%s\t%s\t%s\t%s' \
+    "$sess" "$cwd" "$label" "$state" "$reason" "$ts" "$icon"
+  emit_rows+=( "$row" )
+}
+
+emit_child_row() {
+  local sess="$1" cwd="$2" label="$3" state="$4" reason="$5" ts="$6" icon="$7"
+  printf -v row '%s\t3\t1\t%s\tchild_row\t%s\t%s\t%s\t%s\t%s\t%s' \
+    "$sess" "$cwd" "$label" "$state" "$reason" "$ts" "$icon"
+  emit_rows+=( "$row" )
+}
+
+for cwd in "${!live_session[@]}"; do
+  sess="${live_session[$cwd]}"
+  # Step 4: ambiguous cwd ⇒ ONE warning, no actionable / synthetic rows.
+  if [ "${ambiguous[$cwd]:-0}" -eq 1 ]; then
+    emit_warning "$sess" "$cwd" "duplicate opencode instance — pick one"
+    continue
+  fi
+  if [ -n "${v2_obj[$cwd]:-}" ]; then
+    obj="${v2_obj[$cwd]}"
+    key="${v2_key[$cwd]}"
+    pid=$(jq -r '.pid' <<< "$obj")
+    repo=$(jq -r '.repo // ""' <<< "$obj")
+    [ -n "$repo" ] || repo=$(repo_label_for "$cwd")
+    viewed_path="$STATE_DIR/${key}.viewed.json"
+    viewed_obj=$(_read_viewed_for "$viewed_path")
+    # Two-pass: collect visible FIRST so we know visible_count before
+    # deciding collapse vs nest. TSV row shape (session ids / titles are
+    # alphanumeric+underscore in practice; tabs in titles would already
+    # have broken the legacy render).
+    declare -a visible
+    visible=()
+    while IFS=$'\t' read -r sid state reason ts title; do
+      [ -n "$sid" ] || continue
+      state=$(printf '%s' "$state" | tr -d '\r\n')
+      ts=$(printf '%s' "$ts" | tr -d '\r\n')
+      reason=$(printf '%s' "$reason" | tr -d '\r\n')
+      title=$(printf '%s' "$title" | tr -d '\r\n')
+      viewed_ts=$(jq -r --arg sid "$sid" '.[$sid] // 0' <<< "$viewed_obj" 2>/dev/null || echo 0)
+      if _is_suppressed "$state" "$ts" "$viewed_ts"; then
+        continue
+      fi
+      # Sentinel roundtrip: bash's `read` with `IFS=\t` collapses runs of
+      # empty middle fields into a single field (verified: `a\t\tb` reads
+      # as 2 vars, not 3). jq emits `""` for null fields, which would
+      # trigger collapse. Replace empty values with `-` (a string that
+      # never appears in real sensor data — '-' IS NOT a valid state,
+      # reason, or title) so the row is always 5 distinct fields; reverse
+      # at consumer.
+      [ -n "$reason" ] || reason='-'
+      [ -n "$title" ] || title='-'
+      visible+=( "$(printf '%s\t%s\t%s\t%s\t%s' "$sid" "$state" "$reason" "$ts" "$title")" )
+    done < <(jq -r '.sessions | to_entries[]? | [.key, (.value.state // "-"), (.value.reason // "-"), (.value.ts // 0), (.value.title // "-")] | @tsv' <<< "$obj")
+    if [ "${#visible[@]}" -eq 0 ]; then
+      # Step 7 + 8: process with zero visible sessions drops entirely.
+      continue
+    fi
+    if [ "${#visible[@]}" -ge 2 ]; then
+      # Multi visible session ⇒ emit process_header BEFORE children.
+      emit_process_header "$sess" "$cwd" "pid=${pid}" "$repo"
+    fi
+    for vrow in "${visible[@]}"; do
+      IFS=$'\t' read -r sid state reason ts title <<<"$vrow"
+      # Reverse the empty→sentinel translation from the producer. After
+      # this point reason/title are restored to "" if originally empty.
+      [ "$reason" = "-" ] && reason=""
+      [ "$title"  = "-" ] && title=""
+      label=$(session_label_for "$title" "$sid")
+      icon=$(icon_for "$state")
+      if [ "${#visible[@]}" -eq 1 ]; then
+        # Spec step 5: collapse path shows LABEL (title else sid).
+        # Empty reason (no middle field) becomes "-" sentinel — the
+        # render pass needs no empty middle fields either (same bash
+        # `read` quirk).
+        [ -z "$reason" ] && reason='-'
+        emit_collapse_row "$sess" "$cwd" "$label" "$state" "$reason" "$ts" "$icon"
+      else
+        [ -z "$reason" ] && reason='-'
+        emit_child_row "$sess" "$cwd" "$label" "$state" "$reason" "$ts" "$icon"
+      fi
+    done
+  elif [ -n "${v1_obj[$cwd]:-}" ]; then
+    # v1 legacy. Only present when no USABLE v2 covers this cwd (Step 1
+    # migration supersession). No per-session map → no viewed
+    # suppression. Label = repo (no per-session data exists).
+    obj="${v1_obj[$cwd]}"
+    state=$(jq -r '.state // ""' <<< "$obj")
+    reason=$(jq -r '.reason // ""' <<< "$obj")
+    ts=$(jq -r '.ts // 0' <<< "$obj")
+    repo=$(jq -r '.repo // ""' <<< "$obj")
+    [ -n "$repo" ] || repo=$(repo_label_for "$cwd")
+    icon=$(icon_for "$state")
+    label="$repo"
+    # Sentinel roundtrip: bash read collapses empty middle fields; if
+    # reason is empty in the v1 file (common: state=done reason=null ⇒
+    # jq prints ""), we substitute "-" so the row stays 5 distinct
+    # fields end to end. The render pass reverses.
+    [ -z "$reason" ] && reason='-'
+    emit_collapse_row "$sess" "$cwd" "$label" "$state" "$reason" "$ts" "$icon"
+  fi
+done
+
+# === synthetic rows (Step 8) ===
+  # Live opencode pane on a cwd that contributed NO row above (state file
+  # missing/sensor-less). Use repo_label_for to synthesize the label so the
+  # row is legible even without `.repo`.
+  declare -A cwd_covered
+  for cwd in "${!ambiguous[@]}";  do cwd_covered["$cwd"]=1; done
+  for cwd in "${!v2_obj[@]}";    do cwd_covered["$cwd"]=1; done
+  for cwd in "${!v1_obj[@]}";    do cwd_covered["$cwd"]=1; done
+  for cwd in "${!live_session[@]}"; do
+    [ -n "${cwd_covered[$cwd]:-}" ] && continue
+    sess="${live_session[$cwd]}"
+    repo=$(repo_label_for "$cwd")
+    label="$repo"
+    # reason is always non-empty for synthetic (it carries the hint); no
+    # sentinel needed here.
+    emit_collapse_row "$sess" "$cwd" "$label" "unknown" "no sensor yet — restart agent" "$now_ms" "⚪"
+  done
+
+# === sort + render ===
+# Sort: session ASC, group ASC, cwd ASC, kind_idx ASC. With group=1
+# holding both process_header and child_row (same cwd ⇒ ties break on
+# kind_idx, header<children), every process's children sort immediately
+# under its own header.
+printf '%s\n' "${emit_rows[@]:-}" | sort -t $'\t' -k1,1 -k3,3n -k4,4 -k2,2n \
+  | {
+    current_session=""
+    while IFS=$'\t' read -r sess kind_idx group cwd kind payload; do
+      if [ "$sess" != "$current_session" ]; then
+        [ -n "$current_session" ] && echo
+        echo "── ${sess^^} ──────────────"
+        current_session="$sess"
+      fi
+      case "$kind" in
+        warning)
+          printf '  ⚠️  %-32s %s\n' "$cwd" "$payload"
+          ;;
+        process_header)
+          IFS=$'\t' read -r pidlabel repo <<<"$payload"
+          printf '  %s · %s\n' "$pidlabel" "$repo"
+          ;;
+        collapse_row)
+          IFS=$'\t' read -r label state reason ts icon <<<"$payload"
+          [ "$reason" = "-" ] && reason=""
+          # Defensive: spec says "Render never emits a blank label".
+          # session_label_for always returns non-empty; v1 uses repo.
+          # Synthetic uses repo-from-cwd. If somehow empty, fall back to
+          # the cwd basename.
+          if [ -z "$label" ] || [ "$label" = "null" ]; then
+            label=$(basename "${cwd%/}")
+          fi
+          state_col="$state"
+          [ -n "$reason" ] && [ "$reason" != "null" ] && state_col="$state: $reason"
+          printf '  %s %-22s %-32s %s\n' "$icon" "$label" "$state_col" "$(age_for "$ts")"
+          ;;
+        child_row)
+          IFS=$'\t' read -r label state reason ts icon <<<"$payload"
+          [ "$reason" = "-" ] && reason=""
+          state_col="$state"
+          [ -n "$reason" ] && [ "$reason" != "null" ] && state_col="$state: $reason"
+          printf '    %s %-22s %-32s %s\n' "$icon" "$label" "$state_col" "$(age_for "$ts")"
+          ;;
+esac
+    done
+  }
