@@ -609,6 +609,39 @@ EOF
   assert_eq "case13 wide labels: age column aligned" "$short_col" "$long_col"
 }
 
+# --- 14. Nested rows keep shared columns aligned with non-nested rows. ---
+test_nested_rows_keep_columns_aligned() {
+  local sandbox="$ROOT/case14"
+  mkdir -p "$sandbox"
+  local pidA=140001
+  local pidB=140002
+  local pso="$ROOT/ps14.tsv"
+  printf 'OPENCODE\t%s\n' "$pidA" > "$pso"
+  printf 'OPENCODE\t%s\n' "$pidB" >> "$pso"
+  local keyA; keyA=$(key_for "/single")
+  local keyB; keyB=$(key_for "/multi")
+  cat > "$sandbox/${keyA}-${pidA}.json" <<EOF
+{"repo":"single","cwd":"/single","session":"sx","pid":${pidA},
+ "sessions":{"sA":{"state":"working","reason":null,"ts":100,"task":null,"title":"single-row"}}}
+EOF
+  cat > "$sandbox/${keyB}-${pidB}.json" <<EOF
+{"repo":"multi","cwd":"/multi","session":"sx","pid":${pidB},
+ "sessions":{
+   "sB1":{"state":"working","reason":null,"ts":100,"task":null,"title":"multi-row-1"},
+   "sB2":{"state":"done","reason":null,"ts":100,"task":null,"title":"multi-row-2"}
+ }}
+EOF
+  run_render "$sandbox" "$pso" \
+    $'/single\tsx\tterminal_0\t0\n/multi\tsx\tterminal_1\t0'
+
+  local single_line nested_line single_col nested_col
+  single_line=$(line_containing "single-row") || { fail "case14 alignment: single row found"; return; }
+  nested_line=$(line_containing "multi-row-1") || { fail "case14 alignment: nested row found"; return; }
+  single_col=$(time_column_for_line "$single_line")
+  nested_col=$(time_column_for_line "$nested_line")
+  assert_eq "case14 alignment: nested age column matches single row" "$single_col" "$nested_col"
+}
+
 # === run all ===
 run_test() {
   printf '\n--- %s ---\n' "$1"
@@ -629,6 +662,7 @@ run_test test_no_state_file_synthetic_unknown_row
 run_test test_viewed_done_sessions_show_idle_process
 run_test test_multi_cwd_independent_render
 run_test test_long_labels_do_not_shift_age_column
+run_test test_nested_rows_keep_columns_aligned
 
 echo
 echo "---"

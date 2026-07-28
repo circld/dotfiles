@@ -112,7 +112,7 @@ printf '%s\n' "${emit_rows[@]:-}" | sort -t $'\t' -k1,1 -k3,3n -k4,4 -k2,2n \
           [ "$reason" = "-" ] && reason=""
           state_col="$state"
           [ -n "$reason" ] && [ "$reason" != "null" ] && state_col="$state: $reason"
-          printf '    %s %-34.34s %-27.27s %s\e[K\n' "$icon" "$label" "$state_col" "$(age_for "$ts")"
+          printf '    %s %-32.32s %-27.27s %s\e[K\n' "$icon" "$label" "$state_col" "$(age_for "$ts")"
           ;;
       esac
     done
