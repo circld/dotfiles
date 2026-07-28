@@ -75,6 +75,24 @@ assert_count() {
     fail "$label" "want count:" "$want" "got count:" "$got" "needle:" "$needle"
   fi
 }
+line_containing() {
+  local needle="$1" line
+  while IFS= read -r line; do
+    if [[ "$line" == *"$needle"* ]]; then
+      printf '%s' "$line"
+      return 0
+    fi
+  done <<<"$RENDER_OUT"
+  return 1
+}
+time_column_for_line() {
+  local line="${1//$'\e[K'/}"
+  if [[ "$line" =~ ^(.*[[:space:]])[0-9]+:[0-9][0-9]$ ]]; then
+    printf '%s' "${#BASH_REMATCH[1]}"
+    return 0
+  fi
+  printf '%s' -1
+}
 
 # === driver: run render.sh against a synthetic sandbox ===
 # $1 = sandbox STATE_DIR
@@ -561,6 +579,37 @@ EOF
   fi
 }
 
+# --- 13. Long labels are capped to their column width so age stays aligned. ---
+test_long_labels_do_not_shift_age_column() {
+  local sandbox="$ROOT/case13"
+  mkdir -p "$sandbox"
+  local pidA=130001
+  local pidB=130002
+  local pso="$ROOT/ps13.tsv"
+  printf 'OPENCODE\t%s\n' "$pidA" > "$pso"
+  printf 'OPENCODE\t%s\n' "$pidB" >> "$pso"
+  local keyA; keyA=$(key_for "/wideA")
+  local keyB; keyB=$(key_for "/wideB")
+  cat > "$sandbox/${keyA}-${pidA}.json" <<EOF
+{"repo":"wideA","cwd":"/wideA","session":"sx","pid":${pidA},
+ "sessions":{"sA":{"state":"done","reason":null,"ts":100,"task":null,"title":"short-title"}}}
+EOF
+  cat > "$sandbox/${keyB}-${pidB}.json" <<EOF
+{"repo":"wideB","cwd":"/wideB","session":"sx","pid":${pidB},
+ "sessions":{"sB":{"state":"done","reason":null,"ts":100,"task":null,"title":"this-title-is-long-enough-to-overflow-the-label-column"}}}
+EOF
+  run_render "$sandbox" "$pso" \
+    $'/wideA\tsx\tterminal_0\t0\n/wideB\tsx\tterminal_1\t0'
+
+  local short_line long_line short_col long_col
+  short_line=$(line_containing "short-title") || { fail "case13 wide labels: short row found"; return; }
+  long_line=$(line_containing "this-title-is-long") || { fail "case13 wide labels: long row found"; return; }
+  assert_contains "case13 wide labels: context column wider than 22 chars" "$long_line" "this-title-is-long-enough"
+  short_col=$(time_column_for_line "$short_line")
+  long_col=$(time_column_for_line "$long_line")
+  assert_eq "case13 wide labels: age column aligned" "$short_col" "$long_col"
+}
+
 # === run all ===
 run_test() {
   printf '\n--- %s ---\n' "$1"
@@ -580,6 +629,7 @@ run_test test_suppresses_viewed_terminal_never_working
 run_test test_no_state_file_synthetic_unknown_row
 run_test test_zero_visible_sessions_drops_process
 run_test test_multi_cwd_independent_render
+run_test test_long_labels_do_not_shift_age_column
 
 echo
 echo "---"
