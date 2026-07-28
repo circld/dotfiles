@@ -345,4 +345,50 @@ assert.deepEqual(
   }
 }
 
+// Regression: a subagent/child session.idle must not mark the resolved top-level
+// session done. The parent can still stream output after the child idles; only the
+// top-level session's own idle event is the real "turn ended" signal.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-child-idle-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-child-idle-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      const statePath = path.join(stateDir, key + '.json');
+      writeFileSync(statePath, JSON.stringify({
+        repo: 'agent-fleet-child-idle-repo', cwd: directory, session: null, pid: process.pid,
+        sessions: { parent: { state: 'working', reason: null, ts: 100, title: 'parent' } },
+      }));
+      const hooks = await plugin({
+        directory,
+        $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+        client: {
+          tui: { _client: { post: async () => ({ data: false }) } },
+          session: { get: async ({ path: { id } }) => ({ data: id === 'child'
+            ? { id: 'child', parentID: 'parent', title: 'child' }
+            : { id: 'parent', parentID: null, title: 'parent' } }) },
+        },
+      });
+      await hooks.event({ event: { type: 'session.idle', properties: { sessionID: 'child' } } });
+      const entry = JSON.parse(readFileSync(statePath, 'utf8')).sessions.parent;
+      if (entry.state !== 'working') throw new Error('child idle wrote parent state: ' + JSON.stringify(entry));
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 console.log('PASS: sensor pure-logic unit checks');

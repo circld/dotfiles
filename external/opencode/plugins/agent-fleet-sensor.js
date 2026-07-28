@@ -454,6 +454,7 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
     if (!eventSessionID) return;       // events without sessionID are a no-op
     const resolved = await resolveTopLevelSession(client, eventSessionID, directory);
     if (!resolved) return;             // unresolvable: degraded handling is Task 4
+    if (fields.state === 'done' && eventSessionID !== resolved.id) return;
     await enqueue(key, () => transitionForTopLevelSession(resolved, fields));
   }
 
