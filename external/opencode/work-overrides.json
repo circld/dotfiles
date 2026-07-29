@@ -131,7 +131,7 @@
       "model": "octane_llm_proxy/claude-opus-5"
     },
     "doc-updater": {
-      "model": "octane_llm_proxy_openai/kimi-k3"
+      "model": "octane_llm_proxy/kimi-k3"
     }
   },
   "mcp": {
