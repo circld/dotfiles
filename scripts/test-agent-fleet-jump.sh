@@ -120,7 +120,7 @@ run_jump() {
   JUMP_STDERR="$(cat "$tmp_err")"
 }
 
-test_notes_session_does_not_switch_to_remote_agent() {
+test_notes_session_switches_to_remote_agent() {
   local sandbox="$ROOT/notes-session"
   local fake_bin="$sandbox/bin"
   mkdir -p "$fake_bin"
@@ -141,7 +141,12 @@ EOF
     bash -c '. "$1"; act_land key sid agent-session terminal_1 3' _ \
     "$REPO_ROOT/scripts/agent-fleet-act.sh"
   assert_file_exists "notes session: mailbox still written" "$sandbox/key.select"
-  assert_file_absent "notes session: remote zellij session not selected" "$sandbox/zellij.log"
+  # Board Enter runs from the notes session; the landing must switch the
+  # client to the target session+pane (regression: a "home base" guard
+  # early-returned before the switch, so board jumps went nowhere).
+  local zlog; zlog="$(cat "$sandbox/zellij.log" 2>/dev/null || true)"
+  assert_eq "notes session: switches to remote session+pane" \
+    "action switch-session --pane-id terminal_1 agent-session" "$zlog"
 }
 
 # === test cases ===
@@ -1510,7 +1515,7 @@ run_test test_71_bad_ts_type_canonical_empty
 run_test test_72_nonstring_back_entry_canonical_empty
 run_test test_73_mailbox_write_failure_continues
 run_test test_74_mktemp_failure_continues
-run_test test_notes_session_does_not_switch_to_remote_agent
+run_test test_notes_session_switches_to_remote_agent
 
 # Print accumulated log
 cat "$ROOT/log"

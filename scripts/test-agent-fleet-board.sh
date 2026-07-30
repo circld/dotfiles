@@ -599,8 +599,13 @@ test_jk_arrow_navigation_bounds_clamp() {
      "$(mk_row v2 "$k2" s2 /nav2 sx "done" "" $NOW_MS)" \
      "$(mk_row v2 "$k3" s3 /nav3 sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
-  # Feed: 1.4s pause, then \e[B jj jjj 0.4s pause, then kkkk k k 2.0s, EOF.
-  feed_close "$BOARD_FIFO" "$(printf '\e[Bjjjj')kkkk" 1.5
+  # Feed: \e[B jj jjj then kkkk, PACED at 0.3s/key. navigate() coalesces keys
+  # that arrive inside its 30ms drain window into one repaint, so the old
+  # instant-dump feed produced only the final HL. Pacing above the drain
+  # window keeps one repaint per key so intermediate HLs render.
+  feed_forever "$BOARD_FIFO" "$(printf '\e[B')" 0.3 j 0.3 j 0.3 j 0.3 j 0.3 k 0.3 k 0.3 k 0.3 k
+  sleep 4
+  stop_feeder
   wait_board 7
   assert_eq "case02: board exited 0" "0" "$?"
   local hls; hls="$(hls_in_log "$sandbox/log-render")"

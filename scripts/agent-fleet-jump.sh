@@ -22,22 +22,16 @@ emit_decision() {
 # the reconcile stale-P 2s window tests; against the real clock a fixed fixture
 # ts is always ancient and the within-window branch is untestable. ===
 now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
+source_session="${ZELLIJ_SESSION_NAME:-}"
 
 json="$(node "$MODEL")"
 
 # === Derive P (the model cursor) ===
-# P = MAX(selectedTs) across live instances, restricted to entries carrying
-# both selectedSid AND numeric selectedTs. Instances whose state file
-# predates the envelope fields drop here — P is undeterminable in that case.
-P_json="$(jq -c '
-  [ .instances[]
-    | select((.selectedSid != null) and (.selectedTs != null)
-             and ((.selectedTs | type) == "number")) ]
-  | if length > 0
-      then (max_by(.selectedTs) | {sid: .selectedSid, ts: .selectedTs})
-      else null
-    end
-' <<<"$json")"
+# Physical-source-session preference with global max(selectedTs) fallback;
+# instances predating the envelope fields drop out (see stack_derive_p in
+# act.sh). The source preference keeps reconcile from flipping the cursor back
+# to a fleet-landed session after the user natively zellij-switched away.
+P_json="$(stack_derive_p "$source_session" <<<"$json")"
 
 # === Read stack + reconcile BEFORE classifying the outcome ===
 # Reconcile runs on every model-touching press (jump, traverse, board Enter);

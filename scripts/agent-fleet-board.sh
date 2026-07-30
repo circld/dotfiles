@@ -10,7 +10,7 @@ fi
 STATE_DIR="${AGENT_FLEET_STATE_DIR:-$HOME/.local/state/agent-fleet}"
 MODEL="${AGENT_FLEET_MODEL:-$SCRIPT_DIR/agent-fleet-model.mjs}"
 RENDER="${AGENT_FLEET_RENDER:-$SCRIPT_DIR/agent-fleet-render.sh}"
-INTERVAL="${AGENT_FLEET_REFRESH_SECS:-2}"
+INTERVAL="${AGENT_FLEET_REFRESH_SECS:-30}"
 CACHE="$STATE_DIR/.board-cache.json"
 LINEMAP="$STATE_DIR/.board-linemap.tsv"
 . "$SCRIPT_DIR/agent-fleet-act.sh"
@@ -138,7 +138,7 @@ enter() {
     emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE"; return
   fi
   now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
-  p="$(jq -c '[.instances[]? | select(.selectedSid != null and (.selectedTs | type) == "number") ] | if length == 0 then null else max_by(.selectedTs) | {sid:.selectedSid,ts:.selectedTs} end' "$CACHE")"
+  p="$(stack_derive_p "${ZELLIJ_SESSION_NAME:-}" < "$CACHE")"
   stack="$(stack_reconcile "$p" "$now_ms" <<<"$(stack_read)")"
   stack_write "$stack"
   if [ -n "$HL_SID" ]; then
@@ -299,7 +299,11 @@ ns_now() {
   printf '%s' "$raw"
 }
 
-# Move highlight up/down by 1 within the mapped row count.
+# Move highlight up/down, then repaint ONCE. Held arrow keys queue many
+# keypresses; repainting per keypress (~200ms render each) makes nav feel
+# sluggish. Drain queued nav keys first (30ms settle window), apply each to
+# the highlight, and repaint a single time. A non-nav key drained in the
+# process is stashed in PENDING_KEY so the main loop still handles it.
 navigate() {
   local delta="$1"
   if [ ! -s "$LINEMAP" ]; then
@@ -308,18 +312,37 @@ navigate() {
   local last
   last="$(awk -F $'\t' 'END{if(NF>0) print $1; else print ""}' "$LINEMAP")"
   [ -n "$last" ] || return 0
-  local current="$HL_LINE"
-  if [ -z "$current" ]; then
-    if (( delta > 0 )); then
-      HL_LINE=1
+  local k seq current
+  while true; do
+    current="$HL_LINE"
+    if [ -z "$current" ]; then
+      if (( delta > 0 )); then
+        HL_LINE=1
+      else
+        HL_LINE="$last"
+      fi
     else
-      HL_LINE="$last"
+      HL_LINE=$(( current + delta ))
+      if (( HL_LINE < 1 )); then HL_LINE=1; fi
+      if (( HL_LINE > last )); then HL_LINE="$last"; fi
     fi
-  else
-    HL_LINE=$(( current + delta ))
-    if (( HL_LINE < 1 )); then HL_LINE=1; fi
-    if (( HL_LINE > last )); then HL_LINE="$last"; fi
-  fi
+    k=""
+    IFS= read -rsn1 -t 0.03 k || break
+    case "$k" in
+      j) delta=1 ;;
+      k) delta=-1 ;;
+      $'\e')
+        seq=""
+        IFS= read -rsn2 -t 0.05 seq || true
+        case "$seq" in
+          '[A') delta=-1 ;;
+          '[B') delta=1 ;;
+          *) break ;;   # unknown escape — main loop ignores these anyway
+        esac
+        ;;
+      *) PENDING_KEY="$k"; break ;;
+    esac
+  done
   # Re-derive identity atoms for the new line (so reorder preserves us).
   HL_KEY="$(linemap_field_for_line "$HL_LINE" key)"
   HL_SID="$(linemap_field_for_line "$HL_LINE" sid)"
@@ -329,6 +352,7 @@ navigate() {
 
 # --- highlight state (globals) ---
 HL_KEY=""; HL_SID=""; HL_CWD=""; HL_LINE="1"
+PENDING_KEY=""
 
 # Initial tick — anchor highlight on the first mapped row, if any. We
 # pre-seed HL_LINE=1 so the first find_hl_line(1) targets row 1 (the
@@ -350,8 +374,13 @@ while true; do
   # Read a single byte with the INTERVAL timeout. This is also where a
   # trapped WINCH returns >128: we treat that like a tick deadline (next
   # iteration's repaint picks up any stale frame).
+  # A key stashed by navigate()'s drain is replayed here before any new read.
   key=""
-  if IFS= read -rsn1 -t "$INTERVAL" key; then
+  if [ -n "$PENDING_KEY" ]; then
+    key="$PENDING_KEY"
+    PENDING_KEY=""
+    rc=0
+  elif IFS= read -rsn1 -t "$INTERVAL" key; then
     rc=0
   else
     rc=$?

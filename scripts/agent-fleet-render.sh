@@ -101,7 +101,13 @@ age_for() {
   local now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
   local delta_s=$(((now_ms - ts_ms) / 1000))
   if [ "$delta_s" -lt 0 ]; then delta_s=0; fi
-  printf '%d:%02d' $((delta_s / 60)) $((delta_s % 60))
+  # Minutes granularity: the user only needs a general sense of wait duration,
+  # and second-ticking ages force a 1s repaint cadence. Coarser display = the
+  # board can poll far less often (see board INTERVAL default).
+  local delta_m=$((delta_s / 60))
+  if [ "$delta_m" -lt 1 ]; then printf '<1m';
+  elif [ "$delta_m" -lt 60 ]; then printf '%dm' "$delta_m";
+  else printf '%dh' $((delta_m / 60)); fi
 }
 
 # -- read cache --
@@ -382,4 +388,6 @@ printf '%s\n' "${emit_rows[@]}" \
 # On failure above this line never runs — the empty linemap remains.
 mv -f "$_paint_tmp" "$LINEMAP"
 fi
-printf '\n  j/k or arrows: move | Enter: open | d: dismiss | q: quit\e[K\n'
+# Clear separator line before advancing to footer; erase-below cannot remove
+# stale row text left there when a shorter frame follows a longer one.
+printf '\e[K\n  j/k or arrows: move | Enter: open | d: dismiss | q: quit\e[K\n'

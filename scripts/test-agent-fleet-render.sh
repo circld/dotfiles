@@ -798,8 +798,8 @@ test_partial_frame_failure_leaves_empty_linemap() {
   # assert it gets replaced after a failure.
   printf 'STALE-LINE-1\tkey_a\tsid_a\t/x\nSTALE-LINE-2\tkey_b\tsid_b\t/y\n' > "$sandbox/.board-linemap.tsv"
   # Cache fixture with rows whose `ts` is a STRING, not a number. The
-  # renderer's `age_for` does `printf '%d:%02d'` which fails on non-numeric
-  # inputs, tripping `set -e` mid-paint.
+  # renderer's `age_for` aborts on non-numeric inputs, tripping the paint
+  # mid-frame.
   printf '{"rows":[{"source":"v2","key":"abc","sid":"ses_x","cwd":"/cwd_x","session":"sx","state":"done","reason":null,"ts":"not_a_number","title":"t","label":"t","suppressed":false,"rank":0,"pid":0,"pane":"x","tabId":"0","repo":"x"}]}' > "$sandbox/.board-cache.json"
   run_render "$sandbox"
   # 1) renderer exits non-zero on mid-paint failure.
@@ -962,6 +962,25 @@ test_live_instance_header_without_rows() {
     "$(grep -c -F '── FRESH-ZELLIJ ──────────────' <<<"$RENDER_OUT" || true)"
 }
 
+# --- 24. Footer separator clears rows removed by a shorter redraw. ---
+test_footer_separator_clears_removed_row() {
+  local sandbox="$ROOT/case_footer_separator"
+  mkdir -p "$sandbox"
+  local key_a; key_a=$(key_for "/footer-a")
+  local key_b; key_b=$(key_for "/footer-b")
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key_a" sid-a /footer-a sx done "" "$NOW_MS" "row-a" "row-a" false 0 footer-a 100 terminal_0 0)" \
+    "$(mk_row v2 "$key_b" sid-b /footer-b sx done "" "$NOW_MS" "row-b" "row-b" false 0 footer-b 101 terminal_1 0)"
+  run_render "$sandbox"
+
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key_a" sid-a /footer-a sx done "" "$NOW_MS" "row-a" "row-a" false 0 footer-a 100 terminal_0 0)"
+  run_render "$sandbox"
+
+  assert_contains "case24 footer separator: clears removed row" "$RENDER_OUT" \
+    $'\e[K\n\e[K\n  j/k or arrows: move | Enter: open | d: dismiss | q: quit'
+}
+
 # === run all ===
 run_test() {
   printf '\n--- %s ---\n' "$1"
@@ -993,6 +1012,7 @@ run_test test_unmapped_highlight_line_no_change
 run_test test_linemap_atomic_replaces_stale
 run_test test_help_footer_shows_dismiss_key
 run_test test_live_instance_header_without_rows
+run_test test_footer_separator_clears_removed_row
 run_test test_legitimate_dash_identity_survives
 run_test test_json_encoded_identity_decodes_exactly
 run_test test_partial_frame_failure_leaves_empty_linemap

@@ -62,16 +62,9 @@ if [ "$(jq '.live | length' <<<"$json")" = "0" ]; then
   exit 1
 fi
 
-# === Derive P (latest selectedSid across instances) — same shape as jump.sh. ===
-P_json="$(jq -c '
-  [ .instances[]
-    | select((.selectedSid != null) and (.selectedTs != null)
-             and ((.selectedTs | type) == "number")) ]
-  | if length > 0
-      then (max_by(.selectedTs) | {sid: .selectedSid, ts: .selectedTs})
-      else null
-    end
-' <<<"$json")"
+# === Derive P — physical-source-session preference, global-max fallback
+#     (see stack_derive_p in act.sh; same call in jump.sh and board.sh). ===
+P_json="$(stack_derive_p "$source_session" <<<"$json")"
 
 # === Reconcile before classifying outcome (reconcile-on-every-press). ===
 stack="$(stack_read)"

@@ -978,11 +978,66 @@ test_argument_validation() {
   assert_contains "args: stderr mentions usage" "$TRAV_STDERR" "usage"
 }
 
+# === Physical-presence reconcile: P prefers the instance behind the press ===
+# User trace: two instances in different zellij sessions. Fleet-landed on B
+# (B's sensor cursor newest), then natively zellij-switched back to A. Stack
+# current still says B. The press comes physically from zA, so reconcile must
+# treat A as the cursor and alt-, must reach B in ONE press. Regression guard:
+# global max(selectedTs) kept P=B, so the first alt-, popped A — the user's
+# physical location — from back, producing a stay-where-you-are hop that reads
+# as a duplicate node in the history stack.
+test_reconcile_prefers_physical_source_session() {
+  local sandbox="$ROOT/physrc"
+  mkdir -p "$sandbox"
+  local keyA keyB pidA=16001 pidB=16002
+  keyA=$(key_for "/physrc-a"); keyB=$(key_for "/physrc-b")
+  local pso="$ROOT/ps_physrc.tsv"
+  printf 'OPENCODE\t%s\nOPENCODE\t%s\n' "$pidA" "$pidB" > "$pso"
+  # A's cursor older (100), B's newer (200, last fleet landing). Both sids
+  # viewed-suppressed so pending stays empty (alt-. is at-end).
+  write_v2 "$sandbox" "$keyA" "$pidA" "/physrc-a" "zA" "A" 100 \
+    "A" "done" 100 null
+  write_v2 "$sandbox" "$keyB" "$pidB" "/physrc-b" "zB" "B" 200 \
+    "B" "done" 200 null
+  write_viewed "$sandbox" "$keyA" "$pidA" "A" 100
+  write_viewed "$sandbox" "$keyB" "$pidB" "B" 200
+  local now_ms=2000000000500
+  # Stack still believes current=B (last fleet landing); user is physically on A.
+  local pre_stack='{"v":1,"current":{"sid":"B","ts":1990000000000},"back":["A"],"forward":[]}'
+  local live=$'/physrc-a\tzA\tterminal_1\t0\n/physrc-b\tzB\tterminal_2\t0'
+  # alt-. #1: no forward, no pending → at-end; reconcile flips current to
+  # physical A (pushing B onto back) even though B's selectedTs is newer.
+  run_trav "decide-act" "$sandbox" "$pso" "$live" "next" "$now_ms" "$pre_stack" "zA"
+  assert_eq "physrc next#1: at-end (no forward, no pending)" \
+    "DECISION:kind=at-end" "$TRAV_STDOUT"
+  assert_stack_eq "physrc next#1: reconcile flips current to physical A, B onto back" \
+    "{\"v\":1,\"current\":{\"sid\":\"A\",\"ts\":${now_ms}},\"back\":[\"B\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+  # alt-, #1 (still from zA): pops B — the actual previous session — directly.
+  run_trav "decide-act" "$sandbox" "$pso" "$live" "prev" "$now_ms" "" "zA"
+  assert_eq "physrc prev#1: lands B directly (no duplicate hop via physical A)" \
+    "DECISION:kind=select cwd=/physrc-b session=zB pane=terminal_2 tab_id=0 key=${keyB}-${pidB} sid=B" \
+    "$TRAV_STDOUT"
+  assert_stack_eq "physrc prev#1: current=B, forward=[A]" \
+    "{\"v\":1,\"current\":{\"sid\":\"B\",\"ts\":${now_ms}},\"back\":[],\"forward\":[\"A\"]}" \
+    "$sandbox/traverse-stack.json"
+  # alt-. #2: press now physically from zB (the landing switched sessions);
+  # forward-pop returns to A.
+  run_trav "decide-act" "$sandbox" "$pso" "$live" "next" "$now_ms" "" "zB"
+  assert_eq "physrc next#2: forward-pop returns to A" \
+    "DECISION:kind=select cwd=/physrc-a session=zA pane=terminal_1 tab_id=0 key=${keyA}-${pidA} sid=A" \
+    "$TRAV_STDOUT"
+  assert_stack_eq "physrc next#2: current=A, back=[B], forward=[]" \
+    "{\"v\":1,\"current\":{\"sid\":\"A\",\"ts\":${now_ms}},\"back\":[\"B\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+}
+
 # === run all tests ===
 run_test() { "$1"; }
 
 run_test test_scenario_1_acceptance_next_prev_next
 run_test test_scenario_2_acceptance_prev_next_next
+run_test test_reconcile_prefers_physical_source_session
 run_test test_back_pops_mru_forward_pops_lifo
 run_test test_recency_uniqueness_no_double_insertion
 run_test test_back_exhaustion_scans_viewed_positionally

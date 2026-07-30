@@ -85,6 +85,30 @@ stack_push_mru() {
   '
 }
 
+# === stack_derive_p: pure jq transform. Inputs: model JSON (stdin), source
+#     zellij session ($1, may be ""). Emits P = {sid, ts} | null on stdout. ===
+# Physical-presence preference: when the press comes from a zellij session
+# hosting agent instance(s) with a cursor, P is the newest such cursor — the
+# user IS there. Global max(selectedTs) lags native zellij session switches
+# (sensor cursors only advance on mailbox consumes), leaving the stack current
+# pinned to wherever the last fleet landing went; the next alt-, then "pops"
+# the session the user is already sitting in (reads as a duplicate node).
+# Falls back to global max when the source session hosts no instance with a
+# cursor. Instance↔session join is by cwd (instances carry no session field);
+# an ambiguous cwd shared across zellij sessions counts toward both — harmless.
+stack_derive_p() {
+  jq -c --arg src "${1:-}" '
+    def cursor: select(.selectedSid != null and (.selectedTs | type) == "number")
+                | {sid: .selectedSid, ts: .selectedTs};
+    ([ .live[]? | select(.session == $src) | .cwd ] | unique) as $src_cwds
+    | ([ .instances[]? | select(.cwd as $c | ($src_cwds | index($c)) != null) | cursor ]
+       | if length > 0 then max_by(.ts) else null end) as $local
+    | if $local != null then $local
+       else ([ .instances[]? | cursor ] | if length > 0 then max_by(.ts) else null end)
+       end
+  '
+}
+
 # === stack_reconcile: pure jq transform. Inputs: stack JSON (stdin), P (--argjson), now_ms ($(($now_ms))). ===
 # Semantics per design `Traverse stack semantics` (§Reconcile on every press):
 #   - P undeterminable (null)                       → no change
@@ -180,10 +204,6 @@ act_land() {
     return 0
   fi
   aerospace workspace 1 || true
-  # The notes board is a home base; do not abandon it for a remote agent.
-  if [ "${ZELLIJ_SESSION_NAME:-}" = "notes" ] && [ "$sess" != "notes" ]; then
-    return 0
-  fi
   if [ -n "$sess" ] && [ -n "$pane" ]; then
     if [ "$sess" = "${ZELLIJ_SESSION_NAME:-}" ]; then
       zellij action go-to-tab-by-id "$tab" || true
