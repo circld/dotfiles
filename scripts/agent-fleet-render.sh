@@ -157,6 +157,17 @@ done < <(jq -r --arg bad_re "$_bad_re" '
 emit_rows=()
 add_row() { emit_rows+=( "$1" ); }
 
+# Headers represent live opencode panes, not visible chat rows. This keeps an
+# idle or startup-seeded instance present without making its chats navigable.
+while IFS= read -r session_name; do
+  [ -n "$session_name" ] || continue
+  add_row "$(printf '%s\t-1\t-1\t-\tlive_header\tnull\tnull\tlive_header\t-\t-\t-\t-\t0\t-' "$session_name")"
+done < <(jq -r --arg bad_re "$_bad_re" '
+  [.live[]?.session
+   | select(type == "string" and length > 0 and (test($bad_re) | not))]
+  | unique[]
+' <<<"$json")
+
 # Warning rows: 14 cells with payload all null. (Painter hardcodes the
 # "duplicate opencode instance" text.)
 while IFS=$'\t' read -r sess cwd; do
@@ -272,10 +283,10 @@ done < <(jq -r --arg bad_re "$_bad_re" '
    | .cwd] | unique[])
 ' <<<"$json")
 
-# -- if no rows to paint, exit 0 (empty linemap already installed) --
+# -- paint when there is content; footer is emitted once below --
 if [ "${#emit_rows[@]}" -eq 0 ]; then
-  exit 0
-fi
+  :
+else
 
 # -- paint --
 # line_no ticks ONLY on navigable rows. A single-use tmp gets atomic-renamed
@@ -305,6 +316,9 @@ printf '%s\n' "${emit_rows[@]}" \
         current_session="$sess"
       fi
       case "$kind" in
+        live_header)
+          :
+          ;;
         warning)
           line_no=$((line_no + 1))
           printf '  ⚠️  %-32.32s duplicate opencode instance — pick one\e[K\n' "$cwd"
@@ -367,3 +381,5 @@ printf '%s\n' "${emit_rows[@]}" \
 # Atomic install: overwrite the (currently empty) linemap with the new map.
 # On failure above this line never runs — the empty linemap remains.
 mv -f "$_paint_tmp" "$LINEMAP"
+fi
+printf '\n  j/k or arrows: move | Enter: open | d: dismiss | q: quit\e[K\n'

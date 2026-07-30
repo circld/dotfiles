@@ -213,6 +213,9 @@ function model() {
       const sessionRows = [];
       for (const [sid, entry] of Object.entries(obj.sessions ?? {})) {
         if (sid === '__pane__') continue;
+        // Startup-seeded sessions remain in instances[] for traversal, but
+        // unknown rows are not actionable board entries.
+        if (entry.state === 'unknown') continue;
         sessionRows.push(baseRow({ cwd, live: pane, key, obj, sid, entry, source: 'v2', getViewedMap }));
       }
       rows.push(...sessionRows);

@@ -934,6 +934,34 @@ test_linemap_atomic_replaces_stale() {
     "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
 }
 
+# --- 22. Footer exposes board controls, including dismissal. ---
+test_help_footer_shows_dismiss_key() {
+  local sandbox="$ROOT/case_help_footer"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/help")
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" ses_help /help sx done "" "$NOW_MS" "help" "help" false 0 help 100 terminal_0 0)"
+  run_render "$sandbox"
+  assert_contains "case22 footer: dismiss key shown" "$RENDER_OUT" "d: dismiss"
+  assert_contains "case22 footer: open key shown" "$RENDER_OUT" "Enter: open"
+  assert_count "case22 footer: rendered once" "$RENDER_OUT" \
+    "j/k or arrows: move | Enter: open | d: dismiss | q: quit" "1"
+  assert_eq "case22 footer: one renderer emission" "1" \
+    "$(grep -c -F 'j/k or arrows: move | Enter: open | d: dismiss | q: quit' "$RENDER")"
+}
+
+# --- 23. Live instance header remains when it has no visible chat rows. ---
+test_live_instance_header_without_rows() {
+  local sandbox="$ROOT/case_live_header"
+  mkdir -p "$sandbox"
+  printf '%s\n' '{"rows":[],"live":[{"session":"fresh-zellij","cwd":"/fresh","pane":"terminal_0","tabId":"0"}]}' \
+    > "$sandbox/.board-cache.json"
+  run_render "$sandbox"
+  assert_contains "case23 live header: session name shown" "$RENDER_OUT" "FRESH-ZELLIJ"
+  assert_eq "case23 live header: exactly one session header" "1" \
+    "$(grep -c -F '── FRESH-ZELLIJ ──────────────' <<<"$RENDER_OUT" || true)"
+}
+
 # === run all ===
 run_test() {
   printf '\n--- %s ---\n' "$1"
@@ -963,6 +991,8 @@ run_test test_linemap_nulls_use_empty_fields
 run_test test_highlight_wraps_mapped_target_row
 run_test test_unmapped_highlight_line_no_change
 run_test test_linemap_atomic_replaces_stale
+run_test test_help_footer_shows_dismiss_key
+run_test test_live_instance_header_without_rows
 run_test test_legitimate_dash_identity_survives
 run_test test_json_encoded_identity_decodes_exactly
 run_test test_partial_frame_failure_leaves_empty_linemap

@@ -112,6 +112,31 @@ EOF
     "$(jq -r '.instances[0].sessions | sort | join(",")' <<<"$MODEL_OUT")"
 }
 
+# Seeded sessions stay in instances[] for traversal liveness, but their
+# unknown/sensor-restarted rows are not attention-board entries.
+test_seeded_unknown_rows_hidden_from_board() {
+  local sandbox="$ROOT/seeded_unknown"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_seeded_unknown"
+  printf 'OPENCODE\t50002\n' > "$pso"
+  local key; key=$(key_for "/seeded")
+  cat > "$sandbox/${key}-50002.json" <<EOF
+{"repo":"s","cwd":"/seeded","session":"sx","pid":50002,
+ "sessions":{
+   "old_chat":{"state":"unknown","reason":"sensor restarted","ts":100,"task":null,"title":"old chat"},
+   "active_chat":{"state":"working","reason":null,"ts":200,"task":null,"title":"active chat"}
+ }}
+EOF
+  run_model "$sandbox" "$pso" $'/seeded\tsx\tterminal_0\t0'
+  assert_eq "seeded unknown: model exits 0" "0" "$MODEL_RC"
+  assert_eq "seeded unknown: old chat not rendered as row" "0" \
+    "$(jq '[.rows[] | select(.sid == "old_chat")] | length' <<<"$MODEL_OUT")"
+  assert_eq "seeded unknown: active chat remains rendered" "1" \
+    "$(jq '[.rows[] | select(.sid == "active_chat")] | length' <<<"$MODEL_OUT")"
+  assert_eq "seeded unknown: old chat remains traversable" "active_chat,old_chat" \
+    "$(jq -r '.instances[0].sessions | sort | join(",")' <<<"$MODEL_OUT")"
+}
+
 # --- instances skip __pane__ sentinel in sessions list ---
 test_instances_skip_pane_sentinel() {
   local sandbox="$ROOT/inst_pane_skip"
@@ -515,6 +540,7 @@ EOF
 
 test_model_classifies_once
 test_instances_shape
+test_seeded_unknown_rows_hidden_from_board
 test_instances_skip_pane_sentinel
 test_instances_keeps_ambiguous
 test_timeline_pending_fifo
