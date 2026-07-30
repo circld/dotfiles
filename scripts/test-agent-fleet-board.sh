@@ -54,6 +54,9 @@ cat > "$FAKES/model.sh" <<'EOF'
 log="${AGENT_FLEET_TEST_LOG_M:-}"
 state_dir="${AGENT_FLEET_STATE_DIR:-}"
 [ -n "$log" ] && printf 'model ok ts=%s\n' "$(date +%s%N)" >> "$log"
+calls_file="$state_dir/.model-calls"
+calls=0; [ -f "$calls_file" ] && calls="$(cat "$calls_file")"
+printf '%s\n' "$((calls + 1))" > "$calls_file"
 if [ -f "$state_dir/.fake-model.json" ]; then
   cat "$state_dir/.fake-model.json"
 fi
@@ -75,6 +78,23 @@ fi
 cat "$state_dir/.fake-model.json"
 EOF
 chmod +x "$FAKES/model-pause-six.sh"
+
+cat > "$FAKES/model-fail-until-recover.sh" <<'EOF'
+#!/usr/bin/env bash
+state_dir="${AGENT_FLEET_STATE_DIR:-}"
+calls_file="$state_dir/.model-calls"
+calls=0
+[ -f "$calls_file" ] && calls="$(cat "$calls_file")"
+calls=$((calls + 1))
+printf '%s\n' "$calls" > "$calls_file"
+if (( calls > 1 )) && [ ! -f "$state_dir/.model-recover" ]; then
+  printf 'model FAIL ts=%s\n' "$(date +%s%N)" >> "${AGENT_FLEET_TEST_LOG_M:-/dev/null}"
+  exit 7
+fi
+printf 'model ok ts=%s\n' "$(date +%s%N)" >> "${AGENT_FLEET_TEST_LOG_M:-/dev/null}"
+cat "$state_dir/.fake-model.json"
+EOF
+chmod +x "$FAKES/model-fail-until-recover.sh"
 
 # Fake model that succeeds once, then fails on every later invocation.
 cat > "$FAKES/model-then-fail.sh" <<'EOF'
@@ -131,8 +151,19 @@ while IFS= read -r row; do
 done < <(jq -r '.rows[] | select(.suppressed != true) | [(.key // ""), (.sid // ""), (.cwd // "")] | @tsv' < "$cache" 2>/dev/null)
 mv -f "$tmp" "$linemap"
 printf 'FRAME\n'
+printf 'render complete\n' >> "$log"
 EOF
 chmod +x "$FAKES/renderer.sh"
+cat > "$FAKES/renderer-static.sh" <<'EOF'
+#!/usr/bin/env bash
+log="${AGENT_FLEET_TEST_LOG_R:-}"
+state_dir="${AGENT_FLEET_STATE_DIR:-}"
+printf 'render hl=[%s] ts=%s\n' "${AGENT_FLEET_HIGHLIGHT_LINE-(unset)}" "$(date +%s%N)" >> "$log"
+printf '1\t%s\t%s\t%s\n' "$(jq -r '.rows[0].key // ""' "$state_dir/.board-cache.json")" "$(jq -r '.rows[0].sid // ""' "$state_dir/.board-cache.json")" "$(jq -r '.rows[0].cwd // ""' "$state_dir/.board-cache.json")" > "$state_dir/.board-linemap.tsv"
+printf 'FRAME\n'
+printf 'render complete\n' >> "$log"
+EOF
+chmod +x "$FAKES/renderer-static.sh"
 cat > "$FAKES/renderer-stderr.sh" <<EOF
 #!/usr/bin/env bash
 printf 'renderer diagnostic\n' >&2
@@ -226,12 +257,13 @@ launch_board_async() {
     AGENT_FLEET_TEST_LOG_R="$sandbox/log-render" \
     AGENT_FLEET_DECIDE_ONLY="${CASE_DECIDE_ONLY:-0}" \
     AGENT_FLEET_DECIDE_ACT="${CASE_DECIDE_ACT:-0}" \
-    AGENT_FLEET_REFRESH_SECS=1 \
+    AGENT_FLEET_REFRESH_SECS="${CASE_REFRESH_SECS:-1}" \
     bash "$BOARD" < "$BOARD_FIFO" > "$sandbox/stdout" 2> "$sandbox/stderr" &
   BOARD_PID=$!
 }
 
 decision_lines() { tr '\r' '\n' < "$1/stdout" | grep -oE 'DECISION:[^[:space:]]+([^\r\n]*)?' || true; }
+hidden_decisions() { perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g' "$1/stdout" | grep -E '^DECISION:hidden=' || true; }
 
 write_model_with_instances() {
   local path="$1" rows="$2" instances="${3:-[]}"
@@ -984,11 +1016,12 @@ test_enter_reruns_model_immediately() {
   local sandbox="$ROOT/case24_enter_refresh" key; mkdir -p "$sandbox"; key=$(key_for "/refresh-enter")
   local row; row=$(mk_row v2 "$key" sid-refresh /refresh-enter sess done "" $NOW_MS)
   write_model_with_instances "$sandbox/.fake-model.json" "$row"
-  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"
-  if ! wait_log_count "$sandbox/log-model" '^model ok' 1 3; then stop_feeder; wait_board 3; fail_msg "case24: initial model call"; CASE_DECIDE_ONLY=0; return; fi
+  CASE_DECIDE_ONLY=1; CASE_REFRESH_SECS=3600; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"
+  if ! wait_log_count "$sandbox/log-render" '^render complete' 1 3 || ! wait_log_count "$sandbox/log-model" '^model ok' 1 2; then stop_feeder; wait_board 3; fail_msg "case24: initial model call"; CASE_DECIDE_ONLY=0; CASE_REFRESH_SECS=1; return; fi
+  : > "$sandbox/log-model"; printf '0\n' > "$sandbox/.model-calls"
   printf '\n' > "$BOARD_FIFO"
-  if wait_log_count "$sandbox/log-model" '^model ok' 2 2; then pass "case24: Enter reruns model before landing"; else fail_msg "case24: Enter reruns model before landing"; fi
-  stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
+  if wait_log_count "$sandbox/log-model" '^model ok' 1 2 && [ "$(cat "$sandbox/.model-calls")" = 1 ]; then pass "case24: Enter causes exactly one fresh model call"; else fail_msg "case24: Enter causes exactly one fresh model call"; fi
+  stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0; CASE_REFRESH_SECS=1
 }
 
 test_enter_duplicate_and_vanished_are_noop() {
@@ -1054,10 +1087,21 @@ test_dismiss_duplicate_is_noop() {
 test_board_internal_keys_do_not_reconcile_with_fresh_p() {
   local sandbox="$ROOT/case30_internal_keys" key; mkdir -p "$sandbox"; key=$(key_for "/internal")
   local row; row=$(mk_row v2 "$key" sid-internal /internal sess done "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row" '[{"selectedSid":"sid-fresh","selectedTs":999}]'
-  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
-  feed_forever "$BOARD_FIFO" j 0.1 k 0.1 "$(printf '\e[A')" 0.1 "$(printf '\e[B')" 0.1 "$(printf '\e')" 0.1 d 0.1 q
-  wait_board 6; stop_feeder; CASE_DECIDE_ONLY=0
-  if [ ! -f "$sandbox/traverse-stack.json" ] && ! grep -qF 'DECISION:kind=select' "$sandbox/stdout"; then pass "case30: board-internal keys never reconcile"; else fail_msg "case30: board-internal keys never reconcile" "$(cat "$sandbox/stdout")"; fi
+  CASE_DECIDE_ONLY=1; CASE_REFRESH_SECS=3600; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer-static.sh"
+  wait_log_count "$sandbox/log-render" '^render complete' 1 3; wait_log_count "$sandbox/log-model" '^model ok' 1 2
+  feed_forever "$BOARD_FIFO"
+  : > "$sandbox/.post-model-calls"; : > "$sandbox/.track-model"
+  local target=0 internal_ok=1 key_bytes calls
+  check_internal_key() {
+    key_bytes="$1"; target=$((target + 1)); : > "$sandbox/.post-model-calls"; printf '%s' "$key_bytes" > "$BOARD_FIFO"
+    wait_log_count "$sandbox/stdout" 'DECISION:hidden=' "$target" 3 || internal_ok=0
+    calls="$(wc -l < "$sandbox/.post-model-calls" 2>/dev/null | tr -d ' ')"; [ "$calls" = 0 ] || internal_ok=0
+  }
+  check_internal_key $'\e'; check_internal_key j; check_internal_key k
+  check_internal_key $'\e[A'; check_internal_key $'\e[B'; check_internal_key d
+  check_internal_key q; wait_board 6; stop_feeder; CASE_DECIDE_ONLY=0
+  if (( internal_ok == 1 )) && ! grep -qF 'DECISION:kind=select' "$sandbox/stdout"; then pass "case30: board-internal keys never reconcile or rerun model"; else fail_msg "case30: board-internal keys never reconcile or rerun model" "post=$(cat "$sandbox/.post-model-calls")" "$(cat "$sandbox/stdout")"; fi
+  CASE_REFRESH_SECS=1
 }
 
 test_hidden_set_confirms_on_suppressed_model_row() {
@@ -1073,7 +1117,7 @@ test_hidden_set_confirms_on_suppressed_model_row() {
   [ "$(jq -r '.rows[0].suppressed' "$sandbox/.board-cache.json" 2>/dev/null)" = true ] && confirmed_cache=1
   ! grep -qF sid-confirm "$sandbox/.board-linemap.tsv" 2>/dev/null && confirmed_map=1
   stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
-  if grep -qF 'DECISION:hidden=sid-confirm' "$sandbox/stdout" && grep -qF 'DECISION:hidden=' "$sandbox/stdout" && ! grep -qF 'DECISION:hidden=sid-confirm' <(tail -n 1 "$sandbox/stdout") &&
+  if grep -qE '^DECISION:hidden=sid-confirm$' <(hidden_decisions "$sandbox") && grep -qE '^DECISION:hidden=$' <(hidden_decisions "$sandbox") &&
        (( confirmed_cache == 1 && confirmed_map == 1 )); then
     pass "case31: suppressed row confirms and clears hide"
   else fail_msg "case31: suppressed row confirms and clears hide" "$(cat "$sandbox/stdout")" "cache=$(cat "$sandbox/.board-cache.json" 2>/dev/null || true)" "linemap=$(cat "$sandbox/.board-linemap.tsv" 2>/dev/null || true)" "confirmed_cache=$confirmed_cache confirmed_map=$confirmed_map"; fi
@@ -1105,13 +1149,29 @@ test_hidden_set_expires_when_sensor_never_suppresses() {
   stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
 }
 
+test_hidden_set_survives_model_failures_and_expires_after_recovery() {
+  local sandbox="$ROOT/case35_hidden_model_failure" key; mkdir -p "$sandbox"; key=$(key_for "/model-failure")
+  local row; row=$(mk_row v2 "$key" sid-model-failure /model-failure sess done "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; CASE_REFRESH_SECS=0.2; launch_board_async "$sandbox" "$FAKES/model-fail-until-recover.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"
+  wait_first_render "$sandbox/log-render" 3; printf d > "$BOARD_FIFO"
+  if ! wait_log_count "$sandbox/log-model" '^model FAIL' 3 4; then stop_feeder; wait_board 3; fail_msg "case35: model failure injection"; CASE_DECIDE_ONLY=0; CASE_REFRESH_SECS=1; return; fi
+  : > "$sandbox/.model-recover"
+  if ! wait_log_count "$sandbox/log-model" '^model ok' 6 5; then stop_feeder; wait_board 3; fail_msg "case35: model recovered for five successful ticks"; CASE_DECIDE_ONLY=0; CASE_REFRESH_SECS=1; return; fi
+  wait_log_count "$sandbox/log-render" '^render hl=' 6 3
+  local visible=0
+  if jq -e --arg sid sid-model-failure '.rows[]? | select(.sid == $sid)' "$sandbox/.board-cache.json" >/dev/null 2>&1; then visible=1; fi
+  stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0; CASE_REFRESH_SECS=1
+  if (( visible == 1 )); then pass "case35: model failures do not permanently hide row"; else fail_msg "case35: model failures do not permanently hide row"; fi
+}
+
 test_decision_hidden_emits_each_processed_key_and_transitions() {
   local sandbox="$ROOT/case34_hidden_decisions" key; mkdir -p "$sandbox"; key=$(key_for "/hidden-decisions")
   local row; row=$(mk_row v2 "$key" sid-decisions /hidden-decisions sess done "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
   CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" $' jd ' 1.2; wait_board 6; CASE_DECIDE_ONLY=0
-  local empty_count contains_count
-  empty_count=$(grep -cF 'DECISION:hidden=' "$sandbox/stdout" || true); contains_count=$(grep -cF 'DECISION:hidden=sid-decisions' "$sandbox/stdout" || true)
-  if (( empty_count >= 2 && contains_count >= 1 )); then pass "case34: DECISION:hidden tracks every processed key"; else fail_msg "case34: DECISION:hidden tracks every processed key" "$(cat "$sandbox/stdout")"; fi
+  mapfile -t hidden_lines < <(hidden_decisions "$sandbox")
+  if (( ${#hidden_lines[@]} == 4 )) && [ "${hidden_lines[0]}" = 'DECISION:hidden=' ] && [ "${hidden_lines[1]}" = 'DECISION:hidden=' ] && [ "${hidden_lines[2]}" = 'DECISION:hidden=sid-decisions' ] && [ "${hidden_lines[3]}" = 'DECISION:hidden=sid-decisions' ]; then
+    pass "case34: DECISION:hidden exactly tracks each processed key"
+  else fail_msg "case34: DECISION:hidden exactly tracks each processed key" "$(cat "$sandbox/stdout")"; fi
 }
 
 test_dismiss_ineligible_is_noop() {
@@ -1171,6 +1231,7 @@ test_board_internal_keys_do_not_reconcile_with_fresh_p
 test_hidden_set_confirms_on_suppressed_model_row
 test_hidden_set_expires_on_exact_fifth_refresh_tick
 test_hidden_set_expires_when_sensor_never_suppresses
+test_hidden_set_survives_model_failures_and_expires_after_recovery
 test_decision_hidden_emits_each_processed_key_and_transitions
 test_dismiss_hide_expires_after_five_ticks
 
