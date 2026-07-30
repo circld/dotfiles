@@ -327,6 +327,13 @@ assert.deepEqual(
 assert.deepEqual(
   planSelect({ sessionID: 'ses_abc', markOnly: true }, false),
   { markViewed: true, deleteMailbox: true });
+// markOnly short-circuits regardless of selectOk. Pinning the true side: a
+// future regression that lets selectOk===true drive a markOnly mailbox
+// through the select path (instead of the markOnly branch) gets caught
+// here — the result must be identical to the false case.
+assert.deepEqual(
+  planSelect({ sessionID: 'ses_abc', markOnly: true }, true),
+  { markViewed: true, deleteMailbox: true });
 // markOnly=true WITHOUT a sessionID: the malformed guard (no sessionID)
 // still fires FIRST, so the result is the same null-mailbox contract:
 // delete the mailbox, never claim viewed. Keeps the no-sessionID edge as
