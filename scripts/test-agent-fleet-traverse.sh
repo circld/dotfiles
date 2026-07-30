@@ -1067,6 +1067,10 @@ EOF
   run_trav "decide-act" "$sandbox" "$pso" $'/projA\tsx\tterminal_1\t0' "prev" "2000000000500" \
     '{"v":1,"current":{"sid":"old","ts":100},"back":["s1"],"forward":[]}' "" "t5-req" "$trace"
   assert_file_exists "trace5: action.json" "$trace/t5-req/action.json"
+  assert_eq "trace5: action decision" "select" \
+    "$(jq -r '.decision' "$trace/t5-req/action.json" 2>/dev/null)"
+  assert_eq "trace5: action target" "s1" \
+    "$(jq -r '.target_sid' "$trace/t5-req/action.json" 2>/dev/null)"
 }
 
 # === run all tests ===

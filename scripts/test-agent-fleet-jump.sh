@@ -1676,6 +1676,35 @@ EOF
   assert_eq "trace5: candidates capped at 5 (of 6)" "5" "$(jq -r '.candidates | length' "$trace/t5-req/oracle.json" 2>/dev/null)"
 }
 
+# --- oracle: explicit cwd scores cwd-filtered actionable pool ---
+{
+  sandbox="$ROOT/state-trace6"; mkdir -p "$sandbox"
+  pso="$ROOT/pso-trace6"; printf 'OPENCODE\t1001\nOPENCODE\t1002\n' > "$pso"
+  keyA="$(printf '%s' /projA | shasum -a 256 | cut -c1-16)"
+  keyB="$(printf '%s' /projB | shasum -a 256 | cut -c1-16)"
+  cat > "$sandbox/${keyA}-1001.json" <<'EOF'
+{"repo":"a","cwd":"/projA","session":"sxA","pid":1001,"sessions":{"a1":{"state":"done","reason":null,"ts":100,"task":null,"title":"A1"}}}
+EOF
+  cat > "$sandbox/${keyB}-1002.json" <<'EOF'
+{"repo":"b","cwd":"/projB","session":"sxB","pid":1002,"sessions":{"b1":{"state":"needs-attention","reason":null,"ts":200,"task":null,"title":"B1"}}}
+EOF
+  trace="$ROOT/trace-6"
+  pane_file="$ROOT/pane-trace6.tsv"
+  printf '/projA\tsxA\tterminal_1\t0\n/projB\tsxB\tterminal_2\t0\n' > "$pane_file"
+  env \
+    AGENT_FLEET_LIVE_PANES_OVERRIDE="$pane_file" \
+    AGENT_FLEET_STATE_DIR="$sandbox" \
+    AGENT_FLEET_PS_OVERRIDE="$pso" \
+    AGENT_FLEET_DECIDE_SELECT=1 \
+    AGENT_FLEET_TRACE_DIR="$trace" \
+    AF_REQUEST_ID="t6-req" \
+    bash "$JUMP" /projA >/dev/null 2>&1
+  assert_eq "trace6: requested cwd" "/projA" \
+    "$(jq -r '.requestedCwd' "$trace/t6-req/oracle.json" 2>/dev/null)"
+  assert_eq "trace6: winner uses cwd pool" "/projA" \
+    "$(jq -r '.winner.cwd' "$trace/t6-req/oracle.json" 2>/dev/null)"
+}
+
 # === run all tests ===
 run_test() {
   local fn="$1"
