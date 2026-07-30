@@ -79,19 +79,13 @@ session_label_for() {
   fi
 }
 
-# Decode a JSON-encoded pipe cell: literal `null` -> "", `"x"` -> `x`.
-# Other values (impossible by construction since this is only called for
-# jq-encoded JSON output) pass through.
+# Decode a JSON-encoded pipe cell: undo @tsv's backslash escaping, then parse
+# the @json value so quotes and backslashes return as their original bytes.
 decode_json_cell() {
   local v="$1"
   case "$v" in
     null) printf '' ;;
-    \"*\")
-      local r="${v#\"}"
-      r="${r%\"}"
-      printf '%s' "$r"
-      ;;
-    *) printf '%s' "$v" ;;
+    *) jq -rn --arg v "$v" '$v | gsub("\\\\\\\\"; "\\") | fromjson' ;;
   esac
 }
 
@@ -144,7 +138,6 @@ while IFS= read -r bad_msg; do
   echo "agent-fleet-render: skipping row with control char in ${bad_msg}" >&2
 done < <(jq -r --arg bad_re "$_bad_re" '
   .rows[]
-  | select((.suppressed == false) and (.source != "warning"))
   | . as $r
   | select(
       (((.key // "") | test($bad_re)))

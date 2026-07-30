@@ -768,6 +768,23 @@ test_legitimate_dash_identity_survives() {
   assert_contains "case22 dash: 'dashy' title paints" "$RENDER_OUT" "dashy"
 }
 
+# --- 25. JSON-encoded identity cells decode back to their exact bytes. ---
+test_json_encoded_identity_decodes_exactly() {
+  local sandbox="$ROOT/case_json_identity"
+  mkdir -p "$sandbox"
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 'k"x' 's\x' /json_identity sx done "" $((NOW_MS - 5000)) "identity" "identity" false 0 json 25001 terminal_0 0)"
+  AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
+  local expected
+  expected="$(jq -nr \
+    --arg key 'k"x' \
+    --arg sid 's\x' \
+    --arg cwd '/json_identity' \
+    '"1\t" + $key + "\t" + $sid + "\t" + $cwd')"
+  assert_eq "case25 JSON identity: linemap preserves quote and backslash bytes" \
+    "$expected" "$LINEMAP_OUT"
+}
+
 # --- 23. Partial-frame failure leaves an EMPTY linemap (NOT the stale one). ---
 # Renderer pre-installs an empty `.board-linemap.tsv` BEFORE painting. A
 # mid-paint failure (jq or `printf %d` choking on a non-numeric ts) leaves
@@ -836,9 +853,13 @@ rows = [
    "state":"done","reason":None,"ts":1000,"title":"good","label":"good",
    "suppressed":False,"rank":0,"pid":0,"pane":"x","tabId":"0","repo":"good"},
   # bad row: literal TAB inside the cwd string.
-  {"source":"v2","key":"abc","sid":"ses2","cwd":"/has\ttab","session":"sxB",
-   "state":"done","reason":None,"ts":2000,"title":"badtitle","label":"badlabel",
-   "suppressed":False,"rank":0,"pid":0,"pane":"x","tabId":"0","repo":"bad"},
+   {"source":"v2","key":"abc","sid":"ses2","cwd":"/has\ttab","session":"sxB",
+    "state":"done","reason":None,"ts":2000,"title":"badtitle","label":"badlabel",
+    "suppressed":False,"rank":0,"pid":0,"pane":"x","tabId":"0","repo":"bad"},
+   # bad warning row: literal TAB inside cwd must warn and stay filtered.
+   {"source":"warning","key":None,"sid":None,"cwd":"/warn\ttab","session":"sxW",
+    "state":"unknown","reason":"duplicate","ts":0,"title":None,"label":"/warn",
+    "suppressed":False,"rank":None,"pid":None,"pane":"x","tabId":"0","repo":"warn"},
 ]
 print(json.dumps({"rows": rows}))
 ' > "$sandbox/.board-cache.json"
@@ -862,15 +883,29 @@ print(json.dumps({"rows": rows}))
   else
     fail "case_ctrl: stderr names the bad row" "stderr=$(cat $tmp_err)"
   fi
-  # 3) stdout does NOT include the bad row's identity.
+  # 3) warning-source rows get the same rejection warning before filtering.
+  if grep -F "key=<null> sid=<null> cwd=/warn" "$tmp_err" >/dev/null \
+    && grep -F "[bad=cwd]" "$tmp_err" >/dev/null; then
+    pass "case_ctrl: warning-source row emits control-char warning"
+  else
+    fail "case_ctrl: warning-source row emits control-char warning" "stderr=$(cat $tmp_err)"
+  fi
+  # 4) stdout does NOT include the bad row's identity.
   local stdout; stdout="$(cat "$sandbox/stdout.txt")"
   if [[ "$stdout" != *"badtitle"* ]] && [[ "$stdout" != *"badlabel"* ]] && [[ "$stdout" != *"/has"* ]]; then
     pass "case_ctrl: bad row filtered from painted frame"
   else
     fail "case_ctrl: bad row filtered from painted frame" "stdout=$stdout"
   fi
-  # 4) The good row still maps by exact byte identity in the linemap.
+  # 5) The warning row is also absent from the painted frame and linemap.
   local linemap; linemap="$(cat "$sandbox_linemap")"
+  if [[ "$stdout" != *"/warn"* ]] && [[ "$linemap" != *"/warn"* ]]; then
+    pass "case_ctrl: warning-source row filtered from frame and linemap"
+  else
+    fail "case_ctrl: warning-source row filtered from frame and linemap" \
+      "stdout=$stdout" "linemap=$linemap"
+  fi
+  # 6) The good row still maps by exact byte identity in the linemap.
   if grep -qF "/good" <<<"$linemap"; then
     pass "case_ctrl: clean row mapped byte-exact"
   else
@@ -929,6 +964,7 @@ run_test test_highlight_wraps_mapped_target_row
 run_test test_unmapped_highlight_line_no_change
 run_test test_linemap_atomic_replaces_stale
 run_test test_legitimate_dash_identity_survives
+run_test test_json_encoded_identity_decodes_exactly
 run_test test_partial_frame_failure_leaves_empty_linemap
 run_test test_control_chars_in_identity_skip_and_warn
 
