@@ -1,7 +1,7 @@
 // external/opencode/plugins/agent-fleet-sensor.test.mjs
 // Run: node external/opencode/plugins/agent-fleet-sensor.test.mjs
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -880,6 +880,60 @@ assert.deepEqual(
     assert.equal(result.status, 0, result.stderr || result.stdout);
   } finally {
     rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Tracing: mailbox consume + tui.session.select event append to consume.jsonl.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-trace-'));
+  const traceDir = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-tracedir-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { mkdirSync, writeFileSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-trace-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(path.join(stateDir, key + '.json'), JSON.stringify({
+        repo: 'agent-fleet-trace-repo', cwd: directory, session: null, pid: process.pid,
+        sessions: { ses_t: { state: 'needs-attention', reason: 'question', ts: 123, title: 't' } },
+      }));
+      writeFileSync(path.join(stateDir, key + '.select'),
+        JSON.stringify({ sessionID: 'ses_t', requestId: 'req-123' }));
+      const hooks = await plugin({
+        directory,
+        $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+        client: { tui: { _client: { post: async () => ({ data: true }) } } },
+      });
+      await hooks.event({ event: { type: 'tui.session.select', properties: { sessionID: 'ses_t' } } });
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home, AGENT_FLEET_TRACE_DIR: traceDir },
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const lines = readFileSync(path.join(traceDir, 'consume.jsonl'), 'utf8')
+      .trim().split('\n').map((l) => JSON.parse(l));
+    const mailbox = lines.find((l) => l.event === 'mailbox');
+    assert.ok(mailbox, 'mailbox consume line present');
+    assert.equal(mailbox.requestId, 'req-123');
+    assert.equal(mailbox.sessionID, 'ses_t');
+    assert.equal(mailbox.selectOk, true);
+    assert.equal(mailbox.markViewed, true);
+    assert.equal(mailbox.viewedTs, 123);
+    assert.equal(mailbox.cursorWrite, true);
+    const sel = lines.find((l) => l.event === 'tui.session.select');
+    assert.ok(sel, 'tui.session.select line present');
+    assert.equal(sel.sessionID, 'ses_t');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(traceDir, { recursive: true, force: true });
   }
 }
 

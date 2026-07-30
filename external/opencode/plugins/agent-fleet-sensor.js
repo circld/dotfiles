@@ -32,7 +32,7 @@
 // (verified: opencode awaited escapeAppleScriptString({directory,$}) which
 // then crashed on `s.replace(...)`). See agent-fleet-sensor-core.mjs header.
 
-import { mkdirSync, writeFileSync, readFileSync, renameSync, unlinkSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, renameSync, unlinkSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -183,6 +183,18 @@ function deleteSelectMailbox(selectPath) {
   }
 }
 
+// -- action: env-gated consume trace (observability only; never throws) --
+// Appends one JSONL line per consume event to $AGENT_FLEET_TRACE_DIR/consume.jsonl.
+// requestId correlates a line back to the press that deposited the mailbox.
+function traceConsume(line) {
+  const dir = process.env.AGENT_FLEET_TRACE_DIR;
+  if (!dir) return;
+  try {
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(path.join(dir, 'consume.jsonl'), `${JSON.stringify(line)}\n`);
+  } catch {}
+}
+
 // -- action: reap a legacy v1 state file for this cwd (idempotent, best-effort) --
 // v1 wrote `${cwd-hash}.json` with no PID suffix and no per-session map. v2
 // writes `${cwd-hash}-<pid>.json`. After the first successful v2 write we
@@ -274,9 +286,10 @@ function planViewedTsForSession(statePath, sessionID) {
 }
 
 async function pollSelectMailbox(client, { selectPath, viewedPath, statePath,
-                                          repo, directory, session, pid }) {
+                                           repo, directory, session, pid, key }) {
   const mailbox = readSelectMailbox(selectPath);
   const sessionID = mailbox?.sessionID;
+  let didCursorWrite = false;
   // Task 6 (mark-only mailbox verb): board dismiss deposits a mailbox with
   // `markOnly: true` alongside sessionID. The user has already seen the row
   // on the board, so the request is "suppress this row" — no live TUI jump
@@ -294,8 +307,11 @@ async function pollSelectMailbox(client, { selectPath, viewedPath, statePath,
     ? await selectSessionOnTUI(client, sessionID)
     : false;
   const plan = planSelect(effectiveMailbox, selectOk);
+  const viewedTs = (plan.markViewed && sessionID)
+    ? planViewedTsForSession(statePath, sessionID)
+    : null;
   if (plan.markViewed && sessionID) {
-    mergeViewed(viewedPath, sessionID, planViewedTsForSession(statePath, sessionID));
+    mergeViewed(viewedPath, sessionID, viewedTs);
   }
   if (plan.deleteMailbox) {
     deleteSelectMailbox(selectPath);
@@ -304,7 +320,8 @@ async function pollSelectMailbox(client, { selectPath, viewedPath, statePath,
   // Only fires for selectOk===true — a failed jump leaves the existing cursor
   // untouched. This is the SOLE cursor writer: manual TUI session-picker switches
   // emit no plugin event (verified live), and a `tui.session.select` sensor branch
-  // is intentionally NOT built. Rebuild the full envelope so we don't drop `cwd`
+  // has no STATE-WRITE branch. The event hook has a trace-only observer; the cursor
+  // remains solely owned by this mailbox path. Rebuild the full envelope so we don't drop `cwd`
   // / `repo` / `pid` / `sessions` — the model's `!obj?.cwd` guard would otherwise
   // drop this instance. Already inside an enqueue() body via the setInterval
   // callback, so FIFO ordering against transition writes is preserved.
@@ -320,7 +337,20 @@ async function pollSelectMailbox(client, { selectPath, viewedPath, statePath,
       sessions: existing?.sessions ?? {},
     });
     writeStateRecord(statePath, nextRecord);
+    didCursorWrite = true;
     reapLegacyV1(directory);
+  }
+  // Trace only real consumes (mailbox present). Without this guard the 400ms
+  // poll logs an empty event every tick (~9000 lines/hour/process), drowning
+  // the real ones. cursorWrite is recorded AFTER the write ran, not predicted.
+  if (mailbox) {
+    traceConsume({
+      ts: Date.now(), event: 'mailbox', key,
+      requestId: mailbox?.requestId ?? null,
+      sessionID: sessionID ?? null,
+      selectOk, markViewed: plan.markViewed, viewedTs,
+      cursorWrite: didCursorWrite,
+    });
   }
 }
 
@@ -438,7 +468,7 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
   setInterval(() => {
     enqueue(key, () => pollSelectMailbox(client, {
       selectPath, viewedPath, statePath,
-      repo, directory, session, pid: process.pid,
+      repo, directory, session, pid: process.pid, key,
     })).catch(() => {});
   }, POLL_INTERVAL_MS);
 
@@ -600,6 +630,17 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
     event: async ({ event } = {}) => {
       if (!event) return;
       const sessionID = event?.properties?.sessionID;
+      if (event.type === 'tui.session.select') {
+        // Dispatch confirmation for fleet-driven selects (probe-verified: fires on
+        // POST /tui/select-session; manual TUI switches emit nothing). Trace-only:
+        // no state writes — the cursor stays sole-owned by the mailbox path.
+        // requestId rides along when the event carries it (schema-consistent with
+        // the mailbox line); opencode 1.18 select events do not include one.
+        traceConsume({
+          ts: Date.now(), event: 'tui.session.select', key, sessionID,
+          requestId: event?.properties?.requestId ?? null,
+        });
+      }
       if (event.type === 'session.error') {
         if (!sessionID) return;        // session.error may have no sessionID — skip rather than fabricate
         await transitionFromEventId(sessionID, { state: 'needs-attention', reason: 'error' });
