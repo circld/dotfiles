@@ -742,6 +742,456 @@ EOF
   assert_file_exists "case17 .select on A's key" "$sandbox/${keyA}-${pidA}.select"
 }
 
+# ===========================================================================
+# Task 3 — stack reconcile / write / land plumbing
+# ===========================================================================
+#
+# Pin shell time exactly via AGENT_FLEET_NOW_MS so the stale-P 2s window and
+# ordering of reconcile vs. navigation mutation are deterministic. The real
+# clock always puts a fixture's selectedTs in the ancient past, so the
+# "stale-P within window" branch is otherwise untestable.
+
+write_stack() {
+  printf '%s\n' "$2" > "$1"
+}
+
+assert_stack_eq() {
+  local label="$1" want="$2" path="$3"
+  if [ ! -f "$path" ]; then
+    fail "$label" "missing stack file:" "$path"
+    return
+  fi
+  local got want_norm
+  got="$(jq -S . "$path")"
+  want_norm="$(jq -S . <<<"$want" 2>/dev/null || echo "BAD_WANT")"
+  if [ "$want_norm" = "$got" ]; then
+    pass "$label"
+  else
+    fail "$label" "want:" "$want_norm" "got:" "$got"
+  fi
+}
+
+run_jump_with_pinned_now() {
+  local mode="$1" sandbox="$2" pso="$3" live="$4" cwd_arg="$5" now_ms="$6"
+  local pane_file="$ROOT/pane-${RANDOM}.tsv"
+  printf '%s\n' "$live" > "$pane_file"
+  local env_args=(
+    "AGENT_FLEET_LIVE_PANES_OVERRIDE=$pane_file"
+    "AGENT_FLEET_STATE_DIR=$sandbox"
+    "AGENT_FLEET_NOW_MS=$now_ms"
+  )
+  if [ -n "$pso" ]; then
+    env_args+=( "AGENT_FLEET_PS_OVERRIDE=$pso" )
+  fi
+  case "$mode" in
+    decide-only)       env_args+=( "AGENT_FLEET_DECIDE_ONLY=1" ) ;;
+    select-side-effect) env_args+=( "AGENT_FLEET_DECIDE_SELECT=1" ) ;;
+  esac
+  local tmp_err="$ROOT/err-${RANDOM}.txt"
+  JUMP_RC=0
+  JUMP_STDOUT="$(env "${env_args[@]}" bash "$JUMP" "$cwd_arg" 2>"$tmp_err")" || JUMP_RC=$?
+  JUMP_STDERR="$(cat "$tmp_err")"
+}
+
+# --- 18. DECIDE_ONLY=1 writes neither .select nor traverse-stack.json ---
+test_18_decide_only_no_side_effects() {
+  local sandbox="$ROOT/case18"
+  mkdir -p "$sandbox"
+  local pid=18001
+  local pso="$ROOT/ps18.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/cb" | shasum -a 256 | cut -c1-16)
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/cb","session":"sx","pid":${pid},
+ "selectedSid":"ses_past","selectedTs":1700000000000,
+ "sessions":{"ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"t"}}}
+EOF
+  run_jump "decide-only" "$sandbox" "$pso" \
+    $'/cb\tsx\tterminal_0\t0' ""
+  assert_eq "case18 decide-only still emits select decision text" \
+    "DECISION:kind=select cwd=/cb session=sx pane=terminal_0 tab_id=0 key=${key}-${pid} sid=ses_target" \
+    "$JUMP_STDOUT"
+  assert_file_absent "case18 decide-only: NO .select written" "$sandbox/${key}-${pid}.select"
+  assert_file_absent "case18 decide-only: NO traverse-stack.json written" \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 30. Select landing reconciles model cursor, MRU-pushes old current,
+#         removes target from both stacks, clears forward, writes stack,
+#         then writes target mailbox. Pre-existing forward gets cleared by
+#         the reconcile flip AND by the new-navigation mutation. ---
+test_30_select_writes_reconciled_stack() {
+  local sandbox="$ROOT/case30"
+  mkdir -p "$sandbox"
+  local pid=30001
+  local pso="$ROOT/ps30.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/sel" | shasum -a 256 | cut -c1-16)
+  # selectedSid=ses_past (the model cursor), actionable=ses_target
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/sel","session":"sx","pid":${pid},
+ "selectedSid":"ses_past","selectedTs":1700000000000,
+ "sessions":{
+   "ses_past":{"state":"done","reason":null,"ts":50,"task":null,"title":"past"},
+   "ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"target"}
+ }}
+EOF
+  # Pre-existing stack: current=ses_b (ts older than P), forward=[ses_f].
+  # Different from P=ses_past ⇒ passive departure during reconcile.
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":{"sid":"ses_b","ts":1500000000000},"back":[],"forward":["ses_f"]}'
+  local now_ms=1800000000000
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/sel\tsx\tterminal_0\t0' "" "$now_ms"
+  assert_eq "case30 select: decision text unchanged" \
+    "DECISION:kind=select cwd=/sel session=sx pane=terminal_0 tab_id=0 key=${key}-${pid} sid=ses_target" \
+    "$JUMP_STDOUT"
+  assert_file_exists "case30 .select written" "$sandbox/${key}-${pid}.select"
+  local sel_sid; sel_sid=$(jq -r .sessionID "$sandbox/${key}-${pid}.select")
+  assert_eq "case30 .select sessionID is the actionable target" "ses_target" "$sel_sid"
+  assert_stack_eq "case30 stack: current=target, back MRU=old-current → reconcile-P, forward cleared, ses_target removed from stacks" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_target\",\"ts\":${now_ms}},\"back\":[\"ses_b\",\"ses_past\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 31. Fresh stack (current=null) adopts model cursor with NO push ---
+test_31_fresh_stack_adopts_no_push() {
+  local sandbox="$ROOT/case31"
+  mkdir -p "$sandbox"
+  local pid=31001
+  local pso="$ROOT/ps31.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/fr" | shasum -a 256 | cut -c1-16)
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/fr","session":"sx","pid":${pid},
+ "selectedSid":"ses_past","selectedTs":1700000000000,
+ "sessions":{
+   "ses_past":{"state":"done","reason":null,"ts":50,"task":null,"title":"p"},
+   "ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"t"}
+ }}
+EOF
+  # Canonical empty stack file (fresh).
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":null,"back":[],"forward":[]}'
+  local now_ms=1800000000000
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/fr\tsx\tterminal_0\t0' "" "$now_ms"
+  assert_file_exists "case31 .select written" "$sandbox/${key}-${pid}.select"
+  # Adopt (current null → P=ses_past) does NOT push null to back.
+  # Then new-nav mutation push_mru(previous-current ses_past) → back=[ses_past].
+  # Target (ses_target) was never on back/forward, so stays cleared.
+  assert_stack_eq "case31 fresh stack adopts P; null NOT pushed to back; target lands as current" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_target\",\"ts\":${now_ms}},\"back\":[\"ses_past\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 32. Corrupt stack file is tolerated as fresh: canonical empty adopt.
+#         Cover the "corrupt" branch alongside the fresh-stack adopt path. ---
+test_32_corrupt_stack_treated_as_fresh() {
+  local sandbox="$ROOT/case32"
+  mkdir -p "$sandbox"
+  local pid=32001
+  local pso="$ROOT/ps32.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/co" | shasum -a 256 | cut -c1-16)
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/co","session":"sx","pid":${pid},
+ "selectedSid":"ses_past","selectedTs":1700000000000,
+ "sessions":{
+   "ses_past":{"state":"done","reason":null,"ts":50,"task":null,"title":"p"},
+   "ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"t"}
+ }}
+EOF
+  # Corrupt payload: wrong version + missing arrays. stack_read MUST return
+  # canonical empty (adopt with no push).
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":99,"current":null}'
+  local now_ms=1800000000000
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/co\tsx\tterminal_0\t0' "" "$now_ms"
+  assert_stack_eq "case32 corrupt stack read as fresh; adopt + new-nav ⇒ current=target, back=[ses_past]" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_target\",\"ts\":${now_ms}},\"back\":[\"ses_past\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 33. Reconcile clears forward on passive departure. ---
+#         Setup: cwd /pd has TWO panes (ambiguous via pane-table arm)
+#         + ONE v2 file with ONLY a working session (no actionable) +
+#         selectedSid=ses_z (newer than current) ⇒ noop branch (ambiguous
+#         panes exclude fallback; no actionable top in pool). Pre-existing
+#         stack has forward=[F, F2] ⇒ flip clears it. ---
+test_33_passive_departure_clears_forward() {
+  local sandbox="$ROOT/case33"
+  mkdir -p "$sandbox"
+  local pid=33001
+  local pso="$ROOT/ps33.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/pd" | shasum -a 256 | cut -c1-16)
+  # Working-only session keeps actionable empty; selectedSid drives reconcile.
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/pd","session":"sx","pid":${pid},
+ "selectedSid":"ses_z","selectedTs":1800000000001,
+ "sessions":{"w":{"state":"working","reason":null,"ts":50,"task":null,"title":"w"}}}
+EOF
+  # Pre: current=ses_a (older ts than P), back=[], forward=[ses_f, ses_f2].
+  # P.ts > current.ts ⇒ not stale-P ⇒ straightforward flip.
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":{"sid":"ses_a","ts":1700000000000},"back":[],"forward":["ses_f","ses_f2"]}'
+  local now_ms=1800000000010
+  run_jump_with_pinned_now "decide-only" "$sandbox" "$pso" \
+    $'/pd\tsx_a\tterminal_5\t0\n/pd\tsx_b\tterminal_6\t0' "" "1800000000010"
+  # Use DECIDE_ONLY so the stack-mutation assertion is pure (no .select pair
+  # to confuse). stack_write also no-ops under DECIDE_ONLY... wait, we need
+  # stack_write to actually WRITE here to observe the reconciled mutation.
+  # Use DECIDE_SELECT (writes stack + .select path) but with NO actionable,
+  # so .select is never written. Use DECIDE_SELECT path.
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/pd\tsx_a\tterminal_5\t0\n/pd\tsx_b\tterminal_6\t0' "" "$now_ms"
+  assert_eq "case33 passive departure cleared: cwd-ambiguous ⇒ noop decision" \
+    "DECISION:kind=noop" \
+    "$JUMP_STDOUT"
+  assert_stack_eq "case33 passive departure clears forward (no nav mutation on top)" \
+    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_a"],"forward":[]}' \
+    "$sandbox/traverse-stack.json"
+  assert_file_absent "case33 noop: NO .select written (no actionable)" \
+    "$sandbox/${key}-${pid}.select"
+}
+
+# --- 40a. noop branch persists reconcile mutation but adds no navigation mutation ---
+test_40a_noop_persists_reconcile() {
+  local sandbox="$ROOT/case40a"
+  mkdir -p "$sandbox"
+  local pid=40001
+  local pso="$ROOT/ps40a.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/np" | shasum -a 256 | cut -c1-16)
+  # Working-only session → no actionable → noop (ambiguous panes kill fallback).
+  # selectedSid is the same target as the test_33 case, but pre-stack has
+  # a non-empty back entry (not "ses_a") so the push-during-flip is
+  # distinguishable from any noop nav mutation.
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/np","session":"sx","pid":${pid},
+ "selectedSid":"ses_z","selectedTs":1800000000001,
+ "sessions":{"w":{"state":"working","reason":null,"ts":50,"task":null,"title":"w"}}}
+EOF
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":{"sid":"ses_a","ts":1700000000000},"back":["ses_x"],"forward":[]}'
+  local now_ms=1800000000010
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/np\tsx_a\tterminal_5\t0\n/np\tsx_b\tterminal_6\t0' "" "$now_ms"
+  assert_eq "case40a noop branch emits noop decision" \
+    "DECISION:kind=noop" \
+    "$JUMP_STDOUT"
+  # Pre-existing back=[ses_x] PLUS reconcile's push of OLD current (ses_a).
+  # If nav mutation had ALSO run, we'd see more than 2 back entries or target
+  # in back. Forward is [] (no flip-induced clear needed since empty already).
+  assert_stack_eq "case40a noop: reconcile persisted; back grew by exactly one (old-current MRU), no further nav mutation" \
+    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a"],"forward":[]}' \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 40b. warn-explicit-duplicate branch persists reconcile, no nav mutation ---
+test_40b_warn_persists_reconcile() {
+  local sandbox="$ROOT/case40b"
+  mkdir -p "$sandbox"
+  local pidA=40101
+  local pidB=40202
+  local pso="$ROOT/ps40b.tsv"
+  printf 'OPENCODE\t%s\n' "$pidA" > "$pso"
+  printf 'OPENCODE\t%s\n' "$pidB" >> "$pso"
+  local key; key=$(printf '%s' "/dup2" | shasum -a 256 | cut -c1-16)
+  cat > "$sandbox/${key}-${pidA}.json" <<EOF
+{"repo":"a","cwd":"/dup2","session":"sessA","pid":${pidA},
+ "selectedSid":"ses_z","selectedTs":1800000000001,
+ "sessions":{"s":{"state":"needs-attention","reason":"permission","ts":100,"task":null,"title":"n"}}}
+EOF
+  cat > "$sandbox/${key}-${pidB}.json" <<EOF
+{"repo":"b","cwd":"/dup2","session":"sessB","pid":${pidB},
+ "sessions":{"s":{"state":"done","reason":null,"ts":200,"task":null,"title":"d"}}}
+EOF
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":{"sid":"ses_a","ts":1700000000000},"back":["ses_x"],"forward":["F_pre"]}'
+  local now_ms=1800000000010
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/dup2\tsessA\tterminal_0\t0' "/dup2" "$now_ms"
+  assert_eq "case40b warn-explicit-duplicate decision" \
+    "DECISION:kind=warn-explicit-duplicate" \
+    "$JUMP_STDOUT"
+  assert_file_absent "case40b warn: NO .select written" "$sandbox/${key}-${pidA}.select"
+  assert_file_absent "case40b warn: NO .select on sibling pid either" \
+    "$sandbox/${key}-${pidB}.select"
+  # Flip happened (forward cleared, old current pushed to back). NO
+  # further nav mutation ⇒ back=[ses_x, ses_a] with ses_z NOT present
+  # (ses_z is current, never on back).
+  assert_stack_eq "case40b warn persists reconcile: forward cleared by flip; back grew by exactly ses_a" \
+    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a"],"forward":[]}' \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 40c. focus-only branch persists reconcile, no nav mutation ---
+test_40c_focus_only_persists_reconcile() {
+  local sandbox="$ROOT/case40c"
+  mkdir -p "$sandbox"
+  local pid=40301
+  local pso="$ROOT/ps40c.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/fo" | shasum -a 256 | cut -c1-16)
+  # Working-only session ⇒ no actionable ⇒ focus-only on explicit jump.
+  # selectedSid drives reconcile flip.
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/fo","session":"sx","pid":${pid},
+ "selectedSid":"ses_z","selectedTs":1800000000001,
+ "sessions":{"w":{"state":"working","reason":null,"ts":50,"task":null,"title":"w"}}}
+EOF
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":{"sid":"ses_a","ts":1700000000000},"back":["ses_x"],"forward":["F_pre"]}'
+  local now_ms=1800000000010
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/fo\tsx\tterminal_0\t0' "/fo" "$now_ms"
+  assert_eq "case40c focus-only decision" \
+    "DECISION:kind=focus-only cwd=/fo session=sx pane=terminal_0 tab_id=0" \
+    "$JUMP_STDOUT"
+  assert_file_absent "case40c focus-only: NO .select written (no sid in actionable)" \
+    "$sandbox/${key}-${pid}.select"
+  assert_stack_eq "case40c focus-only persists reconcile: forward cleared, back grew by ses_a only" \
+    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a"],"forward":[]}' \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 40d. fallback-pane branch persists reconcile, no nav mutation ---
+test_40d_fallback_pane_persists_reconcile() {
+  local sandbox="$ROOT/case40d"
+  mkdir -p "$sandbox"
+  local pid=40401
+  local pso="$ROOT/ps40d.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/fb" | shasum -a 256 | cut -c1-16)
+  # Working-only session ⇒ no actionable ⇒ fallback-pane over alive pane.
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/fb","session":"sx","pid":${pid},
+ "selectedSid":"ses_z","selectedTs":1800000000001,
+ "sessions":{"w":{"state":"working","reason":null,"ts":50,"task":null,"title":"w"}}}
+EOF
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":{"sid":"ses_a","ts":1700000000000},"back":["ses_x"],"forward":["F_pre"]}'
+  local now_ms=1800000000010
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/fb\tsx\tterminal_0\t0' "" "$now_ms"
+  assert_eq "case40d fallback-pane decision" \
+    "DECISION:kind=fallback-pane session=sx pane=terminal_0 tab_id=0" \
+    "$JUMP_STDOUT"
+  assert_file_absent "case40d fallback-pane: NO .select written (no sid)" \
+    "$sandbox/${key}-${pid}.select"
+  assert_stack_eq "case40d fallback-pane persists reconcile: forward cleared, back grew by ses_a only" \
+    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a"],"forward":[]}' \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 50. Stale P older than fresh current.ts by less than 2s is IGNORED ---
+#         P.ts < current.ts AND (now_ms - current.ts) < 2000ms ⇒ no change.
+test_50_stale_p_within_window_ignored() {
+  local sandbox="$ROOT/case50"
+  mkdir -p "$sandbox"
+  local pid=50001
+  local pso="$ROOT/ps50.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/sw" | shasum -a 256 | cut -c1-16)
+  # Working-only session ⇒ noop branch (no actionable top). selectedSid drives
+  # reconcile: P=ses_z with ts older than current.ts.
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/sw","session":"sx","pid":${pid},
+ "selectedSid":"ses_z","selectedTs":1700000000500,
+ "sessions":{"w":{"state":"working","reason":null,"ts":50,"task":null,"title":"w"}}}
+EOF
+  # current.ts = 1700000001000 (newer than P.ts by 500ms), pin now_ms such
+  # that (now_ms - current.ts) = 1500ms (< 2000ms ⇒ within stale window).
+  local current_ts=1700000001000
+  local now_ms=1700000002500
+  write_stack "$sandbox/traverse-stack.json" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_a\",\"ts\":${current_ts}},\"back\":[\"ses_x\"],\"forward\":[\"F_pre\"]}"
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/sw\tsx_a\tterminal_5\t0\n/sw\tsx_b\tterminal_6\t0' "" "$now_ms"
+  assert_eq "case50 within-window stays noop" \
+    "DECISION:kind=noop" \
+    "$JUMP_STDOUT"
+  # NO flip happened: stack must be UNCHANGED (same current.sid/ts, same
+  # back, same forward; no MRU push of current onto back).
+  assert_stack_eq "case50 stale P within window IGNORED: stack unchanged" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_a\",\"ts\":${current_ts}},\"back\":[\"ses_x\"],\"forward\":[\"F_pre\"]}" \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 51. Stale P older than current.ts by ≥ 2s FLIPS current ---
+test_51_stale_p_outside_window_flips() {
+  local sandbox="$ROOT/case51"
+  mkdir -p "$sandbox"
+  local pid=51001
+  local pso="$ROOT/ps51.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/sx" | shasum -a 256 | cut -c1-16)
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/sx","session":"sx","pid":${pid},
+ "selectedSid":"ses_z","selectedTs":1700000000500,
+ "sessions":{"w":{"state":"working","reason":null,"ts":50,"task":null,"title":"w"}}}
+EOF
+  # current.ts = 1700000001000; pin now_ms = current + 2500ms ⇒ (now-curr)=2500 ≥ 2000
+  # ⇒ stale-P guard no longer protects the flip.
+  local current_ts=1700000001000
+  local now_ms=1700000003500
+  write_stack "$sandbox/traverse-stack.json" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_a\",\"ts\":${current_ts}},\"back\":[\"ses_x\"],\"forward\":[\"F_pre\"]}"
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/sx\tsx_a\tterminal_5\t0\n/sx\tsx_b\tterminal_6\t0' "" "$now_ms"
+  assert_eq "case51 outside-window still noop (cwd ambiguous)" \
+    "DECISION:kind=noop" \
+    "$JUMP_STDOUT"
+  # current flipped to ses_z with ts=now_ms; old current pushed MRU onto back;
+  # forward cleared. (Pre-existing back=[ses_x] preserved; ses_a added.)
+  assert_stack_eq "case51 stale P outside window FLIPS: current=ses_z @ now_ms, back grew by ses_a, forward cleared" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_z\",\"ts\":${now_ms}},\"back\":[\"ses_x\",\"ses_a\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+}
+
+# --- 60. stack_write failure (rename onto an immutable target) warns but
+#         the .select mailbox still lands. ---
+# The plan hint suggested pre-creating traverse-stack.json AS A DIRECTORY; on
+# Darwin `mv tmp dir` moves tmp INTO the dir (no rename-failure ⇒ no warning).
+# chflags uchg is the macOS primitive that gives a deterministic real move
+# failure on the TARGET FILE WITHOUT touching the .select path (sibling of
+# stack, distinct filename). The exit trap later un-uchgs so rm -rf can clean.
+test_60_stack_write_failure_select_lands() {
+  local sandbox="$ROOT/case60"
+  mkdir -p "$sandbox"
+  local pid=60001
+  local pso="$ROOT/ps60.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/sf" | shasum -a 256 | cut -c1-16)
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/sf","session":"sx","pid":${pid},
+ "selectedSid":"ses_a","selectedTs":1700000000000,
+ "sessions":{
+   "ses_a":{"state":"done","reason":null,"ts":50,"task":null,"title":"a"},
+   "ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"t"}
+ }}
+EOF
+  # Pre-create immutable target so the atomic rename fails.
+  printf '%s\n' '{"v":1,"current":null,"back":[],"forward":[]}' \
+    > "$sandbox/traverse-stack.json"
+  chflags uchg "$sandbox/traverse-stack.json"
+  local now_ms=1800000000000
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/sf\tsx\tterminal_0\t0' "" "$now_ms"
+  assert_file_exists "case60 .select mailbox STILL lands despite stack_write failure" \
+    "$sandbox/${key}-${pid}.select"
+  local sel_sid; sel_sid=$(jq -r .sessionID "$sandbox/${key}-${pid}.select")
+  assert_eq "case60 .select sessionID is the actionable target" "ses_target" "$sel_sid"
+  # Stderr carries the stack_write warning (don't pin past word "rename").
+  assert_contains "case60 stderr: stack_write failure warning emitted" \
+    "$JUMP_STDERR" "stack_write"
+  # Drop uchg so EXIT trap's rm -rf can clean up.
+  chflags nouchg "$sandbox/traverse-stack.json" 2>/dev/null || true
+}
+
 # === run all tests ===
 run_test() {
   local fn="$1"
@@ -769,6 +1219,19 @@ run_test test_14b_skips_suppressed_higher_rank
 run_test test_15_explicit_unknown_cwd_no_match
 run_test test_explicit_cwd_not_global_top
 run_test test_explicit_cwd_not_global_top_session_pane
+
+run_test test_18_decide_only_no_side_effects
+run_test test_30_select_writes_reconciled_stack
+run_test test_31_fresh_stack_adopts_no_push
+run_test test_32_corrupt_stack_treated_as_fresh
+run_test test_33_passive_departure_clears_forward
+run_test test_40a_noop_persists_reconcile
+run_test test_40b_warn_persists_reconcile
+run_test test_40c_focus_only_persists_reconcile
+run_test test_40d_fallback_pane_persists_reconcile
+run_test test_50_stale_p_within_window_ignored
+run_test test_51_stale_p_outside_window_flips
+run_test test_60_stack_write_failure_select_lands
 
 # Print accumulated log
 cat "$ROOT/log"
