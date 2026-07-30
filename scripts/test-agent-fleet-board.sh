@@ -1090,17 +1090,19 @@ test_board_internal_keys_do_not_reconcile_with_fresh_p() {
   CASE_DECIDE_ONLY=1; CASE_REFRESH_SECS=3600; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer-static.sh"
   wait_log_count "$sandbox/log-render" '^render complete' 1 3; wait_log_count "$sandbox/log-model" '^model ok' 1 2
   feed_forever "$BOARD_FIFO"
-  : > "$sandbox/.post-model-calls"; : > "$sandbox/.track-model"
+  printf ' ' > "$BOARD_FIFO"; wait_log_count "$sandbox/stdout" 'DECISION:hidden=' 1 3
+  : > "$sandbox/log-model"
   local target=0 internal_ok=1 key_bytes calls
   check_internal_key() {
-    key_bytes="$1"; target=$((target + 1)); : > "$sandbox/.post-model-calls"; printf '%s' "$key_bytes" > "$BOARD_FIFO"
-    wait_log_count "$sandbox/stdout" 'DECISION:hidden=' "$target" 3 || internal_ok=0
-    calls="$(wc -l < "$sandbox/.post-model-calls" 2>/dev/null | tr -d ' ')"; [ "$calls" = 0 ] || internal_ok=0
+    key_bytes="$1"; target=$((target + 1)); : > "$sandbox/log-model"; printf '%s' "$key_bytes" > "$BOARD_FIFO"
+    wait_log_count "$sandbox/stdout" 'DECISION:hidden=' "$target" 3 || true
+    calls="$(grep -cE '^model ok' "$sandbox/log-model" 2>/dev/null || true)"; printf '%s=%s\n' "$target" "$calls" >> "$sandbox/.internal-call-results"; [ "$calls" = 0 ] || internal_ok=0
   }
   check_internal_key $'\e'; check_internal_key j; check_internal_key k
   check_internal_key $'\e[A'; check_internal_key $'\e[B'; check_internal_key d
   check_internal_key q; wait_board 6; stop_feeder; CASE_DECIDE_ONLY=0
-  if (( internal_ok == 1 )) && ! grep -qF 'DECISION:kind=select' "$sandbox/stdout"; then pass "case30: board-internal keys never reconcile or rerun model"; else fail_msg "case30: board-internal keys never reconcile or rerun model" "post=$(cat "$sandbox/.post-model-calls")" "$(cat "$sandbox/stdout")"; fi
+  local hidden_count; hidden_count="$(grep -oF 'DECISION:hidden=' "$sandbox/stdout" | wc -l | tr -d ' ')"
+  if (( internal_ok == 1 )) && [ "$hidden_count" = 7 ] && ! grep -qF 'DECISION:kind=select' "$sandbox/stdout"; then pass "case30: board-internal keys never reconcile or rerun model"; else fail_msg "case30: board-internal keys never reconcile or rerun model" "internal_ok=$internal_ok results=$(cat "$sandbox/.internal-call-results")" "$(cat "$sandbox/stdout")"; fi
   CASE_REFRESH_SECS=1
 }
 
