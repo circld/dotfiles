@@ -305,7 +305,7 @@ af_trace() {
     return 0
   fi
   local dir="${AGENT_FLEET_TRACE_DIR}/${AF_REQUEST_ID}"
-  mkdir -p "$dir" 2>/dev/null || return 0
+  mkdir -p "$dir" 2>/dev/null || { cat >/dev/null 2>&1 || true; return 0; }
   cat > "${dir}/$1" 2>/dev/null || true
 }
 
@@ -317,6 +317,6 @@ af_trace_line() {
     return 0
   fi
   local dir="${AGENT_FLEET_TRACE_DIR}/${AF_REQUEST_ID}"
-  mkdir -p "$dir" 2>/dev/null || return 0
+  mkdir -p "$dir" 2>/dev/null || { cat >/dev/null 2>&1 || true; return 0; }
   cat >> "${dir}/$1" 2>/dev/null || true
 }
