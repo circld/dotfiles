@@ -1650,6 +1650,32 @@ EOF
     "$(jq -r '.writer // "MISSING"' "$sandbox/traverse-stack.json" 2>/dev/null)"
 }
 
+# --- oracle: winner + equal (rank,ts) ties recorded; candidate cap exercised ---
+{
+  sandbox="$ROOT/state-trace5"; mkdir -p "$sandbox"
+  pso="$ROOT/pso-trace5"; printf 'OPENCODE\t1001\n' > "$pso"
+  keyA="$(printf '%s' /projA | shasum -a 256 | cut -c1-16)"
+  # 6 actionable sessions: s1/s2 tie at ts=100 (equal rank+ts), s3..s6 distinct
+  # older ts. 6 candidates > cap 5, so the cap slice is actually exercised.
+  cat > "$sandbox/${keyA}-1001.json" <<'EOF'
+{"repo":"a","cwd":"/projA","session":"sx","pid":1001,"sessions":{"s1":{"state":"done","reason":null,"ts":100,"task":null,"title":"A1"},"s2":{"state":"done","reason":null,"ts":100,"task":null,"title":"A2"},"s3":{"state":"done","reason":null,"ts":90,"task":null,"title":"A3"},"s4":{"state":"done","reason":null,"ts":80,"task":null,"title":"A4"},"s5":{"state":"done","reason":null,"ts":70,"task":null,"title":"A5"},"s6":{"state":"done","reason":null,"ts":60,"task":null,"title":"A6"}}}
+EOF
+  trace="$ROOT/trace-5"
+  pane_file="$ROOT/pane-trace5.tsv"
+  printf '/projA\tsx\tterminal_1\t0\n' > "$pane_file"
+  env \
+    AGENT_FLEET_LIVE_PANES_OVERRIDE="$pane_file" \
+    AGENT_FLEET_STATE_DIR="$sandbox" \
+    AGENT_FLEET_PS_OVERRIDE="$pso" \
+    AGENT_FLEET_DECIDE_SELECT=1 \
+    AGENT_FLEET_TRACE_DIR="$trace" \
+    AF_REQUEST_ID="t5-req" \
+    bash "$JUMP" "" >/dev/null 2>&1
+  assert_eq "trace5: tie count" "1" "$(jq -r '.ties | length' "$trace/t5-req/oracle.json" 2>/dev/null)"
+  assert_eq "trace5: winner sid" "s1" "$(jq -r '.winner.sid' "$trace/t5-req/oracle.json" 2>/dev/null)"
+  assert_eq "trace5: candidates capped at 5 (of 6)" "5" "$(jq -r '.candidates | length' "$trace/t5-req/oracle.json" 2>/dev/null)"
+}
+
 # === run all tests ===
 run_test() {
   local fn="$1"

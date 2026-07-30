@@ -33,6 +33,15 @@ source_session="${ZELLIJ_SESSION_NAME:-}"
 
 json="$(node "$MODEL")"
 af_trace model.json <<<"$json"
+jq -c --arg rcwd "${1:-}" '
+  (.actionable // []) as $pool
+  | (if $rcwd == "" then $pool else [$pool[] | select(.cwd == $rcwd)] end) as $a
+  | ($a[0] // null) as $w
+  | { requestedCwd: (if $rcwd == "" then null else $rcwd end),
+      winner: $w,
+      ties: (if $w == null then [] else [$a[1:][] | select(.rank == $w.rank and .ts == $w.ts) | {sid, cwd, key}] end),
+      candidates: [$a[0:5][] | {sid, cwd, key, rank, ts, suppressed}] }
+' <<<"$json" | af_trace oracle.json
 
 # === Derive P (the model cursor) ===
 # Physical-source-session preference with global max(selectedTs) fallback;

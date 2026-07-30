@@ -240,6 +240,7 @@ new_state: (
     end
   ' <<<"$json"
 )"
+af_trace action.json <<<"$action_json"
 
 # === Dispatch ===
 decision="$(jq -r .decision <<<"$action_json")"

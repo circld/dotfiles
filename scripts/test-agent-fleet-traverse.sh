@@ -95,6 +95,7 @@ run_trav() {
   local pre_stack="${7:-}"
   local source_session="${8:-}"
   local request_id="${9:-}"
+  local trace_dir="${10:-}"
   local pane_file="$ROOT/pane-${RANDOM}.tsv"
   printf '%s\n' "$live" > "$pane_file"
   # If pre_stack explicitly passed (non-empty), write it. Otherwise, leave the
@@ -114,6 +115,7 @@ run_trav() {
   [ -n "$pso" ] && env_args+=( "AGENT_FLEET_PS_OVERRIDE=$pso" )
   [ -n "$now_ms" ] && env_args+=( "AGENT_FLEET_NOW_MS=$now_ms" )
   [ -n "$request_id" ] && env_args+=( "AF_REQUEST_ID=$request_id" )
+  [ -n "$trace_dir" ] && env_args+=( "AGENT_FLEET_TRACE_DIR=$trace_dir" )
   case "$mode" in
     decide-only) env_args+=( "AGENT_FLEET_DECIDE_ONLY=1" ) ;;
     decide-act)  env_args+=( "AGENT_FLEET_DECIDE_ACT=1" ) ;;
@@ -1051,6 +1053,20 @@ EOF
     "$(jq -r '.requestId // "MISSING"' "$sandbox/${keyA}-1001.select" 2>/dev/null)"
   assert_eq "trace2: stack writer" "t2-req" \
     "$(jq -r '.writer // "MISSING"' "$sandbox/traverse-stack.json" 2>/dev/null)"
+}
+
+# --- action trace captures computed traversal payload ---
+{
+  sandbox="$ROOT/state-trace5"; mkdir -p "$sandbox"
+  pso="$ROOT/pso-trace5"; printf 'OPENCODE\t1001\n' > "$pso"
+  keyA="$(key_for /projA)"
+  cat > "$sandbox/${keyA}-1001.json" <<'EOF'
+{"repo":"a","cwd":"/projA","session":"sx","pid":1001,"sessions":{"s1":{"state":"done","reason":null,"ts":100,"task":null,"title":"A1"}}}
+EOF
+  trace="$ROOT/trace-5"
+  run_trav "decide-act" "$sandbox" "$pso" $'/projA\tsx\tterminal_1\t0' "prev" "2000000000500" \
+    '{"v":1,"current":{"sid":"old","ts":100},"back":["s1"],"forward":[]}' "" "t5-req" "$trace"
+  assert_file_exists "trace5: action.json" "$trace/t5-req/action.json"
 }
 
 # === run all tests ===
