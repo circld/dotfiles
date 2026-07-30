@@ -93,6 +93,7 @@ assert_stack_eq() {
 run_trav() {
   local mode="$1" sandbox="$2" pso="$3" live="$4" cmd="$5" now_ms="$6"
   local pre_stack="${7:-}"
+  local source_session="${8:-}"
   local pane_file="$ROOT/pane-${RANDOM}.tsv"
   printf '%s\n' "$live" > "$pane_file"
   # If pre_stack explicitly passed (non-empty), write it. Otherwise, leave the
@@ -107,6 +108,7 @@ run_trav() {
     "AGENT_FLEET_LIVE_PANES_OVERRIDE=$pane_file"
     "AGENT_FLEET_STATE_DIR=$sandbox"
     "AGENT_FLEET_MESSAGE_DELAY=0"
+    "ZELLIJ_SESSION_NAME=$source_session"
   )
   [ -n "$pso" ] && env_args+=( "AGENT_FLEET_PS_OVERRIDE=$pso" )
   [ -n "$now_ms" ] && env_args+=( "AGENT_FLEET_NOW_MS=$now_ms" )
@@ -119,6 +121,27 @@ run_trav() {
   TRAV_RC=0
   TRAV_STDOUT="$(env "${env_args[@]}" bash "$TRAVERSE" "$cmd" 2>"$tmp_err")" || TRAV_RC=$?
   TRAV_STDERR="$(cat "$tmp_err")"
+}
+
+# === When invoked from a zellij session with no opencode pane, next first
+# returns to the traversal current instead of skipping ahead to pending. ===
+test_next_from_non_agent_session_lands_current() {
+  local sandbox="$ROOT/non-agent-next"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/non-agent-next")
+  local pid=15001
+  local pso="$ROOT/ps_non_agent_next.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  write_v2 "$sandbox" "$key" "$pid" "/non-agent-next" "agent" "current" 2000000000000 \
+    "current" "done"            100 null \
+    "next"    "needs-attention" 200 null
+  local now_ms=2000000000500
+  local pre_stack='{"v":1,"current":{"sid":"current","ts":1990000000000},"back":[],"forward":[]}'
+  run_trav "decide-only" "$sandbox" "$pso" \
+    $'/non-agent-next\tagent\tterminal_2\t0' "next" "$now_ms" "$pre_stack" "notes"
+  assert_eq "non-agent next: lands traversal current" \
+    "DECISION:kind=select cwd=/non-agent-next session=agent pane=terminal_2 tab_id=0 key=${key}-${pid} sid=current" \
+    "$TRAV_STDOUT"
 }
 
 # === fixtures: shared read helpers for compact fixture construction ===
@@ -978,6 +1001,7 @@ run_test test_decide_only_no_side_effects
 run_test test_decide_only_no_state_dir_no_side_effects
 run_test test_decide_only_at_end_no_side_effects
 run_test test_decide_act_writes_stack_and_mailbox
+run_test test_next_from_non_agent_session_lands_current
 run_test test_argument_validation
 
 printf '%s' "$LOG"

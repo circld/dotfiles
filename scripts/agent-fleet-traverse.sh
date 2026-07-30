@@ -50,6 +50,7 @@ emit_decision() {
 }
 
 now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
+source_session="${ZELLIJ_SESSION_NAME:-}"
 
 # === Run model FIRST so empty-live guard fires before any stack mutation. ===
 json="$(node "$MODEL")"
@@ -79,7 +80,7 @@ stack="$(stack_reconcile "$P_json" "$now_ms" <<<"$stack")"
 # === Decision transform (inlined jq).
 # Output shape: { decision, target_sid, new_state } ===
 action_json="$(
-  jq -c --arg direction "$cmd" --argjson now_ms "$now_ms" --argjson stack "$stack" '
+  jq -c --arg direction "$cmd" --arg source_session "$source_session" --argjson now_ms "$now_ms" --argjson stack "$stack" '
     def classify(sid; landable; live; amb):
       if   (landable | index(sid)) != null then "landable"
       elif (amb      | index(sid)) != null then "ambiguous"
@@ -89,13 +90,20 @@ action_json="$(
     . as $model
     | $stack as $s
     | $s.current as $cur
+    | ([.live[] | select(.session == $source_session)] | length > 0) as $source_has_agent
     | ([.rows[] | select(.sid != null) | .sid] | unique)              as $landable
     | ([.instances[] | .sessions[]] | unique)                          as $live
     | ([.ambiguous[]] | unique)                                        as $amb_cwds
     | ([.instances[]
         | select(([.cwd] | inside($amb_cwds)))
         | .sessions[]] | unique)                                        as $amb
-    | if $direction == "prev" then
+     | if ($direction == "next")
+           and ($source_session != "")
+           and ($source_has_agent == false)
+           and ($cur != null)
+           and ((classify($cur.sid; $landable; $live; $amb)) == "landable") then
+         {decision: "select", target_sid: $cur.sid, new_state: $s}
+     elif $direction == "prev" then
         # === Walk back[] end→start: dead-prune, skip-retain unlandable, stop on landable.
         # (Same shape used in the next branch below for forward[] walking — duplicated
         # deliberately because the per-branch new_state updates diverge after the walk

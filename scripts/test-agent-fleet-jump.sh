@@ -120,6 +120,30 @@ run_jump() {
   JUMP_STDERR="$(cat "$tmp_err")"
 }
 
+test_notes_session_does_not_switch_to_remote_agent() {
+  local sandbox="$ROOT/notes-session"
+  local fake_bin="$sandbox/bin"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/aerospace" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  cat > "$fake_bin/zellij" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$AGENT_FLEET_TEST_ZELLIJ_LOG"
+EOF
+  chmod +x "$fake_bin/aerospace" "$fake_bin/zellij"
+  STATE_DIR="$sandbox" \
+    AGENT_FLEET_STATE_DIR="$sandbox" \
+    AGENT_FLEET_TEST_ZELLIJ_LOG="$sandbox/zellij.log" \
+    PATH="$fake_bin:$PATH" \
+    ZELLIJ_SESSION_NAME=notes \
+    bash -c '. "$1"; act_land key sid agent-session terminal_1 3' _ \
+    "$REPO_ROOT/scripts/agent-fleet-act.sh"
+  assert_file_exists "notes session: mailbox still written" "$sandbox/key.select"
+  assert_file_absent "notes session: remote zellij session not selected" "$sandbox/zellij.log"
+}
+
 # === test cases ===
 
 # --- 1. one opencode cwd, two chat sessions (one v2 file) ---
@@ -1486,6 +1510,7 @@ run_test test_71_bad_ts_type_canonical_empty
 run_test test_72_nonstring_back_entry_canonical_empty
 run_test test_73_mailbox_write_failure_continues
 run_test test_74_mktemp_failure_continues
+run_test test_notes_session_does_not_switch_to_remote_agent
 
 # Print accumulated log
 cat "$ROOT/log"

@@ -180,6 +180,10 @@ act_land() {
     return 0
   fi
   aerospace workspace 1 || true
+  # The notes board is a home base; do not abandon it for a remote agent.
+  if [ "${ZELLIJ_SESSION_NAME:-}" = "notes" ] && [ "$sess" != "notes" ]; then
+    return 0
+  fi
   if [ -n "$sess" ] && [ -n "$pane" ]; then
     if [ "$sess" = "${ZELLIJ_SESSION_NAME:-}" ]; then
       zellij action go-to-tab-by-id "$tab" || true
