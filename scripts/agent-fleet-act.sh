@@ -228,14 +228,15 @@ act_land() {
     act_land_from_notes "$sess" "$pane" "$tab" "$title"
     return 0
   fi
-  aerospace workspace 1 || true
+  af_act_log aerospace-ws aerospace workspace 1
   if [ -n "$sess" ] && [ -n "$pane" ]; then
     if [ "$sess" = "$presser" ]; then
-      zellij action go-to-tab-by-id "$tab" || true
-      zellij action focus-pane-id "$pane" || true
+      af_act_log go-to-tab zellij action go-to-tab-by-id "$tab"
+      af_act_log focus-pane zellij action focus-pane-id "$pane"
     else
-      zellij action switch-session --pane-id "$pane" "$sess" || true
+      af_act_log switch-session zellij action switch-session --pane-id "$pane" "$sess"
     fi
+    af_landing_verify "$sess" "$pane"
   fi
 }
 
@@ -253,8 +254,8 @@ act_land() {
 act_land_from_notes() {
   local sess="$1" pane="$2" tab="$3" title="${4:-}"
   if zellij --session "$sess" action list-clients 2>/dev/null | grep -qE '^[0-9]+[[:space:]]'; then
-    zellij --session "$sess" action go-to-tab-by-id "$tab" || true
-    zellij --session "$sess" action focus-pane-id "$pane" || true
+    af_act_log go-to-tab zellij --session "$sess" action go-to-tab-by-id "$tab"
+    af_act_log focus-pane zellij --session "$sess" action focus-pane-id "$pane"
   else
     local home="" s
     while IFS= read -r s; do
@@ -265,13 +266,14 @@ act_land_from_notes() {
       fi
     done < <(zellij list-sessions -s -n 2>/dev/null)
     if [ -n "$home" ]; then
-      zellij --session "$home" action switch-session --pane-id "$pane" "$sess" || true
+      af_act_log home-switch zellij --session "$home" action switch-session --pane-id "$pane" "$sess"
     else
-      zellij action switch-session --pane-id "$pane" "$sess" || true
+      af_act_log notes-switch zellij action switch-session --pane-id "$pane" "$sess"
       return 0
     fi
   fi
   act_focus_window "$title"
+  af_landing_verify "$sess" "$pane"
 }
 
 # === act_focus_window: raise the Ghostty window showing the landed pane. ===
@@ -283,19 +285,27 @@ act_land_from_notes() {
 # first title match wins (two windows on one chat collide); empty title or no
 # match → MRU workspace focus (pre-fix behavior).
 act_focus_window() {
-  local t="${1:0:32}" wid
+  local t="${1:0:32}" wid wins
   if [ -z "$t" ]; then
-    aerospace workspace 1 || true
+    af_act_log aerospace-ws aerospace workspace 1
     return 0
   fi
   sleep 0.2
-  wid="$(aerospace list-windows --all --json 2>/dev/null | jq -r --arg t "$t" \
+  wins="$(aerospace list-windows --all --json 2>/dev/null || echo '[]')"
+  wid="$(jq -r --arg t "$t" \
     '[.[] | select(."app-name" == "Ghostty" and ((."window-title" // "") | contains($t)))][0]."window-id" // empty' \
-    2>/dev/null || true)"
+    <<<"$wins" 2>/dev/null || true)"
+  if [ -n "${AGENT_FLEET_TRACE_DIR:-}" ] && [ -n "${AF_REQUEST_ID:-}" ]; then
+    jq -c --arg t "$t" --arg wid "${wid:-}" \
+      '{ prefix: $t, chosen: (if $wid == "" then null else ($wid | tonumber) end),
+        candidates: [.[] | select(."app-name" == "Ghostty" and ((."window-title" // "") | contains($t)))
+                     | {wid: ."window-id", title: ."window-title"}] }' \
+      <<<"$wins" 2>/dev/null | af_trace landing-windows.json
+  fi
   if [ -n "$wid" ]; then
-    aerospace focus --window-id "$wid" || true
+    af_act_log aerospace-focus aerospace focus --window-id "$wid"
   else
-    aerospace workspace 1 || true
+    af_act_log aerospace-ws aerospace workspace 1
   fi
 }
 
@@ -329,4 +339,33 @@ af_trace_line() {
   local dir="${AGENT_FLEET_TRACE_DIR}/${AF_REQUEST_ID}"
   mkdir -p "$dir" 2>/dev/null || { cat >/dev/null 2>&1 || true; return 0; }
   cat >> "${dir}/$1" 2>/dev/null || true
+}
+
+# === af_act_log: run cmd, append "label rc=N argv out" to landing.log; always rc 0. ===
+af_act_log() {
+  local label="$1"; shift
+  local out rc=0
+  out="$("$@" 2>&1)" || rc=$?
+  if [ -n "${AGENT_FLEET_TRACE_DIR:-}" ] && [ -n "${AF_REQUEST_ID:-}" ]; then
+    printf '%s rc=%s argv=[%s] out=%s\n' "$label" "$rc" "$*" \
+      "$(printf '%s' "$out" | tr '\n' ' ' | tail -c 400)" | af_trace_line landing.log
+  fi
+  return 0
+}
+
+# === af_landing_verify: post-landing zellij-side ground truth (env-gated). ===
+af_landing_verify() {
+  [ -n "${AGENT_FLEET_TRACE_DIR:-}" ] && [ -n "${AF_REQUEST_ID:-}" ] || return 0
+  local sess="$1" pane="$2"
+  [ -n "$sess" ] && [ -n "$pane" ] || return 0
+  sleep 0.2
+  local out
+  out="$(zellij --session "$sess" action list-panes --json --all 2>&1)"
+  printf '%s' "$out" | jq -c --arg pane "$pane" '
+    (if type == "array" then . else [] end)
+    | map(select(("terminal_\(.id)") == $pane))
+    | first // {}
+    | {is_focused, tab_id, tab_name, title, pane_command, pane_cwd}
+  ' 2>/dev/null | af_trace landing-verify.json
+  return 0
 }
