@@ -33,6 +33,7 @@ run_model() {
   MODEL_ERR="$(cat "$ROOT/model.err")"
 }
 
+# --- regression: existing row/actionable behavior preserved ---
 test_model_classifies_once() {
   local sandbox="$ROOT/state"
   mkdir -p "$sandbox"
@@ -80,7 +81,308 @@ EOF
   assert_eq "synthetic row emitted for live pane without state" "unknown" "$(jq -r '.rows[] | select(.cwd == "/repoE") | .state' <<<"$MODEL_OUT")"
 }
 
+# --- instances[].shape: live v2 emits {key,cwd,selectedSid,selectedTs,sessions} ---
+test_instances_shape() {
+  local sandbox="$ROOT/inst_shape"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_inst_shape.tsv"
+  printf 'OPENCODE\t50001\n' > "$pso"
+  local key; key=$(key_for "/inst1")
+  cat > "$sandbox/${key}-50001.json" <<EOF
+{"repo":"i","cwd":"/inst1","session":"sx","pid":50001,
+ "selectedSid":"selX","selectedTs":7777,
+ "sessions":{
+   "ses_a":{"state":"needs-attention","reason":"perm","ts":200,"task":null,"title":"a"},
+   "ses_b":{"state":"done","reason":null,"ts":100,"task":null,"title":"b"}
+ }}
+EOF
+  run_model "$sandbox" "$pso" $'/inst1\tsx\tterminal_0\t0'
+  assert_eq "instances shape: rc=0" "0" "$MODEL_RC"
+  assert_eq "instances shape: exactly 1 instance" "1" "$(jq '.instances | length' <<<"$MODEL_OUT")"
+  assert_eq "instances shape: key" "${key}-50001" "$(jq -r '.instances[0].key' <<<"$MODEL_OUT")"
+  assert_eq "instances shape: cwd" "/inst1" "$(jq -r '.instances[0].cwd' <<<"$MODEL_OUT")"
+  assert_eq "instances shape: selectedSid" "selX" "$(jq -r '.instances[0].selectedSid' <<<"$MODEL_OUT")"
+  assert_eq "instances shape: selectedTs" "7777" "$(jq -r '.instances[0].selectedTs' <<<"$MODEL_OUT")"
+  assert_eq "instances shape: only real sessions (sorted)" "ses_a,ses_b" \
+    "$(jq -r '.instances[0].sessions | sort | join(",")' <<<"$MODEL_OUT")"
+}
+
+# --- instances skip __pane__ sentinel in sessions list ---
+test_instances_skip_pane_sentinel() {
+  local sandbox="$ROOT/inst_pane_skip"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_pane_skip.tsv"
+  printf 'OPENCODE\t50011\n' > "$pso"
+  local key; key=$(key_for "/pane_skip")
+  cat > "$sandbox/${key}-50011.json" <<EOF
+{"repo":"p","cwd":"/pane_skip","session":"sx","pid":50011,
+ "sessions":{
+   "__pane__":{"state":"unknown","reason":null,"ts":1,"task":null,"title":"ignored"},
+   "ses_only":{"state":"needs-attention","reason":"perm","ts":10,"task":null,"title":"only"}
+ }}
+EOF
+  run_model "$sandbox" "$pso" $'/pane_skip\tsx\tterminal_0\t0'
+  assert_eq "instances skip __pane__: only ses_only" "ses_only" \
+    "$(jq -r '.instances[0].sessions | join(",")' <<<"$MODEL_OUT")"
+}
+
+# --- ambiguous cwd: instances[] keeps both v2 files (rows collapses to warning) ---
+test_instances_keeps_ambiguous() {
+  local sandbox="$ROOT/inst_amb"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_inst_amb.tsv"
+  printf 'OPENCODE\t50101\n' > "$pso"
+  printf 'OPENCODE\t50102\n' >> "$pso"
+  local key; key=$(key_for "/dup_inst")
+  cat > "$sandbox/${key}-50101.json" <<EOF
+{"repo":"a","cwd":"/dup_inst","session":"sx","pid":50101,
+ "sessions":{"sA":{"state":"needs-attention","reason":"perm","ts":100,"task":null,"title":"A"}}}
+EOF
+  cat > "$sandbox/${key}-50102.json" <<EOF
+{"repo":"b","cwd":"/dup_inst","session":"sx","pid":50102,
+ "sessions":{"sB":{"state":"done","reason":null,"ts":200,"task":null,"title":"B"}}}
+EOF
+  run_model "$sandbox" "$pso" $'/dup_inst\tsx\tterminal_0\t0'
+  assert_eq "ambiguous: 2 instances kept" "2" "$(jq '.instances | length' <<<"$MODEL_OUT")"
+  assert_eq "ambiguous: only one warning row in rows" "1" \
+    "$(jq '[.rows[] | select(.source == "warning")] | length' <<<"$MODEL_OUT")"
+  assert_eq "ambiguous: rows total = 1 (no session rows)" "1" "$(jq '.rows | length' <<<"$MODEL_OUT")"
+  assert_eq "ambiguous: cwd marked ambiguous" "1" \
+    "$(jq '[.ambiguous[] | select(. == "/dup_inst")] | length' <<<"$MODEL_OUT")"
+}
+
+# --- timeline.pending: FIFO oldest first, ignores rank ---
+test_timeline_pending_fifo() {
+  local sandbox="$ROOT/pending_fifo"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_pending_fifo.tsv"
+  printf 'OPENCODE\t60101\n' > "$pso"
+  local key; key=$(key_for "/fifo")
+  cat > "$sandbox/${key}-60101.json" <<EOF
+{"repo":"f","cwd":"/fifo","session":"sx","pid":60101,
+ "sessions":{
+   "ses_old_done":{"state":"done","reason":null,"ts":50,"task":null,"title":"old d"},
+   "ses_new_attention":{"state":"needs-attention","reason":"perm","ts":300,"task":null,"title":"new n"},
+   "ses_mid_done":{"state":"done","reason":null,"ts":150,"task":null,"title":"mid d"}
+ }}
+EOF
+  run_model "$sandbox" "$pso" $'/fifo\tsx\tterminal_0\t0'
+  assert_eq "pending FIFO ignores rank" \
+    "ses_old_done,ses_mid_done,ses_new_attention" \
+    "$(jq -r '.timeline.pending | map(.sid) | join(",")' <<<"$MODEL_OUT")"
+}
+
+# --- timeline.pending: excludes null-sid rows ---
+test_timeline_pending_excludes_null_sid() {
+  local sandbox="$ROOT/pending_null"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_pending_null.tsv"
+  printf 'OPENCODE\t60201\n' > "$pso"
+  local key; key=$(key_for "/nullsid")
+  # v1 legacy (sid=null at row level) is superseded by usable v2 in same cwd,
+  # so the only unsuppressed actionable row comes from the v2 envelope.
+  cat > "$sandbox/${key}-60201.json" <<EOF
+{"repo":"v","cwd":"/nullsid","session":"sx","pid":60201,
+ "sessions":{"ses_x":{"state":"needs-attention","reason":"perm","ts":200,"task":null,"title":"x"}}}
+EOF
+  run_model "$sandbox" "$pso" $'/nullsid\tsx\tterminal_0\t0'
+  assert_eq "pending excludes null sid" "ses_x" \
+    "$(jq -r '.timeline.pending | map(.sid) | join(",")' <<<"$MODEL_OUT")"
+  assert_eq "pending: no null-sid entries" "0" \
+    "$(jq '[.timeline.pending[] | select(.sid == null)] | length' <<<"$MODEL_OUT")"
+}
+
+# --- timeline.viewed: joined to live instance, newest viewedTs first ---
+test_timeline_viewed_newest_first() {
+  local sandbox="$ROOT/viewed_newest"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_viewed_newest.tsv"
+  printf 'OPENCODE\t70101\n' > "$pso"
+  local key; key=$(key_for "/vn")
+  cat > "$sandbox/${key}-70101.json" <<EOF
+{"repo":"v","cwd":"/vn","session":"sx","pid":70101,
+ "sessions":{
+   "ses_old":{"state":"done","reason":null,"ts":100,"task":null,"title":"old"},
+   "ses_new":{"state":"done","reason":null,"ts":200,"task":null,"title":"new"}
+ }}
+EOF
+  cat > "$sandbox/${key}-70101.viewed.json" <<'EOF'
+{"ses_old": 300, "ses_new": 500}
+EOF
+  run_model "$sandbox" "$pso" $'/vn\tsx\tterminal_0\t0'
+  assert_eq "viewed newest-first by viewedTs" "ses_new,ses_old" \
+    "$(jq -r '.timeline.viewed | map(.sid) | join(",")' <<<"$MODEL_OUT")"
+  assert_eq "viewed payload: viewedTs column preserved" "500" \
+    "$(jq -r '[.timeline.viewed[] | select(.sid == "ses_new")] | first | .viewedTs' <<<"$MODEL_OUT")"
+}
+
+# --- timeline.viewed: pending sids win (sids in pending are removed from viewed) ---
+test_timeline_viewed_pending_wins() {
+  local sandbox="$ROOT/pending_wins"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_pending_wins.tsv"
+  printf 'OPENCODE\t70201\n' > "$pso"
+  local key; key=$(key_for "/pw")
+  cat > "$sandbox/${key}-70201.json" <<EOF
+{"repo":"p","cwd":"/pw","session":"sx","pid":70201,
+ "sessions":{
+   "ses_old_done":{"state":"done","reason":null,"ts":50,"task":null,"title":"old d"},
+   "ses_new_attention":{"state":"needs-attention","reason":"perm","ts":300,"task":null,"title":"new n"},
+   "ses_suppressed_done":{"state":"done","reason":null,"ts":150,"task":null,"title":"sup d"}
+ }}
+EOF
+  # viewed marks both old_done and suppressed_done (>= entryTs -> suppressed).
+  cat > "$sandbox/${key}-70201.viewed.json" <<'EOF'
+{"ses_old_done": 80, "ses_suppressed_done": 200}
+EOF
+  run_model "$sandbox" "$pso" $'/pw\tsx\tterminal_0\t0'
+  # ses_old_done: 80 >= 50 -> suppressed -> not actionable -> not in pending.
+  # ses_suppressed_done: 200 >= 150 -> suppressed -> not in pending.
+  # Only ses_new_attention is unsuppressed actionable.
+  assert_eq "pending: only unsuppressed actionable" "ses_new_attention" \
+    "$(jq -r '.timeline.pending | map(.sid) | join(",")' <<<"$MODEL_OUT")"
+  # viewed includes both suppressed done sids (not pending, viewed marks applied).
+  assert_eq "viewed includes ses_old_done" "ses_old_done" \
+    "$(jq -r '[.timeline.viewed[] | select(.sid == "ses_old_done")] | first | .sid' <<<"$MODEL_OUT")"
+  assert_eq "viewed includes ses_suppressed_done" "ses_suppressed_done" \
+    "$(jq -r '[.timeline.viewed[] | select(.sid == "ses_suppressed_done")] | first | .sid' <<<"$MODEL_OUT")"
+  # pending wins: ses_new_attention is in pending -> MUST NOT appear in viewed.
+  assert_eq "pending wins over viewed (ses_new_attention absent)" "0" \
+    "$(jq '[.timeline.viewed[] | select(.sid == "ses_new_attention")] | length' <<<"$MODEL_OUT")"
+}
+
+# --- timeline.viewed: prunes entries not present in any live instance ---
+test_timeline_viewed_pruned_absent() {
+  local sandbox="$ROOT/viewed_pruned"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_viewed_pruned.tsv"
+  printf 'OPENCODE\t70301\n' > "$pso"
+  local key; key=$(key_for "/pr")
+  cat > "$sandbox/${key}-70301.json" <<EOF
+{"repo":"p","cwd":"/pr","session":"sx","pid":70301,
+ "sessions":{"ses_present":{"state":"done","reason":null,"ts":100,"task":null,"title":"p"}}}
+EOF
+  cat > "$sandbox/${key}-70301.viewed.json" <<'EOF'
+{"ses_present": 200, "ses_ghost": 500}
+EOF
+  run_model "$sandbox" "$pso" $'/pr\tsx\tterminal_0\t0'
+  assert_eq "viewed prune: no ghost sid in viewed" "0" \
+    "$(jq '[.timeline.viewed[] | select(.sid == "ses_ghost")] | length' <<<"$MODEL_OUT")"
+  assert_eq "viewed prune: only ses_present" "ses_present" \
+    "$(jq -r '.timeline.viewed | map(.sid) | join(",")' <<<"$MODEL_OUT")"
+}
+
+# --- corrupt / non-object viewed.json acts as empty map ---
+test_timeline_viewed_corrupt_handles() {
+  local sandbox="$ROOT/viewed_corrupt"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_viewed_corrupt.tsv"
+  printf 'OPENCODE\t70401\n' > "$pso"
+  local key; key=$(key_for "/corrupt")
+  cat > "$sandbox/${key}-70401.json" <<EOF
+{"repo":"c","cwd":"/corrupt","session":"sx","pid":70401,
+ "sessions":{"ses_x":{"state":"done","reason":null,"ts":100,"task":null,"title":"x"}}}
+EOF
+  cat > "$sandbox/${key}-70401.viewed.json" <<'EOF'
+{not valid json at all
+EOF
+  run_model "$sandbox" "$pso" $'/corrupt\tsx\tterminal_0\t0'
+  assert_eq "corrupt viewed: rc=0" "0" "$MODEL_RC"
+  assert_eq "corrupt viewed: timeline.viewed empty" "0" \
+    "$(jq '.timeline.viewed | length' <<<"$MODEL_OUT")"
+  assert_eq "corrupt viewed: ses_x not suppressed (no viewed)" "false" \
+    "$(jq -r '.rows[] | select(.sid == "ses_x") | .suppressed' <<<"$MODEL_OUT")"
+}
+
+# --- restarted process inherits max viewed ts from dead pid sibling;
+#     fresh event on previously-viewed sid NOT newly suppressed. ---
+test_timeline_inherits_dead_pid_sibling() {
+  local sandbox="$ROOT/inherit"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_inherit.tsv"
+  printf 'DEAD\t90001\n' > "$pso"
+  printf 'OPENCODE\t90002\n' >> "$pso"
+  local key; key=$(key_for "/inherit")
+  # Dead pid 90001 state file (carries stale sA/sB sessions from prior process).
+  cat > "$sandbox/${key}-90001.json" <<EOF
+{"repo":"prev","cwd":"/inherit","session":"sx","pid":90001,
+ "sessions":{
+   "sA":{"state":"done","reason":null,"ts":50,"task":null,"title":"prev a"},
+   "sB":{"state":"done","reason":null,"ts":40,"task":null,"title":"prev b"}
+ }}
+EOF
+  # Old process viewed sA at 800, sB at 900. These are the inherited marks.
+  cat > "$sandbox/${key}-90001.viewed.json" <<'EOF'
+{"sA": 800, "sB": 900}
+EOF
+  # NEW live process (pid 90002): sA arrives with a FRESH ts=2000 (> 800);
+  # sB carries over the OLD ts=40; sC is a brand-new attention row.
+  cat > "$sandbox/${key}-90002.json" <<EOF
+{"repo":"new","cwd":"/inherit","session":"sy","pid":90002,
+ "sessions":{
+   "sA":{"state":"done","reason":null,"ts":2000,"task":null,"title":"new a"},
+   "sB":{"state":"done","reason":null,"ts":40,"task":null,"title":"new b"},
+   "sC":{"state":"needs-attention","reason":"perm","ts":1500,"task":null,"title":"new c"}
+ }}
+EOF
+  run_model "$sandbox" "$pso" $'/inherit\tsy\tterminal_0\t0'
+  # Dead pid state file is dropped from v2 (pid not alive); only LIVE v2 remains.
+  # 1 v2 + 1 pane => NOT ambiguous. Standard session-row path.
+  assert_eq "inherit: exactly 1 instance (dead dropped)" "1" "$(jq '.instances | length' <<<"$MODEL_OUT")"
+  # fresh-event NOT newly suppressed: sA entryTs=2000 > viewedTs=800
+  assert_eq "inherit: sA (fresh ts=2000) NOT suppressed by stale 800" "false" \
+    "$(jq -r '.rows[] | select(.sid == "sA") | .suppressed' <<<"$MODEL_OUT")"
+  # restart-warm inheritance: sB entryTs=40 <= viewedTs=900 -> suppressed
+  assert_eq "inherit: sB (old ts=40) IS suppressed by inherited 900" "true" \
+    "$(jq -r '.rows[] | select(.sid == "sB") | .suppressed' <<<"$MODEL_OUT")"
+  # inheritance observable in timeline.viewed: sB survives pending-exclusion.
+  # sA drops out (pending-sid wins), sB stays in viewed (not pending, viewed mark inherited).
+  assert_eq "inherit: timeline.viewed contains sB (inherited from dead pid sibling)" \
+    "sB" "$(jq -r '[.timeline.viewed[] | select(.sid == "sB")] | first | .sid' <<<"$MODEL_OUT")"
+  assert_eq "inherit: timeline.viewed empty of sA (pending wins)" "0" \
+    "$(jq '[.timeline.viewed[] | select(.sid == "sA")] | length' <<<"$MODEL_OUT")"
+  assert_eq "inherit: pending has sA and sC (both unsuppressed actionable)" \
+    "sC,sA" "$(jq -r '.timeline.pending | map(.sid) | join(",")' <<<"$MODEL_OUT")"
+}
+
+# --- files without cwd (board-cache, traverse-stack) excluded via missing-cwd guard ---
+test_timeline_ignores_meta_files() {
+  local sandbox="$ROOT/meta"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_meta.tsv"
+  printf 'OPENCODE\t80001\n' > "$pso"
+  cat > "$sandbox/traverse-stack.json" <<'EOF'
+{"cwd":null,"kind":"traverse","data":[]}
+EOF
+  cat > "$sandbox/board-cache.json" <<'EOF'
+{"cwd":null,"kind":"board","data":[]}
+EOF
+  local key; key=$(key_for "/only_one")
+  cat > "$sandbox/${key}-80001.json" <<EOF
+{"repo":"o","cwd":"/only_one","session":"sx","pid":80001,
+ "sessions":{"only":{"state":"needs-attention","reason":"perm","ts":100,"task":null,"title":"only"}}}
+EOF
+  run_model "$sandbox" "$pso" $'/only_one\tsx\tterminal_0\t0'
+  assert_eq "meta: rc=0" "0" "$MODEL_RC"
+  assert_eq "meta: only 1 instance (no junk)" "1" "$(jq '.instances | length' <<<"$MODEL_OUT")"
+  assert_eq "meta: single session row for /only_one" "/only_one" \
+    "$(jq -r '.rows[] | select(.source != "warning") | .cwd' <<<"$MODEL_OUT")"
+  assert_eq "meta: no traverse-stack key" "0" \
+    "$(jq '[.instances[] | select(.key == "traverse-stack")] | length' <<<"$MODEL_OUT")"
+}
+
 test_model_classifies_once
+test_instances_shape
+test_instances_skip_pane_sentinel
+test_instances_keeps_ambiguous
+test_timeline_pending_fifo
+test_timeline_pending_excludes_null_sid
+test_timeline_viewed_newest_first
+test_timeline_viewed_pending_wins
+test_timeline_viewed_pruned_absent
+test_timeline_viewed_corrupt_handles
+test_timeline_inherits_dead_pid_sibling
+test_timeline_ignores_meta_files
 
 echo "---"
 echo "PASS: $PASS  FAIL: $FAIL"

@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import {
   isSuppressed,
   repoNameFromCwd,
+  stateKeyFromCwd,
   stateRank,
 } from '../external/opencode/plugins/agent-fleet-sensor-core.mjs';
 
@@ -109,15 +110,41 @@ function readUsableState(live) {
   return { v1, v2 };
 }
 
-function viewedFor(key) {
-  return readJson(path.join(stateDir, `${key}.viewed.json`), {});
+// -- action: cwd-scoped merge of viewed marks across pid siblings.
+// Reads every file in stateDir named `<cwd-hash>.viewed.json` or
+// `<cwd-hash>-<pid>.viewed.json`, ignoring corrupt / non-object payloads.
+// On a duplicate sid, the MAX numeric ts wins so a fresh local view overrides
+// any stale sibling view. Feeds BOTH the timeline join and baseRow's suppression
+// read (one read path) so a dead pid sibling's viewed mark can suppress an
+// entry whose ts it genuinely covers (restart-warm effect) but cannot newly
+// suppress a fresh event with a newer ts. ---
+function viewedMapForCwd(cwd) {
+  const hash = stateKeyFromCwd(cwd);
+  let names;
+  try {
+    names = readdirSync(stateDir)
+      .filter((n) => n === `${hash}.viewed.json`
+        || (n.startsWith(`${hash}-`) && n.endsWith('.viewed.json')));
+  } catch {
+    return {};
+  }
+  const out = {};
+  for (const name of names) {
+    const obj = readJson(path.join(stateDir, name));
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
+    for (const [sid, ts] of Object.entries(obj)) {
+      if (typeof ts !== 'number' || Number.isNaN(ts)) continue;
+      if (out[sid] == null || ts > out[sid]) out[sid] = ts;
+    }
+  }
+  return out;
 }
 
 function baseRow({ cwd, live, key, obj, sid, entry, source }) {
   const state = entry.state ?? 'unknown';
   const ts = Number(entry.ts ?? 0);
-  const viewedTs = sid ? viewedFor(key)[sid] : null;
-  const suppressed = isSuppressed(state, ts, viewedTs ?? null);
+  const viewedTs = sid ? viewedMapForCwd(cwd)[sid] ?? null : null;
+  const suppressed = isSuppressed(state, ts, viewedTs);
   const rank = stateRank(state);
   return {
     cwd,
@@ -146,6 +173,22 @@ function model() {
   const ambiguous = new Set();
   for (const [cwd, pane] of live.entries()) if (pane.count >= 2) ambiguous.add(cwd);
   for (const [cwd, files] of v2.entries()) if (files.length >= 2) ambiguous.add(cwd);
+
+  // -- calculation: live instances, one per usable v2 file (ambiguous included).
+  // Used by the timeline join to scope viewed marks and by the press-time
+  // resolver to identify the working file behind a (sid, ts) landing. ---
+  const instances = [];
+  for (const files of v2.values()) {
+    for (const { key, obj } of files) {
+      instances.push({
+        key,
+        cwd: obj.cwd,
+        selectedSid: obj.selectedSid ?? null,
+        selectedTs: obj.selectedTs ?? null,
+        sessions: Object.keys(obj.sessions ?? {}).filter((sid) => sid !== '__pane__'),
+      });
+    }
+  }
 
   const rows = [];
   for (const [cwd, pane] of live.entries()) {
@@ -179,7 +222,40 @@ function model() {
     .filter((row) => row.suppressed === false && row.rank != null && row.source !== 'warning')
     .sort((a, b) => b.rank - a.rank || b.ts - a.ts);
 
-  return { live: panes, ambiguous: [...ambiguous], rows, actionable };
+  // -- timeline: pending FIFO + viewed join over live instances.
+  // pending preserves actionable rows (all reachable sessions, FIFO oldest
+  // first regardless of rank so the user sees the actual order of events).
+  // viewed joins the cwd-scoped merged viewed map onto each instance's live
+  // sessions (drops the ghost sids), dedupes by sid at max viewedTs, removes
+  // anything in pending (pending wins), and sorts newest-first for the
+  // landing payload (sid + viewedTs). ---
+  const pending = actionable
+    .filter((row) => row.sid != null)
+    .sort((a, b) => a.ts - b.ts);
+  const pendingSidSet = new Set(pending.map((row) => row.sid));
+  const viewedBySid = new Map();
+  for (const inst of instances) {
+    const merged = viewedMapForCwd(inst.cwd);
+    for (const sid of inst.sessions) {
+      if (!(sid in merged)) continue;
+      const ts = merged[sid];
+      const cur = viewedBySid.get(sid);
+      if (cur == null || ts > cur) viewedBySid.set(sid, ts);
+    }
+  }
+  const viewed = [...viewedBySid.entries()]
+    .filter(([sid]) => !pendingSidSet.has(sid))
+    .map(([sid, viewedTs]) => ({ sid, viewedTs }))
+    .sort((a, b) => b.viewedTs - a.viewedTs);
+
+  return {
+    live: panes,
+    ambiguous: [...ambiguous],
+    rows,
+    actionable,
+    instances,
+    timeline: { viewed, pending },
+  };
 }
 
 process.stdout.write(`${JSON.stringify(model())}\n`);
