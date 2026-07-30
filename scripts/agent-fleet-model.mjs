@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
@@ -8,6 +9,50 @@ import {
   stateKeyFromCwd,
   stateRank,
 } from '../external/opencode/plugins/agent-fleet-sensor-core.mjs';
+
+// -- trace collection (env-gated; sidecar written at end of run) --
+const TRACE_DIR = process.env.AGENT_FLEET_TRACE_DIR ?? null;
+const TRACE_REQ = process.env.AF_REQUEST_ID ?? null;
+const TRACING = TRACE_DIR != null && TRACE_REQ != null;
+const trace = { ts: Date.now(), files: [], identity: [], livePanes: null, ps: [] };
+
+function sha1(s) {
+  return createHash('sha1').update(s).digest('hex');
+}
+
+function psTree() {
+  const ov = process.env.AGENT_FLEET_PS_TREE_OVERRIDE;
+  const out = ov
+    ? readFileSync(ov, 'utf8')
+    : spawnSync('ps', ['-axo', 'pid=,ppid=,comm='], { encoding: 'utf8' }).stdout ?? '';
+  const byPid = new Map();
+  for (const line of out.split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
+    if (m) byPid.set(Number(m[1]), { ppid: Number(m[2]), comm: m[3] });
+  }
+  return byPid;
+}
+
+function zellijDescendant(pid, tree) {
+  let cur = pid;
+  for (let hops = 0; hops < 32; hops++) {
+    const node = tree.get(cur);
+    if (!node) return false;
+    if (node.comm.includes('zellij')) return true;
+    if (node.ppid === cur || node.ppid <= 1) return false;
+    cur = node.ppid;
+  }
+  return false;
+}
+
+function cwdMatches(pid, cwd) {
+  const ov = process.env.AGENT_FLEET_LSOF_OVERRIDE;
+  const out = ov
+    ? readFileSync(ov, 'utf8')
+    : spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout ?? '';
+  const n = out.split('\n').find((line) => line.startsWith('n'));
+  return n != null && n.slice(1) === cwd;
+}
 
 const stateDir = process.env.AGENT_FLEET_STATE_DIR
   ?? path.join(process.env.HOME, '.local/state/agent-fleet');
@@ -49,22 +94,26 @@ function livePanes() {
 }
 
 function pidAliveOpencode(pid) {
-  const override = process.env.AGENT_FLEET_PS_OVERRIDE;
-  if (override) {
-    const hit = readFileSync(override, 'utf8')
-      .split('\n')
-      .map((line) => line.split('\t'))
-      .find(([, p]) => p === String(pid));
-    if (hit?.[0] === 'OPENCODE') return true;
-    if (hit?.[0] === 'DEAD') return false;
-  }
-  try {
-    process.kill(Number(pid), 0);
-  } catch {
-    return false;
-  }
-  const ps = spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf8' });
-  return ps.status === 0 && ps.stdout.includes('opencode');
+  const result = (() => {
+    const override = process.env.AGENT_FLEET_PS_OVERRIDE;
+    if (override) {
+      const hit = readFileSync(override, 'utf8')
+        .split('\n')
+        .map((line) => line.split('\t'))
+        .find(([, p]) => p === String(pid));
+      if (hit?.[0] === 'OPENCODE') return true;
+      if (hit?.[0] === 'DEAD') return false;
+    }
+    try {
+      process.kill(Number(pid), 0);
+    } catch {
+      return false;
+    }
+    const ps = spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf8' });
+    return ps.status === 0 && ps.stdout.includes('opencode');
+  })();
+  if (TRACING) trace.ps.push({ pid, alive: result });
+  return result;
 }
 
 function stateFiles() {
@@ -94,18 +143,35 @@ function readUsableState(live) {
   const v1 = new Map();
   const v2 = new Map();
   for (const file of stateFiles()) {
-    const obj = readJson(file);
-    if (!obj?.cwd) continue;
-    if (!live.has(obj.cwd)) continue;
+    const name = path.basename(file);
+    let raw = null;
+    try { raw = readFileSync(file, 'utf8'); } catch {}
+    const rec = { name, mtimeMs: null, size: null, sha1: null, pid: null, verdict: 'rejected', reason: null };
+    try { const st = statSync(file); rec.mtimeMs = st.mtimeMs; rec.size = st.size; } catch {}
+    if (raw != null) rec.sha1 = sha1(raw);
+    let obj = null;
+    try { obj = JSON.parse(raw ?? ''); } catch { rec.reason = 'parse-fail'; }
+    if (rec.reason == null) {
+      if (!obj?.cwd) rec.reason = 'no-cwd';
+      else if (!live.has(obj.cwd)) rec.reason = 'not-live';
+      else if (obj.sessions && typeof obj.sessions === 'object') {
+        rec.pid = obj.pid ?? null;
+        if (!obj.pid || !pidAliveOpencode(obj.pid)) rec.reason = 'dead-pid';
+      }
+    }
+    if (rec.reason != null) { if (TRACING) trace.files.push(rec); continue; }
     const key = path.basename(file, '.json');
     if (obj.sessions && typeof obj.sessions === 'object') {
-      if (!obj.pid || !pidAliveOpencode(obj.pid)) continue;
+      rec.pid = obj.pid ?? null;
+      rec.verdict = 'v2-used';
       const rows = v2.get(obj.cwd) ?? [];
       rows.push({ key, obj });
       v2.set(obj.cwd, rows);
     } else {
+      rec.verdict = 'v1-used';
       v1.set(obj.cwd, { key, obj });
     }
+    if (TRACING) trace.files.push(rec);
   }
   return { v1, v2 };
 }
@@ -166,8 +232,23 @@ function baseRow({ cwd, live, key, obj, sid, entry, source, getViewedMap }) {
 
 function model() {
   const panes = livePanes();
+  if (TRACING) trace.livePanes = { override: process.env.AGENT_FLEET_LIVE_PANES_OVERRIDE != null, count: panes.length };
   const live = liveByCwd(panes);
   const { v1, v2 } = readUsableState(live);
+  if (TRACING) {
+    const tree = psTree();
+    for (const files of v2.values()) {
+      for (const { obj } of files) {
+        if (!obj.pid) continue;
+        trace.identity.push({
+          pid: obj.pid,
+          cwd: obj.cwd,
+          zellijDescendant: zellijDescendant(obj.pid, tree),
+          cwdMatch: cwdMatches(obj.pid, obj.cwd),
+        });
+      }
+    }
+  }
   const ambiguous = new Set();
   for (const [cwd, pane] of live.entries()) if (pane.count >= 2) ambiguous.add(cwd);
   for (const [cwd, files] of v2.entries()) if (files.length >= 2) ambiguous.add(cwd);
@@ -273,4 +354,11 @@ function model() {
   };
 }
 
-process.stdout.write(`${JSON.stringify(model())}\n`);
+const result = model();
+if (TRACING) {
+  try {
+    mkdirSync(path.join(TRACE_DIR, TRACE_REQ), { recursive: true });
+    writeFileSync(path.join(TRACE_DIR, TRACE_REQ, 'model-trace.json'), JSON.stringify(trace, null, 2));
+  } catch {}
+}
+process.stdout.write(`${JSON.stringify(result)}\n`);

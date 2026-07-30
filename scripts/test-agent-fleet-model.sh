@@ -538,6 +538,48 @@ EOF
     "$(jq '[.instances[] | select(.key == "traverse-stack")] | length' <<<"$MODEL_OUT")"
 }
 
+# --- model-trace sidecar: provenance, rejection reasons, identity ---
+test_model_trace_sidecar() {
+  local sandbox="$ROOT/state-mt"; mkdir -p "$sandbox"
+  local pso="$ROOT/pso-mt"; printf 'OPENCODE\t1001\nDEAD\t1003\n' > "$pso"
+  local keyA; keyA=$(key_for "/repoA")
+  cat > "$sandbox/${keyA}-1001.json" <<'EOF'
+{"repo":"a","cwd":"/repoA","session":"sx","pid":1001,"sessions":{"s1":{"state":"done","reason":null,"ts":100,"task":null,"title":"A1"}}}
+EOF
+  cat > "$sandbox/${keyA}-1003.json" <<'EOF'
+{"repo":"a","cwd":"/repoA","session":"sx","pid":1003,"sessions":{"d":{"state":"done","reason":null,"ts":100,"task":null,"title":"D"}}}
+EOF
+  local keyZ; keyZ=$(key_for "/repoZ")
+  cat > "$sandbox/${keyZ}-1001.json" <<'EOF'
+{"repo":"z","cwd":"/repoZ","session":"sx","pid":1001,"sessions":{"z":{"state":"done","reason":null,"ts":100,"task":null,"title":"Z"}}}
+EOF
+  printf 'not json' > "$sandbox/corrupt.json"
+  printf '{"pid":1001,"sessions":{}}' > "$sandbox/nocwd.json"
+  local tree="$ROOT/pstree-mt"; printf '1001 900 opencode\n900 1 zellij\n' > "$tree"
+  local lsof="$ROOT/lsof-mt"; printf 'p1001\nn/repoA\n' > "$lsof"
+  local trace="$ROOT/trace-mt"
+  local pane_file="$ROOT/panes-mt.tsv"; printf '/repoA\tsx\tterminal_1\t0\n' > "$pane_file"
+  set +e
+  env AGENT_FLEET_STATE_DIR="$sandbox" \
+    AGENT_FLEET_LIVE_PANES_OVERRIDE="$pane_file" AGENT_FLEET_PS_OVERRIDE="$pso" \
+    AGENT_FLEET_PS_TREE_OVERRIDE="$tree" AGENT_FLEET_LSOF_OVERRIDE="$lsof" \
+    AGENT_FLEET_TRACE_DIR="$trace" AF_REQUEST_ID="mt-req" node "$MODEL" >/dev/null
+  local rc=$?
+  set -e
+  assert_eq "mt: model exits 0" "0" "$rc"
+  local side="$trace/mt-req/model-trace.json"
+  assert_eq "mt: sidecar exists" "yes" "$([ -f "$side" ] && echo yes || echo no)"
+  assert_eq "mt: dead-pid rejection" "dead-pid" "$(jq -r '.files[] | select(.name | endswith("-1003.json")) | .reason' "$side")"
+  assert_eq "mt: not-live rejection" "not-live" "$(jq -r --arg p "$keyZ" '.files[] | select(.name | startswith($p)) | .reason' "$side")"
+  assert_eq "mt: corrupt rejection" "parse-fail" "$(jq -r '.files[] | select(.name == "corrupt.json") | .reason' "$side")"
+  assert_eq "mt: no-cwd rejection" "no-cwd" "$(jq -r '.files[] | select(.name == "nocwd.json") | .reason' "$side")"
+  assert_eq "mt: used verdict" "v2-used" "$(jq -r --arg n "${keyA}-1001.json" '.files[] | select(.name == $n) | .verdict' "$side")"
+  assert_eq "mt: sha1 recorded" "40" "$(jq -r --arg n "${keyA}-1001.json" '.files[] | select(.name == $n) | .sha1 | length' "$side")"
+  assert_eq "mt: ps check recorded (dead pid 1003)" "false" "$(jq -r '[.ps[] | select(.pid == 1003)][0].alive' "$side")"
+  assert_eq "mt: zellij descendant" "true" "$(jq -r '.identity[] | select(.pid == 1001) | .zellijDescendant' "$side")"
+  assert_eq "mt: cwd match" "true" "$(jq -r '.identity[] | select(.pid == 1001) | .cwdMatch' "$side")"
+}
+
 test_model_classifies_once
 test_instances_shape
 test_seeded_unknown_rows_hidden_from_board
@@ -553,6 +595,7 @@ test_timeline_viewed_merge_edge_cases
 test_timeline_viewed_missing_file_handles
 test_timeline_inherits_dead_pid_sibling
 test_timeline_ignores_meta_files
+test_model_trace_sidecar
 
 echo "---"
 echo "PASS: $PASS  FAIL: $FAIL"
