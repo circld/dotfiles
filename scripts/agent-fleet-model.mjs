@@ -111,20 +111,18 @@ function readUsableState(live) {
 }
 
 // -- action: cwd-scoped merge of viewed marks across pid siblings.
-// Reads every file in stateDir named `<cwd-hash>.viewed.json` or
-// `<cwd-hash>-<pid>.viewed.json`, ignoring corrupt / non-object payloads.
-// On a duplicate sid, the MAX numeric ts wins so a fresh local view overrides
-// any stale sibling view. Feeds BOTH the timeline join and baseRow's suppression
-// read (one read path) so a dead pid sibling's viewed mark can suppress an
-// entry whose ts it genuinely covers (restart-warm effect) but cannot newly
-// suppress a fresh event with a newer ts. ---
+// Reads every file in stateDir whose name matches `^<cwd-hash>(-[0-9]+)?\.viewed\.json$`
+// — bare hash OR hash joined to a NUMERIC pid suffix only. Strict regex so
+// `hash-backup.viewed.json` (non-numeric pid suffix) does NOT participate.
+// Corrupt / non-object / non-numeric-ts payloads are ignored. On a duplicate
+// sid across sibling files, the MAX numeric ts wins (fresh local view
+// overrides stale sibling view). ---
 function viewedMapForCwd(cwd) {
   const hash = stateKeyFromCwd(cwd);
+  const re = new RegExp(`^${hash}(-[0-9]+)?\\.viewed\\.json$`);
   let names;
   try {
-    names = readdirSync(stateDir)
-      .filter((n) => n === `${hash}.viewed.json`
-        || (n.startsWith(`${hash}-`) && n.endsWith('.viewed.json')));
+    names = readdirSync(stateDir).filter((n) => re.test(n));
   } catch {
     return {};
   }
@@ -140,10 +138,10 @@ function viewedMapForCwd(cwd) {
   return out;
 }
 
-function baseRow({ cwd, live, key, obj, sid, entry, source }) {
+function baseRow({ cwd, live, key, obj, sid, entry, source, getViewedMap }) {
   const state = entry.state ?? 'unknown';
   const ts = Number(entry.ts ?? 0);
-  const viewedTs = sid ? viewedMapForCwd(cwd)[sid] ?? null : null;
+  const viewedTs = sid ? getViewedMap(cwd)[sid] ?? null : null;
   const suppressed = isSuppressed(state, ts, viewedTs);
   const rank = stateRank(state);
   return {
@@ -174,6 +172,19 @@ function model() {
   for (const [cwd, pane] of live.entries()) if (pane.count >= 2) ambiguous.add(cwd);
   for (const [cwd, files] of v2.entries()) if (files.length >= 2) ambiguous.add(cwd);
 
+  // -- cwd-keyed viewed-map cache so baseRow and the timeline join see the
+  // same merged map per cwd within ONE model() run (audit consistency:
+  // a file mid-run rewrite cannot make suppression and timeline differ). ---
+  const viewedMapCache = new Map();
+  const getViewedMap = (cwd) => {
+    let m = viewedMapCache.get(cwd);
+    if (!m) {
+      m = viewedMapForCwd(cwd);
+      viewedMapCache.set(cwd, m);
+    }
+    return m;
+  };
+
   // -- calculation: live instances, one per usable v2 file (ambiguous included).
   // Used by the timeline join to scope viewed marks and by the press-time
   // resolver to identify the working file behind a (sid, ts) landing. ---
@@ -202,7 +213,7 @@ function model() {
       const sessionRows = [];
       for (const [sid, entry] of Object.entries(obj.sessions ?? {})) {
         if (sid === '__pane__') continue;
-        sessionRows.push(baseRow({ cwd, live: pane, key, obj, sid, entry, source: 'v2' }));
+        sessionRows.push(baseRow({ cwd, live: pane, key, obj, sid, entry, source: 'v2', getViewedMap }));
       }
       rows.push(...sessionRows);
       if (sessionRows.length > 0 && sessionRows.every((row) => row.state === 'done' && row.suppressed)) {
@@ -212,7 +223,7 @@ function model() {
     }
     const legacy = v1.get(cwd);
     if (legacy) {
-      rows.push(baseRow({ cwd, live: pane, key: legacy.key, obj: legacy.obj, sid: null, entry: legacy.obj, source: 'v1' }));
+      rows.push(baseRow({ cwd, live: pane, key: legacy.key, obj: legacy.obj, sid: null, entry: legacy.obj, source: 'v1', getViewedMap }));
       continue;
     }
     rows.push({ cwd, session: pane.session, pane: pane.pane, tabId: pane.tabId, key: null, pid: null, repo: repoNameFromCwd(cwd), sid: null, state: 'unknown', reason: 'no sensor yet - restart agent', ts: Date.now(), title: null, label: repoNameFromCwd(cwd), suppressed: false, rank: null, source: 'synthetic' });
@@ -228,14 +239,15 @@ function model() {
   // viewed joins the cwd-scoped merged viewed map onto each instance's live
   // sessions (drops the ghost sids), dedupes by sid at max viewedTs, removes
   // anything in pending (pending wins), and sorts newest-first for the
-  // landing payload (sid + viewedTs). ---
+  // landing payload (sid + viewedTs). Both consumers read via getViewedMap
+  // so they share the cached per-cwd merge from this run. ---
   const pending = actionable
     .filter((row) => row.sid != null)
     .sort((a, b) => a.ts - b.ts);
   const pendingSidSet = new Set(pending.map((row) => row.sid));
   const viewedBySid = new Map();
   for (const inst of instances) {
-    const merged = viewedMapForCwd(inst.cwd);
+    const merged = getViewedMap(inst.cwd);
     for (const sid of inst.sessions) {
       if (!(sid in merged)) continue;
       const ts = merged[sid];

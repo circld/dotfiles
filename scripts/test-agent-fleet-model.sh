@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -24,6 +24,10 @@ run_model() {
   local sandbox="$1" pso="$2" live="$3"
   local pane_file="$ROOT/panes-${RANDOM}.tsv"
   printf '%s\n' "$live" > "$pane_file"
+  # `node` is allowed to exit nonzero (some tests deliberately feed junk
+  # fixtures); disable -e around the call so we capture RC rather than aborting
+  # the whole suite under strict mode. Re-enable for the rest of the function.
+  set +e
   MODEL_OUT="$(env \
     AGENT_FLEET_STATE_DIR="$sandbox" \
     AGENT_FLEET_LIVE_PANES_OVERRIDE="$pane_file" \
@@ -31,6 +35,7 @@ run_model() {
     node "$MODEL" 2>"$ROOT/model.err")"
   MODEL_RC=$?
   MODEL_ERR="$(cat "$ROOT/model.err")"
+  set -e
 }
 
 # --- regression: existing row/actionable behavior preserved ---
@@ -315,6 +320,91 @@ EOF
     "$(jq -r '.rows[] | select(.sid == "ses_x") | .suppressed' <<<"$MODEL_OUT")"
 }
 
+# --- merge edge cases: bare + per-pid files together; numeric max wins;
+#     corrupt sibling ignored; non-numeric ts rejected; stray
+#     `<hash>-backup.viewed.json` (non-numeric pid suffix) MUST be ignored. ---
+test_timeline_viewed_merge_edge_cases() {
+  local sandbox="$ROOT/viewed_merge"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_viewed_merge.tsv"
+  printf 'OPENCODE\t90001\n' > "$pso"
+  local key; key=$(key_for "/merge")
+
+  # Bare legacy viewed.json: ses_old=50, ses_dup=100 (lower than the per-pid
+  # file's 200 — proves max wins), ses_str="NaN" (non-numeric ts — rejected).
+  cat > "$sandbox/${key}.viewed.json" <<'EOF'
+{"ses_old": 50, "ses_dup": 100, "ses_str": "NaN"}
+EOF
+  # Per-pid viewed.json: ses_dup upgraded to 200 (numeric max wins vs bare's 100),
+  # ses_new appears only here.
+  cat > "$sandbox/${key}-90001.viewed.json" <<'EOF'
+{"ses_dup": 200, "ses_new": 300}
+EOF
+  # Corrupt sibling file: pid-suffix file with broken JSON. Filter accepts the
+  # name (numeric pid 90002 matches), but readJson fallback {null} is non-object,
+  # so the merge loop ignores it. Useful to PROVE the valid file's data still wins.
+  cat > "$sandbox/${key}-90002.viewed.json" <<'EOF'
+{not valid json at all
+EOF
+  # STRAY file: `${key}-backup.viewed.json` (non-numeric suffix). The fix's
+  # regex `^<hash>(-[0-9]+)?\.viewed\.json$` MUST reject this name entirely.
+  # If the filter were loose (current pre-fix code accepts any `<hash>-*.viewed.json`),
+  # ses_old would jump to 99999999 (suppressing it) and timeline.viewed would
+  # admit ses_old. Both wrong.
+  cat > "$sandbox/${key}-backup.viewed.json" <<'EOF'
+{"ses_old": 99999999, "ses_dup": 99999999, "ses_new": 99999999}
+EOF
+
+  cat > "$sandbox/${key}-90001.json" <<EOF
+{"repo":"m","cwd":"/merge","session":"sx","pid":90001,
+ "sessions":{
+   "ses_old":{"state":"done","reason":null,"ts":200,"task":null,"title":"o"},
+   "ses_dup":{"state":"done","reason":null,"ts":150,"task":null,"title":"d"},
+   "ses_new":{"state":"needs-attention","reason":"perm","ts":10,"task":null,"title":"n"}
+ }}
+EOF
+  run_model "$sandbox" "$pso" $'/merge\tsx\tterminal_0\t0'
+
+  # --- filter correctness (Issues 1 & 3): stray MUST be excluded ---
+  assert_eq "merge: rc=0" "0" "$MODEL_RC"
+  assert_eq "merge: ses_old NOT suppressed by stray 99999999 (kept at bare=50 < 200)" "false" \
+    "$(jq -r '.rows[] | select(.sid == "ses_old") | .suppressed' <<<"$MODEL_OUT")"
+  assert_eq "merge: ses_str absent from rows (NEVER in instance.sessions)" "0" \
+    "$(jq '[.rows[] | select(.sid == "ses_str")] | length' <<<"$MODEL_OUT")"
+
+  # --- merge correctness (Issue 3): numeric max across files + pid per-file pick up ---
+  assert_eq "merge: ses_dup suppressed (200 >= 150, max of bare's 100 vs pid's 200)" "true" \
+    "$(jq -r '.rows[] | select(.sid == "ses_dup") | .suppressed' <<<"$MODEL_OUT")"
+  assert_eq "merge: ses_new suppressed (300 >= 10)" "true" \
+    "$(jq -r '.rows[] | select(.sid == "ses_new") | .suppressed' <<<"$MODEL_OUT")"
+
+  # --- corrupt-sibling survives intact (Issue 3) ---
+  # If corrupt sibling had crashed/poisoned the cache, ses_new's suppress would
+  # differ. Confirm via row presence AND no extra instance pollution.
+  assert_eq "merge: 1 instance (no poison from corrupt/stray files)" "1" \
+    "$(jq '.instances | length' <<<"$MODEL_OUT")"
+
+  # --- timeline.viewed filters pending + drops non-numeric-ts + drops stray ---
+  # pending = [ses_old ts=200] (only unsuppressed actionable).
+  # viewed candidates {ses_old:50, ses_dup:200, ses_new:300} -> drop ses_old
+  # (in pending) and drop ses_str (already absent). Final:
+  #   newest-first: [{ses_new, 300}, {ses_dup, 200}].
+  assert_eq "merge: timeline.viewed count = 2" "2" \
+    "$(jq '.timeline.viewed | length' <<<"$MODEL_OUT")"
+  assert_eq "merge: timeline.viewed[0] = ses_new (300)" "ses_new" \
+    "$(jq -r '.timeline.viewed[0].sid' <<<"$MODEL_OUT")"
+  assert_eq "merge: timeline.viewed[0].viewedTs = 300" "300" \
+    "$(jq -r '.timeline.viewed[0].viewedTs' <<<"$MODEL_OUT")"
+  assert_eq "merge: timeline.viewed[1] = ses_dup (200)" "ses_dup" \
+    "$(jq -r '.timeline.viewed[1].sid' <<<"$MODEL_OUT")"
+  assert_eq "merge: timeline.viewed[1].viewedTs = 200 (numeric max, NOT stray 99999999)" "200" \
+    "$(jq -r '.timeline.viewed[1].viewedTs' <<<"$MODEL_OUT")"
+  assert_eq "merge: timeline.viewed absent of ses_old (pending-excludes)" "0" \
+    "$(jq '[.timeline.viewed[] | select(.sid == "ses_old")] | length' <<<"$MODEL_OUT")"
+  assert_eq "merge: timeline.viewed absent of ses_str (non-numeric rejected)" "0" \
+    "$(jq '[.timeline.viewed[] | select(.sid == "ses_str")] | length' <<<"$MODEL_OUT")"
+}
+
 # --- missing viewed.json file acts as empty map ---
 # Distinct from the corrupt case: nothing on disk at all. merge must produce
 # {} so rows are unsuppressed and timeline.viewed is empty. ---
@@ -433,6 +523,7 @@ test_timeline_viewed_newest_first
 test_timeline_viewed_pending_wins
 test_timeline_viewed_pruned_absent
 test_timeline_viewed_corrupt_handles
+test_timeline_viewed_merge_edge_cases
 test_timeline_viewed_missing_file_handles
 test_timeline_inherits_dead_pid_sibling
 test_timeline_ignores_meta_files
