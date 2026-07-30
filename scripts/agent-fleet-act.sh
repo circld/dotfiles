@@ -54,10 +54,13 @@ stack_read() {
 # === stack_write: atomic tmp+rename; DECIDE_ONLY no-op; warn-and-return-0 on failure. ===
 # Caller passes JSON. Failure is non-fatal: caller continues to landing.
 stack_write() {
+  local stack_json="$1"
   if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" = "1" ]; then
     return 0
   fi
-  local stack_json="$1"
+  if [ -n "${AGENT_FLEET_TRACE_DIR:-}" ] && [ -n "${AF_REQUEST_ID:-}" ]; then
+    printf '%s\n' "$stack_json" | af_trace stack-post.json
+  fi
   local path="${2:-$STATE_DIR/traverse-stack.json}"
   local tmp
   if ! tmp="$(mktemp "${path}.tmp.XXXXXX" 2>/dev/null)"; then
@@ -284,4 +287,36 @@ act_focus_window() {
   else
     aerospace workspace 1 || true
   fi
+}
+
+# === af_trace: env-gated per-press trace write. $1 = filename; content on stdin. ===
+# Writes $AGENT_FLEET_TRACE_DIR/$AF_REQUEST_ID/$1. When either var is unset it
+# DRAINS stdin to /dev/null and returns 0, so callers may pipe into it unguarded
+# (a no-read early return races the writer and can SIGPIPE it under pipefail).
+# Observability only: never fails the caller. It writes whenever invoked with
+# the env set, including under DECIDE_ONLY — but call sites inside
+# DECIDE_ONLY-guarded writers (stack-post, landing ledger) are never reached in
+# that mode, so a DECIDE_ONLY press captures model/stack-pre/decision only.
+# That asymmetry is intended: decide-only suppresses state mutations, not
+# observability of what ran.
+af_trace() {
+  if [ -z "${AGENT_FLEET_TRACE_DIR:-}" ] || [ -z "${AF_REQUEST_ID:-}" ]; then
+    cat >/dev/null 2>&1 || true
+    return 0
+  fi
+  local dir="${AGENT_FLEET_TRACE_DIR}/${AF_REQUEST_ID}"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  cat > "${dir}/$1" 2>/dev/null || true
+}
+
+# === af_trace_line: append to per-press file $1 (created on demand). Line on stdin. ===
+# Same drain-when-disabled contract as af_trace.
+af_trace_line() {
+  if [ -z "${AGENT_FLEET_TRACE_DIR:-}" ] || [ -z "${AF_REQUEST_ID:-}" ]; then
+    cat >/dev/null 2>&1 || true
+    return 0
+  fi
+  local dir="${AGENT_FLEET_TRACE_DIR}/${AF_REQUEST_ID}"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  cat >> "${dir}/$1" 2>/dev/null || true
 }

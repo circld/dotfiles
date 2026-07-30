@@ -14,17 +14,25 @@ if (( BASH_VERSINFO[0] < 4 )); then
 fi
 
 emit_decision() {
-  echo "$@"
-  echo "$@" >&2
+  local line="$*"
+  [ -n "${AF_REQUEST_ID:-}" ] && line="$line req=${AF_REQUEST_ID}"
+  echo "$line"
+  echo "$line" >&2
+  echo "$line" | af_trace decision.txt
 }
 
 # === Pin shell time exactly. AGENT_FLEET_NOW_MS is the override seam used by
 # the reconcile stale-P 2s window tests; against the real clock a fixed fixture
 # ts is always ancient and the within-window branch is untestable. ===
 now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
+if [ -n "${AGENT_FLEET_TRACE_DIR:-}" ]; then
+  AF_REQUEST_ID="${AF_REQUEST_ID:-${now_ms}-$$}"
+  export AF_REQUEST_ID
+fi
 source_session="${ZELLIJ_SESSION_NAME:-}"
 
 json="$(node "$MODEL")"
+af_trace model.json <<<"$json"
 
 # === Derive P (the model cursor) ===
 # Physical-source-session preference with global max(selectedTs) fallback;
@@ -38,6 +46,7 @@ P_json="$(stack_derive_p "$source_session" <<<"$json")"
 # early-exit on noop/warn still persists the reconciled mutation (per plan
 # step 4: "Call `stack_write` before every early exit, including noop/warn").
 stack="$(stack_read)"
+af_trace stack-pre.json <<<"$stack"
 stack="$(stack_reconcile "$P_json" "$now_ms" <<<"$stack")"
 
 # === Apply the new-navigation mutation for a select kind landing. ===

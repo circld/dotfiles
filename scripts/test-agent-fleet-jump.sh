@@ -1598,6 +1598,35 @@ EOF
     "$JUMP_STDERR" "atomic_write_select"
 }
 
+# --- trace plumbing: per-press dir captures model/stack/decision ---
+# BRACE GROUP, not a subshell: PASS/FAIL counters (and the traverse harness's
+# LOG variable) do NOT survive `( … )` — subshell assertions would be lost from
+# the summary and the suite could exit 0 over a real failure.
+{
+  sandbox="$ROOT/state-trace1"; mkdir -p "$sandbox"
+  pso="$ROOT/pso-trace1"; printf 'OPENCODE\t1001\n' > "$pso"
+  keyA="$(printf '%s' /projA | shasum -a 256 | cut -c1-16)"
+  cat > "$sandbox/${keyA}-1001.json" <<'EOF'
+{"repo":"a","cwd":"/projA","session":"sx","pid":1001,"sessions":{"s1":{"state":"done","reason":null,"ts":100,"task":null,"title":"A1"}}}
+EOF
+  trace="$ROOT/trace-1"
+  pane_file="$ROOT/pane-trace1.tsv"
+  printf '/projA\tsx\tterminal_1\t0\n' > "$pane_file"
+  JUMP_STDOUT="$(env \
+    AGENT_FLEET_LIVE_PANES_OVERRIDE="$pane_file" \
+    AGENT_FLEET_STATE_DIR="$sandbox" \
+    AGENT_FLEET_PS_OVERRIDE="$pso" \
+    AGENT_FLEET_DECIDE_SELECT=1 \
+    AGENT_FLEET_TRACE_DIR="$trace" \
+    AF_REQUEST_ID="t1-req" \
+    bash "$JUMP" "" 2>/dev/null)"
+  assert_file_exists "trace1: model.json" "$trace/t1-req/model.json"
+  assert_file_exists "trace1: stack-pre.json" "$trace/t1-req/stack-pre.json"
+  assert_file_exists "trace1: stack-post.json" "$trace/t1-req/stack-post.json"
+  assert_file_exists "trace1: decision.txt" "$trace/t1-req/decision.txt"
+  assert_contains "trace1: decision carries req" "$(cat "$trace/t1-req/decision.txt" 2>/dev/null)" "req=t1-req"
+}
+
 # === run all tests ===
 run_test() {
   local fn="$1"
