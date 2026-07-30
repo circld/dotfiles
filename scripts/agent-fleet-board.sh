@@ -51,17 +51,17 @@ hidden_json() {
 }
 
 filter_hidden_rows() {
-  local path="$1" hidden sid suppressed age
+  local path="$1" hidden sid suppressed
   ((${#HIDDEN_AT[@]})) || return 0
   while IFS=$'\t' read -r sid suppressed; do
     [ -n "$sid" ] || continue
     if [ "$suppressed" = true ]; then
       unset 'HIDDEN_AT[$sid]'
-    elif [ -n "${HIDDEN_AT[$sid]+x}" ]; then
-      age=$((TICK_COUNT - HIDDEN_AT[$sid]))
-      if (( age >= 5 )); then unset 'HIDDEN_AT[$sid]'; fi
     fi
   done < <(jq -r '.rows[]? | select(.sid != null) | [.sid, (.suppressed == true)] | @tsv' "$path" 2>/dev/null || true)
+  for sid in "${!HIDDEN_AT[@]}"; do
+    if (( HIDDEN_AT[$sid] >= 5 )); then unset 'HIDDEN_AT[$sid]'; fi
+  done
   hidden="$(hidden_json)"
   jq --argjson hidden "$hidden" '
     if (.rows | type) != "array" then .
@@ -69,6 +69,13 @@ filter_hidden_rows() {
     end
   ' "$path" > "${path}.filtered"
   mv -f "${path}.filtered" "$path"
+}
+
+advance_hidden() {
+  local sid
+  for sid in "${!HIDDEN_AT[@]}"; do
+    HIDDEN_AT["$sid"]=$((HIDDEN_AT[$sid] + 1))
+  done
 }
 
 # Run the model into a tmp file, validate JSON, atomic rename on success.
@@ -89,6 +96,7 @@ refresh_model() {
   fi
   if jq -e type >/dev/null 2>&1 < "$tmp"; then
     TICK_COUNT=$((TICK_COUNT + 1))
+    advance_hidden
     filter_hidden_rows "$tmp"
     mv -f "$tmp" "$CACHE"
     return 0
@@ -113,8 +121,7 @@ emit_hidden() {
 }
 
 apply_select_nav() {
-  local stack="$1" target="$2" now_ms
-  now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
+  local stack="$1" target="$2" now_ms="${3:-${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}}"
   jq --arg target "$target" --argjson now_ms "$now_ms" '
     . as $s
     | .back |= ((map(select((. != $target) and (. != $s.current.sid))) +
@@ -126,10 +133,14 @@ apply_select_nav() {
 }
 
 enter() {
-  local row key sid cwd sess pane tab p stack
+  local row key sid cwd sess pane tab p stack now_ms
   if ! refresh_model; then
     emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE"; return
   fi
+  now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
+  p="$(jq -c '[.instances[]? | select(.selectedSid != null and (.selectedTs | type) == "number") ] | if length == 0 then null else max_by(.selectedTs) | {sid:.selectedSid,ts:.selectedTs} end' "$CACHE")"
+  stack="$(stack_reconcile "$p" "$now_ms" <<<"$(stack_read)")"
+  stack_write "$stack"
   if [ -n "$HL_SID" ]; then
     row="$(jq -c --arg key "$HL_KEY" --arg sid "$HL_SID" '.rows[]? | select(.key == $key and .sid == $sid)' "$CACHE" | head -n 1 || true)"
   else
@@ -146,9 +157,7 @@ enter() {
     emit_decision "DECISION:kind=focus-only cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab}"
     act_land "" "" "$sess" "$pane" "$tab"; repaint "$HL_LINE"; return
   fi
-  p="$(jq -c '[.instances[]? | select(.selectedSid != null and (.selectedTs | type) == "number") ] | if length == 0 then null else max_by(.selectedTs) | {sid:.selectedSid,ts:.selectedTs} end' "$CACHE")"
-  stack="$(stack_reconcile "$p" "${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}" <<<"$(stack_read)")"
-  stack="$(apply_select_nav "$stack" "$sid")"
+  stack="$(apply_select_nav "$stack" "$sid" "$now_ms")"
   emit_decision "DECISION:kind=select cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab} key=${key} sid=${sid}"
   stack_write "$stack"
   act_land "$key" "$sid" "$sess" "$pane" "$tab"
@@ -160,9 +169,13 @@ dismiss() {
   if [ -n "$HL_SID" ]; then row="$(jq -c --arg key "$HL_KEY" --arg sid "$HL_SID" '.rows[]? | select(.key == $key and .sid == $sid)' "$CACHE" | head -n 1 || true)"; else row=""; fi
   row="${row:-null}"
   sid="$(jq -r '.sid // empty' <<<"$row")"; key="$(jq -r '.key // empty' <<<"$row")"; state="$(jq -r '.state // empty' <<<"$row")"
-  if [ -n "$sid" ] && [ -n "$key" ] && { [ "$state" = done ] || [ "$state" = needs-attention ]; }; then
+  if [ "$(jq -r '(.state == "duplicate") or (.source == "warning") or (.duplicate == true) or (.ambiguous == true)' <<<"$row")" = true ]; then
+    emit_decision 'DECISION:kind=noop'
+  elif [ -n "$sid" ] && [ -n "$key" ] && { [ "$state" = done ] || [ "$state" = needs-attention ]; }; then
     atomic_write_select "$STATE_DIR/${key}.select" "$sid" true
-    HIDDEN_AT["$sid"]="$TICK_COUNT"
+    HIDDEN_AT["$sid"]=0
+    filter_hidden_rows "$CACHE"
+    repaint "$HL_LINE"
   else
     emit_decision 'DECISION:kind=noop'
   fi
