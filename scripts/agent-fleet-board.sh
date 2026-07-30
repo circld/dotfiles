@@ -369,6 +369,7 @@ while true; do
       # disambiguate ESC-alone (timeout) from arrow keys (\e[A, \e[B).
       # `|| true` because timeout is a normal "bare ESC" outcome, not a
       # failure of our keyboard intent.
+      seq=""
       IFS= read -rsn2 -t 0.05 seq || true
       case "$seq" in
         '[A') navigate -1 ;;
