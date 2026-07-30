@@ -178,17 +178,33 @@ assert.deepEqual(
   { state: 'working', reason: 'permission', task: 'do the thing', ts: NOW, title: null });
 
 // --- buildV2StateRecord: envelope assembles file-level identity around a per-session map ---
+// Task 1: envelope carries the selection cursor at file level so a process restart
+// preserves "which session is currently focused" without depending on a session event.
 assert.deepEqual(
   buildV2StateRecord({ repo: 'r', cwd: '/x', session: 's', pid: 7,
+                       selectedSid: 'ses_1', selectedTs: NOW,
                        sessions: { ses_1: { state: 'done', reason: null, task: null,
                                            ts: NOW, title: 't' } } }),
   { repo: 'r', cwd: '/x', session: 's', pid: 7,
+    selectedSid: 'ses_1', selectedTs: NOW,
     sessions: { ses_1: { state: 'done', reason: null, task: null, ts: NOW, title: 't' } } });
 // null session -> recorded as null (NOT omitted) so downstream readers see the field
 // is intentionally empty rather than missing. Matches buildSessionEntry's coalescing.
 assert.equal(
   buildV2StateRecord({ repo: 'r', cwd: '/x', session: null, pid: 7, sessions: {} }).session,
   null);
+// Task 1: a later transition rebuilds the envelope with existing selectedSid/selectedTs
+// threaded through — the helper does NOT zero them out, so a transition can never erase
+// the cursor with a fresh null.
+const existingCursor = { selectedSid: 'ses_1', selectedTs: NOW - 5 };
+const rebuilt = buildV2StateRecord({
+  repo: 'r', cwd: '/x', session: 's', pid: 7,
+  selectedSid: existingCursor.selectedSid,
+  selectedTs: existingCursor.selectedTs,
+  sessions: { ses_1: { state: 'working', reason: null, task: null, ts: NOW, title: 't' } },
+});
+assert.equal(rebuilt.selectedSid, 'ses_1');
+assert.equal(rebuilt.selectedTs, NOW - 5);
 
 // identity key is a sha256 prefix of the absolute cwd, distinct + collision-proof
 // (the old "/" -> "_" scheme collided: "/a_b" and "/a/b" both -> "a_b")
@@ -384,6 +400,390 @@ assert.deepEqual(
       env: { ...process.env, HOME: home },
       encoding: 'utf8',
       timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Task 1 (restart-safe): plugin startup (deferred, un-awaited) calls client.session.list
+// with the instance's directory, seeds every TOP-LEVEL session as `unknown / sensor
+// restarted` (skipping any row carrying a `parentID`), and preserves entries already on
+// disk — a seed must NEVER clobber an event-derived transition that landed first.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-seed-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-seed-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      const statePath = path.join(stateDir, key + '.json');
+      // pre-existing event-derived entry must survive the seed untouched.
+      writeFileSync(statePath, JSON.stringify({
+        repo: 'agent-fleet-seed-repo', cwd: directory, session: null, pid: process.pid,
+        selectedSid: null, selectedTs: null,
+        sessions: { ses_existing: { state: 'working', reason: null, task: null, ts: 100, title: 'existing' } },
+      }));
+      let listCalled = false;
+      let listDirectory = null;
+      await plugin({
+        directory,
+        $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+        client: {
+          tui: { _client: { post: async () => ({ data: false }) } },
+          session: {
+            list: async ({ query }) => { listCalled = true; listDirectory = query?.directory; return { data: [
+              { id: 'ses_top1', title: 'Top 1', parentID: null },
+              { id: 'ses_child', title: 'Child', parentID: 'ses_top1' },
+              { id: 'ses_top2' },
+            ] }; },
+            get: async () => ({ data: null }),
+          },
+        },
+      });
+      // flavor: a 'seed started' stderr line is OK (informational), but unhandled rejections are not.
+      // flush the deferred seed (runs on a microtask / next tick after factory returns).
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (!listCalled) throw new Error('client.session.list not called');
+      if (listDirectory !== directory) throw new Error('list called with wrong directory: ' + listDirectory);
+      const record = JSON.parse(readFileSync(statePath, 'utf8'));
+      // existing entry preserved untouched (state, ts, title).
+      const existing = record.sessions.ses_existing;
+      if (!existing || existing.state !== 'working' || existing.ts !== 100 || existing.title !== 'existing')
+        throw new Error('existing entry clobbered: ' + JSON.stringify(existing));
+      // child session with parentID MUST be skipped — no synthetic key.
+      if (record.sessions.ses_child) throw new Error('child session seeded: ' + JSON.stringify(record.sessions.ses_child));
+      // top-level sessions seeded as unknown / sensor restarted / one shared ts.
+      const top1 = record.sessions.ses_top1;
+      if (!top1 || top1.state !== 'unknown' || top1.reason !== 'sensor restarted' || top1.title !== 'Top 1')
+        throw new Error('ses_top1 wrong: ' + JSON.stringify(top1));
+      const top2 = record.sessions.ses_top2;
+      if (!top2) throw new Error('ses_top2 not seeded');
+      if (top2.state !== 'unknown' || top2.reason !== 'sensor restarted')
+        throw new Error('ses_top2 wrong: ' + JSON.stringify(top2));
+      // title fallback: no title -> id.slice(0, TITLE_FALLBACK_LEN) where TITLE_FALLBACK_LEN === 8.
+      if (top2.title !== 'ses_top2'.slice(0, 8))
+        throw new Error('ses_top2 wrong title fallback: ' + top2.title);
+      // shared action-layer timestamp: every seeded entry carries the SAME ts (one Date.now()).
+      if (top1.ts !== top2.ts) throw new Error('seeded ts diverge: ' + JSON.stringify([top1.ts, top2.ts]));
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Task 1 (restart-safe): if client.session.list REJECTS, the failure is caught.
+// The plugin still returns its hooks object normally AND existing state stays untouched —
+// no partial write, no crash, no unhandled rejection.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-seed-fail-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-seed-fail-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      const statePath = path.join(stateDir, key + '.json');
+      writeFileSync(statePath, JSON.stringify({
+        repo: 'agent-fleet-seed-fail-repo', cwd: directory, session: null, pid: process.pid,
+        selectedSid: 'ses_prev', selectedTs: 999,
+        sessions: { ses_prev: { state: 'working', reason: null, task: null, ts: 100, title: 'prev' } },
+      }));
+      let hooks;
+      try {
+        hooks = await plugin({
+          directory,
+          $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+          client: {
+            tui: { _client: { post: async () => ({ data: false }) } },
+            session: {
+              list: async () => { throw new Error('list boom'); },
+              get: async () => ({ data: null }),
+            },
+          },
+        });
+      } catch (err) {
+        throw new Error('plugin threw on seed failure: ' + err);
+      }
+      if (!hooks || typeof hooks.event !== 'function') throw new Error('hooks not returned normally');
+      // flush deferred seed so any unhandled rejection surfaces here, not as test hang.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const record = JSON.parse(readFileSync(statePath, 'utf8'));
+      const prevEntry = record.sessions.ses_prev;
+      if (!prevEntry || prevEntry.ts !== 100 || prevEntry.state !== 'working' || prevEntry.title !== 'prev')
+        throw new Error('existing entry clobbered despite seed fail: ' + JSON.stringify(prevEntry));
+      if (record.selectedSid !== 'ses_prev' || record.selectedTs !== 999)
+        throw new Error('cursor clobbered despite seed fail: ' + JSON.stringify({selectedSid: record.selectedSid, selectedTs: record.selectedTs}));
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Task 1 (restart-safe): successful mailbox select writes selectedSid + selectedTs
+// (Date.now()) into the state file. This is the ONLY cursor writer — manual TUI
+// switches emit no plugin event, so mailbox-consume is sole writer for the cursor.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-cursor-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-cursor-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      const statePath = path.join(stateDir, key + '.json');
+      const viewedPath = statePath.replace('.json', '.viewed.json');
+      const selectPath = statePath.replace('.json', '.select');
+      writeFileSync(statePath, JSON.stringify({
+        repo: 'agent-fleet-cursor-repo', cwd: directory, session: null, pid: process.pid,
+        selectedSid: null, selectedTs: null,
+        sessions: { ses_target: { state: 'needs-attention', reason: 'permission', task: null, ts: 500, title: 'target' } },
+      }));
+      writeFileSync(selectPath, JSON.stringify({ sessionID: 'ses_target' }));
+      const beforeMs = Date.now();
+      await plugin({
+        directory,
+        $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+        client: {
+          tui: { _client: { post: async () => ({ data: true }) } },
+          session: {
+            list: async () => ({ data: [] }),
+            get: async ({ path: { id } }) => ({ data: { id, parentID: null, title: id } }),
+          },
+        },
+      });
+      // 400ms poll + buffer for the deferred seed to flush.
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const record = JSON.parse(readFileSync(statePath, 'utf8'));
+      if (record.selectedSid !== 'ses_target') throw new Error('selectedSid not written: ' + record.selectedSid);
+      // selectedTs is a wall-clock-ish Date.now(), NOT the entry's ts of 500.
+      if (typeof record.selectedTs !== 'number' || record.selectedTs <= 0)
+        throw new Error('selectedTs not written: ' + record.selectedTs);
+      if (record.selectedTs === 500 || record.selectedTs < beforeMs - 5000)
+        throw new Error('selectedTs not derived from Date.now(): ' + record.selectedTs);
+      if (!existsSync(viewedPath)) throw new Error('viewed.json not written on successful jump');
+      if (JSON.parse(readFileSync(viewedPath, 'utf8')).ses_target !== 500)
+        throw new Error('viewed mark wrong: ' + readFileSync(viewedPath, 'utf8'));
+      if (existsSync(selectPath)) throw new Error('.select not deleted on successful jump');
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Task 1 (restart-safe): a FAILED mailbox select must NOT change the cursor.
+// The mailbox deletes (no wedge), but selectedSid/selectedTs stay at whatever they
+// were before the poll — a failed jump didn't put the user on the target session.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-cursor-fail-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-cursor-fail-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      const statePath = path.join(stateDir, key + '.json');
+      const selectPath = statePath.replace('.json', '.select');
+      const viewedPath = statePath.replace('.json', '.viewed.json');
+      // pre-existing cursor: poll must NOT change it.
+      writeFileSync(statePath, JSON.stringify({
+        repo: 'agent-fleet-cursor-fail-repo', cwd: directory, session: null, pid: process.pid,
+        selectedSid: 'ses_prev', selectedTs: 777,
+        sessions: { ses_prev: { state: 'done', reason: null, task: null, ts: 100, title: 'prev' },
+                    ses_target: { state: 'needs-attention', reason: 'permission', task: null, ts: 200, title: 'target' } },
+      }));
+      writeFileSync(selectPath, JSON.stringify({ sessionID: 'ses_target' }));
+      await plugin({
+        directory,
+        $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+        client: {
+          tui: { _client: { post: async () => ({ data: false }) } },
+          session: {
+            list: async () => ({ data: [] }),
+            get: async ({ path: { id } }) => ({ data: { id, parentID: null, title: id } }),
+          },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const record = JSON.parse(readFileSync(statePath, 'utf8'));
+      if (record.selectedSid !== 'ses_prev') throw new Error('selectedSid changed on failed select: ' + record.selectedSid);
+      if (record.selectedTs !== 777) throw new Error('selectedTs changed on failed select: ' + record.selectedTs);
+      // viewed.json entry for ses_target MUST NOT exist on a failed jump.
+      if (existsSync(viewedPath)) {
+        const viewed = JSON.parse(readFileSync(viewedPath, 'utf8'));
+        if (viewed.ses_target != null) throw new Error('viewed written despite failed jump: ' + JSON.stringify(viewed));
+      }
+      // mailbox still deleted so we don't wedge.
+      if (existsSync(selectPath)) throw new Error('.select not deleted on failed jump');
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Task 1 (restart-safe): an unknown/deleted session id in the mailbox (TUI post
+// returns false) skips BOTH viewed AND cursor writes. No sid resolution lives in
+// the mailbox path — the model's mailbox sids are already top-level, and selectOk
+// short-circuits the writes inside the same enqueue body. Verify nothing leaks.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-unknown-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-unknown-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      const statePath = path.join(stateDir, key + '.json');
+      const selectPath = statePath.replace('.json', '.select');
+      const viewedPath = statePath.replace('.json', '.viewed.json');
+      writeFileSync(statePath, JSON.stringify({
+        repo: 'agent-fleet-unknown-repo', cwd: directory, session: null, pid: process.pid,
+        selectedSid: 'ses_prev', selectedTs: 777,
+        sessions: { ses_prev: { state: 'done', reason: null, task: null, ts: 100, title: 'prev' } },
+      }));
+      // TUI post returns false specifically for ses_unknown (the deleted-session case).
+      writeFileSync(selectPath, JSON.stringify({ sessionID: 'ses_unknown' }));
+      await plugin({
+        directory,
+        $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+        client: {
+          tui: { _client: { post: async ({ body }) => ({ data: body.sessionID === 'ses_unknown' ? false : true }) } },
+          session: {
+            list: async () => ({ data: [] }),
+            get: async ({ path: { id } }) => ({ data: id === 'ses_unknown' ? null : { id, parentID: null, title: id } }),
+          },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const record = JSON.parse(readFileSync(statePath, 'utf8'));
+      if (record.selectedSid !== 'ses_prev') throw new Error('selectedSid changed on unknown sid: ' + record.selectedSid);
+      if (record.selectedTs !== 777) throw new Error('selectedTs changed on unknown sid: ' + record.selectedTs);
+      // NO viewed.json entry for the unknown sid (planSelect.markViewed === false on selectOk === false).
+      if (existsSync(viewedPath)) {
+        const viewed = JSON.parse(readFileSync(viewedPath, 'utf8'));
+        if (viewed.ses_unknown != null) throw new Error('viewed written for unknown sid: ' + JSON.stringify(viewed));
+      }
+      if (existsSync(selectPath)) throw new Error('.select not deleted for unknown sid');
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Task 1 (restart-safe): a slow session.list landing AFTER a mailbox-consume cursor
+// persist must NOT erase the just-persisted selectedSid/selectedTs. session.list latency
+// can exceed the 400ms mailbox poll, so the seed's envelope rebuild has to thread the
+// existing cursor through — the whitelist-rebuild caveat (Step 6) lives on this rule.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-defer-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-defer-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      const statePath = path.join(stateDir, key + '.json');
+      const selectPath = path.join(stateDir, key + '.select');
+      writeFileSync(statePath, JSON.stringify({
+        repo: 'agent-fleet-defer-repo', cwd: directory, session: null, pid: process.pid,
+        selectedSid: null, selectedTs: null,
+        sessions: { ses_target: { state: 'needs-attention', reason: 'permission', task: null, ts: 500, title: 'target' } },
+      }));
+      writeFileSync(selectPath, JSON.stringify({ sessionID: 'ses_target' }));
+      await plugin({
+        directory,
+        $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+        client: {
+          tui: { _client: { post: async () => ({ data: true }) } },
+          session: {
+            // slow list: resolves AFTER the 400ms mailbox poll cycles and persists the cursor.
+            list: async () => { await new Promise((r) => setTimeout(r, 1200)); return { data: [
+              { id: 'ses_new', title: 'New', parentID: null },
+            ] }; },
+            get: async ({ path: { id } }) => ({ data: { id, parentID: null, title: id } }),
+          },
+        },
+      });
+      // poll lands ~400-800ms in; deferred seed lands ~1200ms in; flush both writes.
+      await new Promise((resolve) => setTimeout(resolve, 1700));
+      const record = JSON.parse(readFileSync(statePath, 'utf8'));
+      // cursor survived the deferred seed rebuild.
+      if (record.selectedSid !== 'ses_target') throw new Error('cursor erased by deferred seed: ' + record.selectedSid);
+      if (typeof record.selectedTs !== 'number' || record.selectedTs <= 0)
+        throw new Error('cursor ts erased by deferred seed: ' + record.selectedTs);
+      // deferred seed landed (otherwise this test is a no-op and a false positive).
+      if (!record.sessions.ses_new || record.sessions.ses_new.state !== 'unknown' || record.sessions.ses_new.reason !== 'sensor restarted')
+        throw new Error('deferred seed did not land: ' + JSON.stringify(record.sessions));
+      // event-derived entry preserved through the seed.
+      if (!record.sessions.ses_target || record.sessions.ses_target.state !== 'needs-attention')
+        throw new Error('event-derived entry lost during seed: ' + JSON.stringify(record.sessions.ses_target));
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 5000,
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
   } finally {

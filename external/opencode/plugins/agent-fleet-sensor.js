@@ -265,7 +265,8 @@ function planViewedTsForSession(statePath, sessionID) {
   return existing?.sessions?.[sessionID]?.ts ?? Date.now();
 }
 
-async function pollSelectMailbox(client, { selectPath, viewedPath, statePath }) {
+async function pollSelectMailbox(client, { selectPath, viewedPath, statePath,
+                                          repo, directory, session, pid }) {
   const mailbox = readSelectMailbox(selectPath);
   const sessionID = mailbox?.sessionID;
   // Treat a parse-succeeded-but-shape-missing `mailbox` like a malformed one: there
@@ -281,6 +282,30 @@ async function pollSelectMailbox(client, { selectPath, viewedPath, statePath }) 
   }
   if (plan.deleteMailbox) {
     deleteSelectMailbox(selectPath);
+  }
+  // Task 1 (restart-safe): persist the selection cursor on successful jump.
+  // Only fires for selectOk===true — a failed jump leaves the existing cursor
+  // untouched. This is the SOLE cursor writer: manual TUI session-picker switches
+  // emit no plugin event (verified live), and a `tui.session.select` sensor branch
+  // is intentionally NOT built. Rebuild the full envelope so we don't drop `cwd`
+  // / `repo` / `pid` / `sessions` — the model's `!obj?.cwd` guard would otherwise
+  // drop this instance. Already inside an enqueue() body via the setInterval
+  // callback, so FIFO ordering against transition writes is preserved.
+  if (selectOk && sessionID) {
+    const existing = readExistingState(statePath);
+    if (existing?.sessions?.[sessionID] != null) {
+      const nextRecord = buildV2StateRecord({
+        repo,
+        cwd: directory,
+        session,
+        pid,
+        selectedSid: sessionID,
+        selectedTs: Date.now(),
+        sessions: existing.sessions,
+      });
+      writeStateRecord(statePath, nextRecord);
+      reapLegacyV1(directory);
+    }
   }
 }
 
@@ -396,7 +421,10 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
   // enqueued tick reads null and short-circuits — the chain self-throttles.
   const POLL_INTERVAL_MS = 400;
   setInterval(() => {
-    enqueue(key, () => pollSelectMailbox(client, { selectPath, viewedPath, statePath })).catch(() => {});
+    enqueue(key, () => pollSelectMailbox(client, {
+      selectPath, viewedPath, statePath,
+      repo, directory, session, pid: process.pid,
+    })).catch(() => {});
   }, POLL_INTERVAL_MS);
 
   // -- action: read-modify-write the v2 record for one top-level session --
@@ -428,6 +456,12 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
       cwd: directory,
       session,
       pid: process.pid,
+      // Task 1: thread the cursor through. A transition rebuild must NOT zero out
+      // the live cursor — that would silently lose "which session is focused" on
+      // every event, making the cursor a write-once-per-restart field instead of
+      // liveness independent of future events.
+      selectedSid: existing?.selectedSid ?? null,
+      selectedTs: existing?.selectedTs ?? null,
       sessions: { ...(existing?.sessions ?? {}), [topLevel.id]: entry },
     });
     writeStateRecord(statePath, nextRecord);
@@ -476,6 +510,76 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
       if (stamped) mergeViewed(viewedPath, resolved.id, stamped.ts);
     });
   }
+
+  // Task 1 (restart-safe): on plugin startup, seed any TOP-LEVEL sessions the live
+  // opencode server already knows about. Without this, a freshly-restarted process
+  // has an empty sessions map until the next event lands — which can take a long
+  // time for an idle agent. The seed is the difference between "board reflects
+  // reality on restart" and "board is blank until something happens".
+  //
+  // Why the seed runs DEFERRED, un-awaited: awaiting `client.session.list` inside
+  // the factory deadlocks startup. Verified live: opencode hands the plugin the
+  // client during factory invocation but the SDK is not fully ready until the
+  // factory resolves; awaiting inside the factory hangs forever. Kicking off the
+  // seed and immediately returning lets opencode continue booting.
+  //
+  // Why the seed merges MISSING entries only: an event-derived entry that landed
+  // BEFORE the seed (e.g. session.idle fired during opencode startup, ahead of
+  // the seed's await) already carries a real transition — the seed must not
+  // overwrite it with a sentinel 'unknown / sensor restarted'. Seeded entries
+  // exist to discover live sessions the event stream hasn't covered yet.
+  async function seedSessionsFromList() {
+    try {
+      const resp = await client.session.list({ query: { directory } });
+      const rows = resp?.data ?? [];
+      const now = Date.now();
+      const freshEntries = {};
+      for (const row of rows) {
+        if (!row || !row.id) continue;
+        if (row.parentID) continue;        // child / forked sessions: skipped
+        freshEntries[row.id] = buildSessionEntry({
+          state: 'unknown',
+          reason: 'sensor restarted',
+          previousTask: null,
+          ts: now,                          // shared action-layer timestamp
+          title: row.title ?? row.id.slice(0, TITLE_FALLBACK_LEN),
+        });
+      }
+      await enqueue(key, () => {
+        const existing = readExistingState(statePath);
+        const sessions = { ...(existing?.sessions ?? {}) };
+        let changed = false;
+        for (const [id, entry] of Object.entries(freshEntries)) {
+          if (sessions[id] == null) {
+            sessions[id] = entry;
+            changed = true;
+          }
+        }
+        if (!changed) return;             // all rows already event-derived — no-op write
+        // THREAD the cursor through: a slow session.list can land AFTER a mailbox-
+        // consume cursor persist (latency > 400ms poll). Rebuilding without the
+        // existing cursor would erase it. This is the same rule the transition
+        // path follows — never zero out a cursor on a rebuild.
+        const nextRecord = buildV2StateRecord({
+          repo,
+          cwd: directory,
+          session,
+          pid: process.pid,
+          selectedSid: existing?.selectedSid ?? null,
+          selectedTs: existing?.selectedTs ?? null,
+          sessions,
+        });
+        writeStateRecord(statePath, nextRecord);
+        reapLegacyV1(directory);
+      });
+    } catch (err) {
+      process.stderr.write(`agent-fleet: session seed failed: ${err}\n`);
+    }
+  }
+  // do NOT await — factory must return before the client is fully ready.
+  seedSessionsFromList().catch((err) =>
+    process.stderr.write(`agent-fleet: session seed failed: ${err}\n`),
+  );
 
   return {
     event: async ({ event } = {}) => {

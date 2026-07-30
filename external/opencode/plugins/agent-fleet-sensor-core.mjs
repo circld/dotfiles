@@ -78,12 +78,24 @@ export function buildSessionEntry({ state, reason, previousTask, ts, title }) {
 // (Tasks 5/6) consume via the same shape. Pure so callers don't accidentally
 // capture I/O / `Date.now()` here — those belong in the action layer. Naming
 // ("StateRecord") matches the prior v1 helper to keep call-sites legible.
-export function buildV2StateRecord({ repo, cwd, session, pid, sessions }) {
+//
+// Task 1: the envelope also carries the SELECTION CURSOR at file level —
+// `selectedSid` (top-level session id the TUI is currently on) plus `selectedTs`
+// (the wall-clock election time, NOT the entry's `ts`). Restart-safety rationale:
+// without these at file level, "which session is focused right now" dies with the
+// process. The cursor is `null`-coalesced like `session` so readers can tell a
+// never-selected process apart from a deleted JSON. Every rebuild MUST thread
+// existing values through (the action layer passes `existing?.selectedSid` /
+// `existing?.selectedTs`) — a transition rebuild that forgets the cursor would
+// silently copy fields with `undefined` and erase the live selection.
+export function buildV2StateRecord({ repo, cwd, session, pid, selectedSid, selectedTs, sessions }) {
   return {
     repo,
     cwd,
     session: session ?? null,
     pid,
+    selectedSid: selectedSid ?? null,
+    selectedTs: selectedTs ?? null,
     sessions,
   };
 }
