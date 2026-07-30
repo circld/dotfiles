@@ -317,6 +317,91 @@ assert.deepEqual(
   planSelect({ sessionID: 'ses_abc' }, 'true'),
   { markViewed: false, deleteMailbox: true });
 
+// --- markOnly mailbox verb (Task 6) ---
+// markOnly=true with a sessionID: skip the TUI call entirely. The mark-only
+// mailbox verb is for board dismiss (Task 10 client): the user has already
+// SEEN the row on the board, the request says "mark it viewed and stop
+// re-surfacing it" — no live TUI switch, no selectedSid/selectedTs
+// persistence, NO cursor write. selectOk is irrelevant here (the markOnly
+// branch short-circuits before the strict-===true check).
+assert.deepEqual(
+  planSelect({ sessionID: 'ses_abc', markOnly: true }, false),
+  { markViewed: true, deleteMailbox: true });
+// markOnly=true WITHOUT a sessionID: the malformed guard (no sessionID)
+// still fires FIRST, so the result is the same null-mailbox contract:
+// delete the mailbox, never claim viewed. Keeps the no-sessionID edge as
+// the wedge-prevention guarantee even on this new verb.
+assert.deepEqual(
+  planSelect({ markOnly: true }, false),
+  { markViewed: false, deleteMailbox: true });
+
+// Task 6 (mark-only mailbox verb): a mark-only mailbox with a sessionID
+// marks the session viewed (entry-pinned ts from the state file) and
+// deletes the mailbox WITHOUT posting to the live TUI and WITHOUT
+// persisting a selection cursor. Board dismiss path — the user already saw
+// the row on the board, so no jump is needed.
+{
+  const home = mkdtempSync(path.join(os.tmpdir(), 'agent-fleet-markonly-'));
+  try {
+    const script = String.raw`
+      import plugin from ${JSON.stringify(new URL('./agent-fleet-sensor.js', import.meta.url).href)};
+      import { stateKeyForProcess } from ${JSON.stringify(new URL('./agent-fleet-sensor-core.mjs', import.meta.url).href)};
+      import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+      import path from 'node:path';
+      const directory = '/tmp/agent-fleet-markonly-repo';
+      const key = stateKeyForProcess(directory, process.pid);
+      const stateDir = path.join(process.env.HOME, '.local/state/agent-fleet');
+      mkdirSync(stateDir, { recursive: true });
+      const statePath = path.join(stateDir, key + '.json');
+      const viewedPath = path.join(stateDir, key + '.viewed.json');
+      const selectPath = path.join(stateDir, key + '.select');
+      // pre-existing state: ses_hidden needs-attention at entryTs=123,
+      // cursor null. Poll + markOnly must NOT change the cursor.
+      writeFileSync(statePath, JSON.stringify({
+        repo: 'agent-fleet-markonly-repo', cwd: directory, session: null, pid: process.pid,
+        selectedSid: null, selectedTs: null,
+        sessions: { ses_hidden: { state: 'needs-attention', reason: 'question',
+                                  task: null, ts: 123, title: 'hidden' } },
+      }));
+      writeFileSync(selectPath, JSON.stringify({ sessionID: 'ses_hidden', markOnly: true }));
+      const calls = [];
+      await plugin({
+        directory,
+        $: () => ({ quiet: () => ({ text: async () => '[]' }) }),
+        client: {
+          tui: { _client: { post: async ({ body }) => { calls.push(body.sessionID); return { data: true }; } } },
+          session: {
+            list: async () => ({ data: [] }),
+            get: async ({ path: { id } }) => ({ data: { id, parentID: null, title: id } }),
+          },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      // markOnly path must NEVER call the live TUI — no jump, no switch.
+      if (calls.length !== 0) throw new Error('tui post called on markOnly: ' + JSON.stringify(calls));
+      // viewed.json got the entry-pinned ts for ses_hidden (= 123).
+      if (!existsSync(viewedPath)) throw new Error('viewed.json not written on markOnly');
+      const viewed = JSON.parse(readFileSync(viewedPath, 'utf8'));
+      if (viewed.ses_hidden !== 123) throw new Error('viewed mark wrong on markOnly: ' + JSON.stringify(viewed));
+      // mailbox is gone — no wedge.
+      if (existsSync(selectPath)) throw new Error('.select not deleted on markOnly');
+      // cursor UNCHANGED — markOnly is not a "switched to this session" event.
+      const record = JSON.parse(readFileSync(statePath, 'utf8'));
+      if (record.selectedSid !== null) throw new Error('selectedSid changed on markOnly: ' + record.selectedSid);
+      if (record.selectedTs !== null) throw new Error('selectedTs changed on markOnly: ' + record.selectedTs);
+      process.exit(0);
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 // Regression: plugin poll must consume the .select mailbox with paths scoped to
 // the plugin instance. A prior module-scoped poll referenced factory-local vars
 // directly, threw ReferenceError every tick, and silently left .select unread.

@@ -277,11 +277,20 @@ async function pollSelectMailbox(client, { selectPath, viewedPath, statePath,
                                           repo, directory, session, pid }) {
   const mailbox = readSelectMailbox(selectPath);
   const sessionID = mailbox?.sessionID;
+  // Task 6 (mark-only mailbox verb): board dismiss deposits a mailbox with
+  // `markOnly: true` alongside sessionID. The user has already seen the row
+  // on the board, so the request is "suppress this row" — no live TUI jump
+  // happens, and we pass `selectOk=false` to planSelect, which the markOnly
+  // branch in planSelect short-circuits past anyway. Skipping the TUI call
+  // avoids a needless network round-trip and prevents any chance of the post
+  // rejecting on a missing/deleted session (the mark-only intent doesn't
+  // depend on the session being reachable).
+  const isMarkOnly = mailbox?.markOnly === true;
   // Treat a parse-succeeded-but-shape-missing `mailbox` like a malformed one: there
   // is no sessionID to act on, so skip the TUI call (save a network round-trip) and
   // let planSelect collapse to {markViewed:false, deleteMailbox:true}.
   const effectiveMailbox = sessionID ? mailbox : null;
-  const selectOk = sessionID
+  const selectOk = (sessionID && !isMarkOnly)
     ? await selectSessionOnTUI(client, sessionID)
     : false;
   const plan = planSelect(effectiveMailbox, selectOk);

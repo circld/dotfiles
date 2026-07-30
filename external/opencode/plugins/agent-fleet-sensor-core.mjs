@@ -266,7 +266,14 @@ export function notificationScript(message, soundName) {
 //   - mailbox!=null, selectOk===false: DELETE the mailbox (don't wedge) but DO
 //     NOT mark viewed — a failed jump didn't put the user on that session, so
 //     claiming they viewed it would silently hide a row they never saw.
-// All three paths emit `deleteMailbox:true` so a single consumer branch in the
+//   - mailbox.markOnly===true (Task 6: board-dismiss verb): mark viewed AND delete
+//     UNCONDITIONALLY — the user has already seen the row on the board, so the
+//     mark is correct by definition, regardless of selectOk. `selectOk` is
+//     ignored on this branch because the action layer skips the live TUI call
+//     entirely (no jump happens on a mark-only mailbox); also no selectedSid /
+//     selectedTs cursor persistence — the cursor writer in the action layer
+//     keys on `selectOk`, which is false here.
+// All four paths emit `deleteMailbox:true` so a single consumer branch in the
 // action layer (`if (plan.deleteMailbox) unlink(...)`) covers every case and the
 // poll never wedges.
 // Purity contract: takes parsed mailbox + boolean selectOk, returns the plan, no
@@ -275,6 +282,9 @@ export function notificationScript(message, soundName) {
 export function planSelect(mailbox, selectOk) {
   if (mailbox == null || !mailbox.sessionID) {
     return { markViewed: false, deleteMailbox: true };
+  }
+  if (mailbox.markOnly === true) {
+    return { markViewed: true, deleteMailbox: true };
   }
   return {
     markViewed: selectOk === true,
