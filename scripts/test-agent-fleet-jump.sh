@@ -938,13 +938,6 @@ EOF
   write_stack "$sandbox/traverse-stack.json" \
     '{"v":1,"current":{"sid":"ses_a","ts":1700000000000},"back":[],"forward":["ses_f","ses_f2"]}'
   local now_ms=1800000000010
-  run_jump_with_pinned_now "decide-only" "$sandbox" "$pso" \
-    $'/pd\tsx_a\tterminal_5\t0\n/pd\tsx_b\tterminal_6\t0' "" "1800000000010"
-  # Use DECIDE_ONLY so the stack-mutation assertion is pure (no .select pair
-  # to confuse). stack_write also no-ops under DECIDE_ONLY... wait, we need
-  # stack_write to actually WRITE here to observe the reconciled mutation.
-  # Use DECIDE_SELECT (writes stack + .select path) but with NO actionable,
-  # so .select is never written. Use DECIDE_SELECT path.
   run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
     $'/pd\tsx_a\tterminal_5\t0\n/pd\tsx_b\tterminal_6\t0' "" "$now_ms"
   assert_eq "case33 passive departure cleared: cwd-ambiguous ⇒ noop decision" \
@@ -1247,6 +1240,162 @@ EOF
   chflags nouchg "$sandbox/traverse-stack.json" 2>/dev/null || true
 }
 
+# --- 70. Mailbox sid JSON escaping: sid containing a literal double-quote and
+#         backslash must round-trip through the .select mailbox as JSON-safe
+#         text (no broken quoting, no injected sibling field). The selector
+#         MUST point at the same exact byte sequence the sensor model emits. ---
+test_70_escaped_sid_mailbox() {
+  local sandbox="$ROOT/case70"
+  mkdir -p "$sandbox"
+  local pid=70001
+  local pso="$ROOT/ps70.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/es" | shasum -a 256 | cut -c1-16)
+  # Fixture sid (literal chars: 6 chars + " + sid + \ + chars):  weird"sid\chars
+  # JSON-escaped key in the v2 file: "weird\"sid\\chars"
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/es","session":"sx","pid":${pid},
+ "selectedSid":"weird\"sid\\\\chars","selectedTs":1700000000000,
+ "sessions":{
+   "weird\"sid\\\\chars":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"t"}
+ }}
+EOF
+  # Also a regular working session for comparison and to confirm rank ordering.
+  local now_ms=1800000000000
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/es\tsx\tterminal_0\t0' "" "$now_ms"
+  assert_file_exists "case70 .select mailbox written for the escaped sid" \
+    "$sandbox/${key}-${pid}.select"
+  # jq -e over the mailbox: must parse cleanly AND the sessionID must equal
+  # the EXACT byte sequence (round-trip equality).
+  local got_sid
+  got_sid="$(jq -r .sessionID "$sandbox/${key}-${pid}.select")"
+  assert_eq "case70 .select sessionID round-trips the escaped bytes" \
+    'weird"sid\chars' "$got_sid"
+  # Mailbox must parse via jq -e (proves the JSON is syntactically valid).
+  if jq -e . "$sandbox/${key}-${pid}.select" >/dev/null 2>&1; then
+    pass "case70 .select mailbox parses as valid JSON"
+  else
+    fail "case70 .select mailbox FAILS JSON parse — quoting injection?"
+  fi
+  # The injected character must NOT have introduced a sibling field
+  # (e.g., markOnly, sessionID2). Object keyset is exactly {sessionID}.
+  local keys
+  keys="$(jq -c 'keys_unsorted' "$sandbox/${key}-${pid}.select")"
+  assert_eq "case70 .select mailbox keyset = exactly {sessionID}" \
+    '["sessionID"]' "$keys"
+}
+
+# --- 71. stack_read field-level validation: bad ts TYPE on current → adopt
+#         canonical empty (stack must NOT be returned as-is, downstream jq
+#         would type-error under set -e). ---
+test_71_bad_ts_type_canonical_empty() {
+  local sandbox="$ROOT/case71"
+  mkdir -p "$sandbox"
+  local pid=71001
+  local pso="$ROOT/ps71.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/bt" | shasum -a 256 | cut -c1-16)
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/bt","session":"sx","pid":${pid},
+ "selectedSid":"ses_past","selectedTs":1700000000000,
+ "sessions":{
+   "ses_past":{"state":"done","reason":null,"ts":50,"task":null,"title":"p"},
+   "ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"t"}
+ }}
+EOF
+  # current.ts is a STRING, not a number. Without field-type validation this
+  # would pass stack_read's container check and then break stack_reconcile
+  # (numeric comparison under set -e).
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":{"sid":"ses_b","ts":"bad"},"back":[],"forward":[]}'
+  local now_ms=1800000000000
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/bt\tsx\tterminal_0\t0' "" "$now_ms"
+  # Canonical empty → adopt (ses_past) with no push → new-nav pushes
+  # ses_past MRU. Result mirrors test_31 (fresh-stack adopt path).
+  assert_stack_eq "case71 bad-ts stack treated as fresh; adopt + new-nav produces expected shape" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_target\",\"ts\":${now_ms}},\"back\":[\"ses_past\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+  assert_file_exists "case71 .select written for actionable target" \
+    "$sandbox/${key}-${pid}.select"
+}
+
+# --- 72. stack_read field-level validation: non-string entry in back[]
+#         → adopt canonical empty. ---
+test_72_nonstring_back_entry_canonical_empty() {
+  local sandbox="$ROOT/case72"
+  mkdir -p "$sandbox"
+  local pid=72001
+  local pso="$ROOT/ps72.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/ns" | shasum -a 256 | cut -c1-16)
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/ns","session":"sx","pid":${pid},
+ "selectedSid":"ses_past","selectedTs":1700000000000,
+ "sessions":{
+   "ses_past":{"state":"done","reason":null,"ts":50,"task":null,"title":"p"},
+   "ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"t"}
+ }}
+EOF
+  # back contains an object (not a string). stack_reconcile would compare
+  # . != sid (type mismatch) under set -e.
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":null,"back":[{}],"forward":[]}'
+  local now_ms=1800000000000
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/ns\tsx\tterminal_0\t0' "" "$now_ms"
+  assert_stack_eq "case72 back-object stack treated as fresh; adopt + new-nav produces expected shape" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_target\",\"ts\":${now_ms}},\"back\":[\"ses_past\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+  assert_file_exists "case72 .select written for actionable target" \
+    "$sandbox/${key}-${pid}.select"
+}
+
+# --- 73. atomic_write_select warn-and-return-0 on mailbox rename failure.
+#         Pre-create the .select path as an IMMUTABLE file (chflags uchg, the
+#         Darwin rename-failure primitive used by test_60) and confirm:
+#           (a) jump exits 0,
+#           (b) atomic_write_select warning reaches stderr,
+#           (c) the stack still gets written (landing continued past write),
+#           (d) the failing path is on the mailbox, NOT on the stack. ---
+test_73_mailbox_write_failure_continues() {
+  local sandbox="$ROOT/case73"
+  mkdir -p "$sandbox"
+  local pid=73001
+  local pso="$ROOT/ps73.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/mf" | shasum -a 256 | cut -c1-16)
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/mf","session":"sx","pid":${pid},
+ "selectedSid":"ses_past","selectedTs":1700000000000,
+ "sessions":{
+   "ses_past":{"state":"done","reason":null,"ts":50,"task":null,"title":"p"},
+   "ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"t"}
+ }}
+EOF
+  # Pre-write a benign (immutable) .select file so the rename onto it fails.
+  printf '%s\n' '{"sessionID":"pristine"}' > "$sandbox/${key}-${pid}.select"
+  chflags uchg "$sandbox/${key}-${pid}.select"
+  local now_ms=1800000000000
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/mf\tsx\tterminal_0\t0' "" "$now_ms"
+  # Jump must still emit the same select decision and exit 0.
+  assert_eq "case73 verbatim select decision despite mailbox failure" \
+    "DECISION:kind=select cwd=/mf session=sx pane=terminal_0 tab_id=0 key=${key}-${pid} sid=ses_target" \
+    "$JUMP_STDOUT"
+  assert_eq "case73 jump exits 0 despite mailbox failure" "0" "$JUMP_RC"
+  # atomic_write_select warning reaches stderr.
+  assert_contains "case73 stderr: atomic_write_select warning emitted" \
+    "$JUMP_STDERR" "atomic_write_select"
+  # Stack is still persisted (landing continued past the failed mailbox write).
+  assert_stack_eq "case73 stack_write succeeds despite mailbox failure (act_land did not abort jump)" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_target\",\"ts\":${now_ms}},\"back\":[\"ses_past\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+  # Drop uchg so EXIT trap can clean up.
+  chflags nouchg "$sandbox/${key}-${pid}.select" 2>/dev/null || true
+}
+
 # === run all tests ===
 run_test() {
   local fn="$1"
@@ -1288,6 +1437,10 @@ run_test test_40d_fallback_pane_persists_reconcile
 run_test test_50_stale_p_within_window_ignored
 run_test test_51_stale_p_outside_window_flips
 run_test test_60_stack_write_failure_select_lands
+run_test test_70_escaped_sid_mailbox
+run_test test_71_bad_ts_type_canonical_empty
+run_test test_72_nonstring_back_entry_canonical_empty
+run_test test_73_mailbox_write_failure_continues
 
 # Print accumulated log
 cat "$ROOT/log"

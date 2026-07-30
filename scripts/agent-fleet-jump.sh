@@ -73,20 +73,29 @@ if [ -n "$requested_cwd" ]; then
     exit 0
   fi
 
-  pane_row="$(jq -r --arg cwd "$requested_cwd" '.live[]? | select(.cwd == $cwd) | [.session, .pane, .tabId] | @tsv' <<<"$json" | head -n 1 || true)"
+  pane_row="$(jq -c --arg cwd "$requested_cwd" '.live[]? | select(.cwd == $cwd) | [.session, .pane, .tabId]' <<<"$json" | head -n 1 || true)"
   if [ -z "$pane_row" ]; then
     emit_decision "DECISION:kind=noop"
     stack_write "$stack"
     exit 0
   fi
-  IFS=$'\t' read -r sess pane tab <<<"$pane_row"
-  top="$(jq -r --arg cwd "$requested_cwd" '[.actionable[] | select(.cwd == $cwd)][0] // empty | [.key, (.sid // "")] | @tsv' <<<"$json")"
-  if [ -n "$top" ]; then
-    IFS=$'\t' read -r key sid <<<"$top"
+  sess="$(jq -r '.[0] // empty' <<<"$pane_row")"
+  pane="$(jq -r '.[1] // empty' <<<"$pane_row")"
+  tab="$(jq -r  '.[2] // empty' <<<"$pane_row")"
+  # Pull the cwd-scoped actionable top as a JSON array (NOT @tsv — @tsv doubles
+  # backslashes which corrupts sids with literal `\` or `"` in them). `null`
+  # sentinel = no rows match the cwd.
+  top="$(jq -c --arg cwd "$requested_cwd" '
+      .actionable
+      | map(select(.cwd == $cwd))
+      | if length == 0 then null else first | [.key, (.sid // "")] end
+    ' <<<"$json")"
+  if [ -n "$top" ] && [ "$top" != "null" ]; then
+    key="$(jq -r '.[0] // empty' <<<"$top")"
+    sid="$(jq -r '.[1] // empty' <<<"$top")"
     if [ -n "$sid" ]; then
       emit_decision "DECISION:kind=select cwd=${requested_cwd} session=${sess} pane=${pane} tab_id=${tab} key=${key} sid=${sid}"
       _apply_select_nav "$sid"
-      ACTION_KIND="select"
       stack_write "$stack"
       act_land "$key" "$sid" "$sess" "$pane" "$tab"
       exit 0
@@ -103,13 +112,20 @@ if [ -n "$requested_cwd" ]; then
 fi
 
 # === Global jump arm ===
-top="$(jq -r '.actionable[0] // empty | [.cwd, .session, .pane, .tabId, .key, (.sid // "")] | @tsv' <<<"$json")"
-if [ -n "$top" ]; then
-  IFS=$'\t' read -r cwd sess pane tab key sid <<<"$top"
+top="$(jq -c '
+    .actionable
+    | if length == 0 then null else first | [.cwd, .session, .pane, .tabId, .key, (.sid // "")] end
+  ' <<<"$json")"
+if [ -n "$top" ] && [ "$top" != "null" ]; then
+  cwd="$(jq -r  '.[0] // empty' <<<"$top")"
+  sess="$(jq -r '.[1] // empty' <<<"$top")"
+  pane="$(jq -r '.[2] // empty' <<<"$top")"
+  tab="$(jq -r  '.[3] // empty' <<<"$top")"
+  key="$(jq -r  '.[4] // empty' <<<"$top")"
+  sid="$(jq -r  '.[5] // empty' <<<"$top")"
   if [ -n "$sid" ]; then
     emit_decision "DECISION:kind=select cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab} key=${key} sid=${sid}"
     _apply_select_nav "$sid"
-    ACTION_KIND="select"
     stack_write "$stack"
     act_land "$key" "$sid" "$sess" "$pane" "$tab"
     exit 0
@@ -120,15 +136,16 @@ if [ -n "$top" ]; then
   exit 0
 fi
 
-fallback="$(jq -r '
+fallback="$(jq -c '
   . as $m
   | [.live[]? | select((.pane | test("^terminal_[0-9]+$")) and (.cwd as $cwd | ($m.ambiguous | index($cwd)) == null))]
   | sort_by(.pane | sub("^terminal_"; "") | tonumber)
-  | last // empty
-  | [.session, .pane, .tabId] | @tsv
+  | if length == 0 then null else last | [.session, .pane, .tabId] end
 ' <<<"$json")"
-if [ -n "$fallback" ]; then
-  IFS=$'\t' read -r sess pane tab <<<"$fallback"
+if [ -n "$fallback" ] && [ "$fallback" != "null" ]; then
+  sess="$(jq -r '.[0] // empty' <<<"$fallback")"
+  pane="$(jq -r '.[1] // empty' <<<"$fallback")"
+  tab="$(jq -r  '.[2] // empty' <<<"$fallback")"
   emit_decision "DECISION:kind=fallback-pane session=${sess} pane=${pane} tab_id=${tab}"
   stack_write "$stack"
   act_land "" "" "$sess" "$pane" "$tab"

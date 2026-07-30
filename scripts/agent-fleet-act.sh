@@ -20,7 +20,10 @@
 
 # === stack_read: tolerant v1 read; canonical empty stack on bad input. ===
 # Any of: missing file, non-object, unrecognized version, missing/non-array
-# stacks, non-object-or-null current ⇒ canonical empty stack on stdout.
+# stacks, non-object-or-null current, non-string current.sid, non-numeric
+# current.ts, or any non-string entry in back/forward ⇒ canonical empty on
+# stdout. Field-level validation keeps malformed shapes from cascading into
+# jq type errors under `set -euo pipefail` downstream.
 stack_read() {
   local path="${1:-$STATE_DIR/traverse-stack.json}"
   local canonical='{"v":1,"current":null,"back":[],"forward":[]}'
@@ -31,9 +34,16 @@ stack_read() {
   if ! jq -e '
       type == "object"
       and (.v == 1)
-      and ((.current == null) or (.current | type == "object"))
-      and (.back | type == "array")
-      and (.forward | type == "array")
+      and (
+        (.current == null)
+        or (
+          (.current | type == "object")
+          and (.current.sid | type == "string")
+          and (.current.ts  | type == "number")
+        )
+      )
+      and (.back    | (type == "array") and all(. != null and type == "string"))
+      and (.forward | (type == "array") and all(. != null and type == "string"))
     ' "$path" >/dev/null 2>&1; then
     printf '%s\n' "$canonical"
     return 0
@@ -49,7 +59,8 @@ stack_write() {
   fi
   local stack_json="$1"
   local path="${2:-$STATE_DIR/traverse-stack.json}"
-  local tmp="${path}.tmp.$$"
+  local tmp
+  tmp="$(mktemp "${path}.tmp.XXXXXX")"
   if ! printf '%s\n' "$stack_json" > "$tmp" 2>/dev/null; then
     echo "agent-fleet-act: stack_write: failed to write tmp $tmp" >&2
     rm -f "$tmp" 2>/dev/null || true
@@ -112,24 +123,36 @@ stack_reconcile() {
 
 # === atomic_write_select: DECIDE_ONLY no-op; else atomic-write {sessionID}
 #     (or {sessionID, markOnly: true} when third arg is literal `true`).
-# The markOnly variant is reserved for board dismiss (Task 10); jump/traverse
-# always omit it. Default "${3:-false}" so two-arg callers under `set -u`
-# don't abort with unbound-variable. Also tolerates "1" for symmetry with
-# earlier numeric-flag callers.
+# Body is built with jq -n --arg so the sid is JSON-escaped (quotes,
+# backslashes, control chars cannot break the mailbox or inject sibling
+# fields). Atomicity mirrors stack_write: tmp + rename, warn-and-return-0
+# on failure so callers continue to landing. The markOnly variant is
+# reserved for board dismiss (Task 10); jump/traverse always omit it.
+# Default "${3:-false}" so two-arg callers under `set -u` don't abort.
+# Tolerates "1" in addition to "true" for symmetry with numeric-flag callers.
 atomic_write_select() {
   if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" = "1" ]; then
     return 0
   fi
   local target="$1" sid="$2" mark_only="${3:-false}"
-  local body
+  local mo_flag=0
   if [ "$mark_only" = "true" ] || [ "$mark_only" = "1" ]; then
-    body=$(printf '{\n  "sessionID": "%s",\n  "markOnly": true\n}\n' "$sid")
-  else
-    body=$(printf '{\n  "sessionID": "%s"\n}\n' "$sid")
+    mo_flag=1
   fi
-  local tmp="${target}.tmp.$$"
-  printf '%s' "$body" > "$tmp"
-  mv "$tmp" "$target"
+  local tmp
+  tmp="$(mktemp "${target}.tmp.XXXXXX")"
+  if ! jq -n --arg sid "$sid" --argjson mo "$mo_flag" \
+       'if $mo == 1 then {sessionID: $sid, markOnly: true} else {sessionID: $sid} end' \
+       > "$tmp" 2>/dev/null; then
+    echo "agent-fleet-act: atomic_write_select: failed to build body for $target" >&2
+    rm -f "$tmp" 2>/dev/null || true
+    return 0
+  fi
+  if ! mv "$tmp" "$target" 2>/dev/null; then
+    echo "agent-fleet-act: atomic_write_select: failed to rename $tmp -> $target (target may be locked)" >&2
+    rm -f "$tmp" 2>/dev/null || true
+    return 0
+  fi
 }
 
 # === act_land: DECIDE_ONLY no-op; optional mailbox; aerospace workspace;
