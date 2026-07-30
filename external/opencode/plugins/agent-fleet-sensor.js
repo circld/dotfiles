@@ -79,7 +79,15 @@ function enqueue(key, fn) {
   const prev = chains.get(key) ?? Promise.resolve();
   const tail = prev.then(fn, fn);
   chains.set(key, tail);
-  tail.finally(() => {
+  // Use `.then(cleanup, cleanup)` instead of `.finally(cleanup)`. Finally derives
+  // a NEW promise that re-throws the original rejection — call sites `.catch(()=>{})`
+  // only the returned `tail`, so an unhandled rejection on the derived promise
+  // would terminate the opencode plugin process on Node >=15. Then-handlers that
+  // produce no value resolve the derived promise, so the rejection only flows
+  // through `tail` (already catch-swallowed at the call sites) — never unhandled.
+  tail.then(() => {
+    if (chains.get(key) === tail) chains.delete(key);
+  }, () => {
     if (chains.get(key) === tail) chains.delete(key);
   });
   return tail;
