@@ -8,35 +8,32 @@ CONFIG="$REPO_ROOT/result/home-files/.config/zellij/config.kdl"
 home-manager build >/dev/null
 
 # Extract the KDL bind block whose key matches the given literal (e.g. "Alt ,").
-# Brace-balanced so subsequent rg assertions are scoped to that bind alone.
+# Indentation-anchored: trust the home-manager toKDL renderer to emit each
+# bind's closing `}` at the SAME leading whitespace as the `bind "X" {` line.
+# Robust against braces appearing inside string values (which would defeat
+# brace counting).
 extract_bind() {
   local key="$1"
   awk -v key="$key" '
-    function count_chars(s,    c, i, ch) {
-      c = 0
-      for (i = 1; i <= length(s); i++) {
-        ch = substr(s, i, 1)
-        if (ch == "{") c++
-        if (ch == "}") c--
-      }
-      return c
-    }
-    BEGIN { in_block = 0; depth = 0 }
+    BEGIN { in_block = 0; block_ws = "" }
     {
       if (!in_block) {
         needle = "bind \"" key "\""
         if (index($0, needle) > 0) {
+          match($0, /^[[:space:]]*/)
+          block_ws = substr($0, 1, RLENGTH)
           in_block = 1
-          depth = count_chars($0)
-          block = $0 ORS
-          if (depth <= 0) { print block; in_block = 0; block = ""; depth = 0 }
+          print
+          rest = substr($0, RLENGTH + 1)
+          sub(/[[:space:]]+$/, "", rest)
+          if (rest == "}") { in_block = 0; block_ws = ""; exit }
           next
         }
-      }
-      if (in_block) {
-        block = block $0 ORS
-        depth += count_chars($0)
-        if (depth <= 0) { print block; in_block = 0; block = ""; depth = 0 }
+      } else {
+        print
+        line = $0
+        sub(/[[:space:]]+$/, "", line)
+        if (line == block_ws "}") { in_block = 0; block_ws = ""; exit }
       }
     }
   ' "$CONFIG"

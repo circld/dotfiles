@@ -34,7 +34,7 @@ sensor plugin (phase 1: 2 small adds)  model.mjs (extended)         consumers
 ───────────────────────────────        ──────────────────────       ─────────────────
 <key>.json      + selectedSid(+ts) ─▶  rows[]       (unchanged) ─▶  render.sh (board)
 <key>.viewed.json (sid→ts)        ─▶  actionable[] (unchanged) ─▶  jump.sh (Alt-y)
-                                       timeline: viewed[] desc      traverse.sh (Alt-[/])
+                                       timeline: viewed[] desc      traverse.sh (Alt-,/)
                                                 pending[] FIFO asc
                                        instances[]: {key, cwd, selectedSid,
                                                 selectedTs, sessions:[sid...]}
@@ -145,7 +145,7 @@ opencode restart re-keys the instance to `<cwd-hash>-<NEWpid>.json`, where
 post-restart events (`sessions: { ...(existing?.sessions ?? {}), ... }`,
 sensor.js:426-432). Untouched-but-alive chats are then absent from EVERY
 live instance's `sessions` list → the dead-entry rule reads them as FALSE
-dead entries, one Alt-[ prunes the whole back stack, and the at-end persist
+dead entries, one Alt-, prunes the whole back stack, and the at-end persist
 (below) makes the loss durable. Bare sids survive a restart for
 RE-RESOLUTION (above) but not for LIVENESS; the empty-`live[]` guard does
 NOT cover this (every instance is alive — their sessions maps are merely
@@ -170,7 +170,7 @@ Rules:
 - **Reconcile on every press** — runs FIRST, before the press's outcome is
   classified (so it applies even to presses that turn out
   noop/focus-only/warn). Scope: presses that consult the MODEL — Alt-y/jump,
-  Alt-[/Alt-] traverse, board Enter. Board-internal keys (j/k/ESC/d/q) act on
+  Alt-,/Alt-. traverse, board Enter. Board-internal keys (j/k/ESC/d/q) act on
   the cached frame only and NEVER reconcile — they run no model and cannot
   observe a passive departure. P = the most recent `selectedSid` across all
   live instances (max selection ts, from model `instances[]`). Instances whose
@@ -183,7 +183,7 @@ Rules:
   null AND P undeterminable (first run after deploy: no stack file yet AND
   every state file predates the envelope fields) → current STAYS null and
   presses run with no current: neither direction pushes it (no null entry
-  ever lands on a stack), the ≠-current guards pass vacuously, Alt-['s
+  ever lands on a stack), the ≠-current guards pass vacuously, Alt-,'s
   viewed[] scan starts at the head (the "current absent" rule), and the
   first select landing adopts current with NO push. **Stale-P
   guard (required):** when
@@ -220,7 +220,7 @@ Rules:
   to the pop) and does `forward.push(old)`; a forward-press pops new off
   forward and does `back.push_mru(old)`. Sid occupies at most one of
   current/back/forward; no GC needed.
-- **Alt-[ (back):** `forward.push(current); current = back.pop()`. Dead entry
+- **Alt-, (back):** `forward.push(current); current = back.pop()`. Dead entry
   (sid in no live instance) → skip, pop next. Stack dry (= no LANDABLE entry
   remains — dead entries were pruned on pop, unlandable-ambiguous ones
   skipped but RETAINED, so a "dry" back[] can still hold entries) → fall back into
@@ -247,7 +247,7 @@ Rules:
   The fallback removes the target sid from forward[] if present, and is NOT
   new navigation (forward is preserved — round-trip fidelity back to where
   you came from).
-- **Alt-] (forward):** forward non-empty → pop (`back.push_mru(current)`).
+- **Alt-. (forward):** forward non-empty → pop (`back.push_mru(current)`).
   Dead/unlandable entry → skip (same filter as back-pops), pop next; a
   forward stack that exhausts this way counts as EMPTY. Empty → pending[0]
   (sid ≠ current), i.e. new navigation — never the viewed[] fallback (that
@@ -263,23 +263,23 @@ Rules:
 Acceptance traces (validated):
 
 ```
-Scenario 1: nav Z · alt-] · alt-[ · alt-]
+Scenario 1: nav Z · alt-. · alt-, · alt-.
   start:   current=C  back=[..]      fwd=[]
-  alt-]:   reconcile push C → next pending[0]=A, push Z
+  alt-.:   reconcile push C → next pending[0]=A, push Z
            current=A  back=[..,C,Z]  fwd=[]
-  alt-[:   fwd.push(A), pop Z
+  alt-,:   fwd.push(A), pop Z
            current=Z  back=[..,C]    fwd=[A]     → land Z ✓
-  alt-]:   fwd pop A, push Z
+  alt-.:   fwd pop A, push Z
            current=A  back=[..,C,Z]  fwd=[]      → land A ✓
 
-Scenario 2: nav Z · alt-y · alt-[ · alt-] · alt-]
+Scenario 2: nav Z · alt-y · alt-, · alt-. · alt-.
   alt-y:   reconcile push C → land top A0, push Z
            current=A0 back=[..,C,Z]  fwd=[]      → land A0 ✓
-  alt-[:   fwd.push(A0), pop Z
+  alt-,:   fwd.push(A0), pop Z
            current=Z  back=[..,C]    fwd=[A0]    → land Z ✓
-  alt-]:   fwd pop A0, push Z
+  alt-.:   fwd pop A0, push Z
            current=A0 back=[..,C,Z]  fwd=[]      → land A0 ✓
-  alt-]:   fwd empty → pending[0] (A0 viewed; ≠ current) = A
+  alt-.:   fwd empty → pending[0] (A0 viewed; ≠ current) = A
            current=A  back=[..,C,Z,A0] fwd=[]    → land A ✓
 ```
 
@@ -352,14 +352,14 @@ the next genuine select/landing; "reconcile at the next press" does NOT fix
 this case. Worse sub-case: if ANOTHER pane carries a fresher `selectedTs`,
 a press inside this window flips current AWAY from the chat being viewed
 and pushes it onto back[] — same self-healing shape as the failed-select
-case (one Alt-[ back, corrected on the next select event), but the gap is
+case (one Alt-, back, corrected on the next select event), but the gap is
 wider than benign staleness. Read-only scrolling never
 marks viewed (pre-existing board suppression gap, same root). Named upgrade if
 felt: a continuous zellij-focus poller is the deferred heavyweight fix.
 
 ## Uniform act layer
 
-Every select landing — Alt-y, Alt-[, Alt-], stack- or pending-sourced — runs
+Every select landing — Alt-y, Alt-,, Alt-., stack- or pending-sourced — runs
 one path: [caller: reconcile + compute the stack mutation + write the stack
 file via act.sh helpers] → act_land: atomic-write `<key>.select {sessionID}`
 → aerospace workspace 1 → zellij tab/pane focus. act_land itself is
@@ -403,7 +403,7 @@ select persists no `selectedSid`, so once the persist window lapses the next
 press's reconcile reads P = the chat the TUI actually still shows and flips
 current back to it (the stale-P guard passes: `current.ts` is old), pushing
 the failed target onto back[]. Truthful (the user never saw the target) and
-self-healing (it sits one Alt-[ away for retry); a press INSIDE the window is
+self-healing (it sits one Alt-, away for retry); a press INSIDE the window is
 blocked by the guard and defers the flip by one press — accepted. The guard's
 window is what stops the same flip from corrupting SUCCESSFUL landings inside
 the persist window.
@@ -426,7 +426,7 @@ the persist window.
   hermetic coverage; verification there is a manual smoke test (see Open
   checks), not the test suite.
 - **`scripts/agent-fleet-traverse.sh`** (new, ~80 lines): `prev|next` arg
-  (prev = Alt-[/back, next = Alt-]/forward);
+  (prev = Alt-, /back, next = Alt-. /forward);
   model → reconcile → branch (back-pop / forward-pop / pending[0]) → act_land.
   Gains `mkdir -p "$STATE_DIR"` (board.sh:9's pattern — jump.sh gets away
   without it only because the sensor creates the dir on first write;
@@ -465,7 +465,7 @@ the persist window.
   No new env overrides: timeline/instances derive from the state files tests
   already sandbox via `$AGENT_FLEET_STATE_DIR`. (No `is_focused`
   plumbing — reconcile uses `selectedSid`, not pane focus; see Traverse stack.)
-- **`modules/packages/zellij.nix`**: `Alt [` / `Alt ]` binds beside Alt-y,
+- **`modules/packages/zellij.nix`**: `Alt ,` / `Alt .` binds beside Alt-y,
   same Run-transient-pane shape. CONFLICT: both keys are already bound in
   `locked clear-defaults=true` (`Alt ]` → `NextSwapLayout`, `Alt [` →
   `PreviousSwapLayout`, zellij.nix:279-284) — a duplicate attr is a Nix eval
@@ -657,7 +657,7 @@ All failures fail toward "alert stays visible" — never silently hide.
 | failure | behavior |
 |---|---|
 | stack_write fails (ENOSPC, read-only FS) | warn on stderr, press CONTINUES to act_land — the stack file is disposable (Maintainability), so a lost breadcrumb must not eat the user's landing; the reconcile flip re-detects on the next press (reconcile runs every press). The guard lives INSIDE `stack_write` (warn-and-return-0) so `set -euo pipefail` never aborts the press on it — see Assumptions & Resolutions |
-| malformed traverse-stack.json | tolerant-read → empty; reconcile re-establishes current only — back/forward history is permanently lost (viewed[] remains as fallback history — restart-cold caveat: per-pid viewed files orphan on restart, see Timeline semantics — MINUS any sid with a live unsuppressed alert, which pending-wins excludes from viewed[]; those surface via pending[]/Alt-] instead) |
+| malformed traverse-stack.json | tolerant-read → empty; reconcile re-establishes current only — back/forward history is permanently lost (viewed[] remains as fallback history — restart-cold caveat: per-pid viewed files orphan on restart, see Timeline semantics — MINUS any sid with a live unsuppressed alert, which pending-wins excludes from viewed[]; those surface via pending[]/Alt-. instead) |
 | stack entry dead at pop | skip, pop next; back-pops exhaust → viewed[] fallback, forward-pops exhaust → pending[0] (the empty-forward branch — a forward press never falls BACK to viewed[]) |
 | ambiguous cwd at traverse time | its sids are unlandable-but-NOT-dead (see Traverse stack): pops skip without pruning, timeline keeps them, resolves when the duplicate instance closes |
 | half-written `.select` mailbox | existing planSelect malformed path: delete, no mark |
@@ -665,7 +665,7 @@ All failures fail toward "alert stays visible" — never silently hide.
 | sensor down at dismiss | mailbox persists, consumed on restart; the optimistic hide is in-memory only — board restart drops it and the row re-surfaces (fail-visible), and an unconfirmed hide also expires after ~5 ticks without a `suppressed`-flag confirm, same direction |
 | `tui.session.select` unknown/deleted sid | top-level resolution fails → skip the write entirely (same degrade as other handlers); selectedSid stale → next event fixes |
 | markOnly + jump same tick | single-slot mailbox: the later tmp+rename CLOBBERS the earlier before the sensor poll reads it — nothing serializes producers, one request lost. Accepted (same-tick collision on one key means two actors racing one pane). Lost markOnly self-heals: row stays visible, press `d` again. Lost select: pane focus happens without the chat switch — press again. |
-| model failure (zellij blip) | board keeps cached frame. Phase 2 moves the model call INTO board.sh, so the guard moves with it: the tick's model run is rc-guarded (same role as today's `|| true` on `"$RENDER"`, board.sh:26 — that guard is on the paint-only render after Phase 2 and no longer covers model failures) and a failure skips cache-rewrite + repaint. Traverse: real spawn failure trips `set -euo pipefail`; but the model also exits 0 with valid-but-EMPTY JSON when zellij fails (model.mjs:35-39), so traverse.sh additionally guards `live[]` empty ⇒ abort non-zero BEFORE any stack mutation — without it every stack entry resolves dead and one Alt-[ prunes the whole back stack |
+| model failure (zellij blip) | board keeps cached frame. Phase 2 moves the model call INTO board.sh, so the guard moves with it: the tick's model run is rc-guarded (same role as today's `|| true` on `"$RENDER"`, board.sh:26 — that guard is on the paint-only render after Phase 2 and no longer covers model failures) and a failure skips cache-rewrite + repaint. Traverse: real spawn failure trips `set -euo pipefail`; but the model also exits 0 with valid-but-EMPTY JSON when zellij fails (model.mjs:35-39), so traverse.sh additionally guards `live[]` empty ⇒ abort non-zero BEFORE any stack mutation — without it every stack entry resolves dead and one Alt-, prunes the whole back stack |
 | fast key-mashing (two traverse procs) | last rename wins; worst case one lost breadcrumb — no locking. DISTINCT target keys → both land (separate mailboxes). SAME key inside one poll → the markOnly-row clobber applies: the later rename's select wins, the earlier press's pane-focus still fires but its chat switch is lost (press again). Stale-P flips from presses inside the async persist window are blocked by the reconcile ts guard (see Traverse stack), not by this row |
 | bash < 4 | existing version-guard pattern — jump.sh/render.sh have it; board.sh currently has NONE and gains it in Phase 2 (the loop's suppressed-set and highlight-by-ID map are associative arrays — bash 4 feature; `read -s/-n` and integer `-t` would run on 3.2, but the ESC branch's fractional `-t 0.05` is bash-4-only too) |
 
@@ -712,7 +712,7 @@ frameworks).
   focus fields — reconcile reads `selectedSid` by design, so there is no
   `is_focused` plumbing to test.
 - **zellij keybinds**: extend `scripts/test-zellij-config.sh` (today it greps
-  only the Alt-y bind) to assert the new Alt-[/Alt-] traverse binds and the
+  only the Alt-y bind) to assert the new Alt-,/Alt-. traverse binds and the
   Alt-{/Alt-} swap-layout relocation.
 
 ## Maintainability / extensibility
@@ -777,7 +777,7 @@ Decisions made during critique triage; override freely.
   rows collapse to one sid:null duplicate), contradicting "timeline keeps
   them"; an instances-derived one can, and makes the live-prune dedup rule
   meaningful. Cost: viewed[] includes unlandable-ambiguous sids, so the
-  stack-dry fallback must skip them (specified in the Alt-[ rule).
+  stack-dry fallback must skip them (specified in the Alt-, rule).
 - **The stack file is written by act_land CALLERS, not act_land** — the
   mutation differs per caller and `act_land key sid session pane tab` carries
   no stack state. act.sh exports the helpers; callers compute + write, then
@@ -800,10 +800,10 @@ Decisions made during critique triage; override freely.
   reconcile exists to catch.
 - **Reconcile-adopted flips CLEAR the forward stack** — a manual in-TUI chat
   switch is the analog of clicking a link: stale redo surviving it would
-  land Alt-] somewhere the user no longer means. Alternative (reconcile
+  land Alt-. somewhere the user no longer means. Alternative (reconcile
   preserves forward) rejected: round-trip fidelity matters only within
   deliberate traverse presses, not across a manual context switch.
-- **At-end presses PERSIST the dead-entry prune** — an Alt-[/Alt-] that finds
+- **At-end presses PERSIST the dead-entry prune** — an Alt-,/Alt-. that finds
   no landable target still writes the stack file with popped-past dead
   entries removed (no forward push, current unchanged). Otherwise pruning
   would be in-memory only, dead entries would linger forever, and the
@@ -847,7 +847,7 @@ Decisions made during critique triage; override freely.
   prune rule against warm instances only. Decide at the same time whether
   the model merges pid-sibling viewed files per cwd (max ts) — same root:
   per-pid re-keying. Until closed, treat every opencode restart as capable
-  of wiping back/forward history on the next Alt-[.
+  of wiping back/forward history on the next Alt-,.
 - **Live-verify `tui.session.select`**: fires on in-TUI chat switch AND
   reaches a plugin `event` handler with `properties.sessionID` (binary
   presence is proven; delivery is not). Also check whether the sensor's own
