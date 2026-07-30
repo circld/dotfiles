@@ -244,7 +244,7 @@ fi
 
 target_sid="$(jq -r .target_sid <<<"$action_json")"
 target_row="$(jq -c --arg sid "$target_sid" '
-  ([.rows[] | select(.sid == $sid)] | first | {key, session, pane, tabId, cwd})
+  ([.rows[] | select(.sid == $sid)] | first | {key, session, pane, tabId, cwd, title})
 ' <<<"$json")"
 
 key="$(jq -r .key <<<"$target_row")"
@@ -252,9 +252,10 @@ sess="$(jq -r .session <<<"$target_row")"
 pane="$(jq -r .pane <<<"$target_row")"
 tab="$(jq -r .tabId <<<"$target_row")"
 target_cwd="$(jq -r .cwd <<<"$target_row")"
+title="$(jq -r '.title // empty' <<<"$target_row")"
 
 emit_decision "DECISION:kind=select cwd=$target_cwd session=$sess pane=$pane tab_id=$tab key=$key sid=$target_sid"
 
 stack="$(jq -c .new_state <<<"$action_json")"
 stack_write "$stack"
-act_land "$key" "$target_sid" "$sess" "$pane" "$tab"
+act_land "$key" "$target_sid" "$sess" "$pane" "$tab" "$title"

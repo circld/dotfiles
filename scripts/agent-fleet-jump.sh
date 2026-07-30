@@ -82,16 +82,17 @@ if [ -n "$requested_cwd" ]; then
   top="$(jq -c --arg cwd "$requested_cwd" '
       .actionable
       | map(select(.cwd == $cwd))
-      | if length == 0 then null else first | [.key, (.sid // "")] end
+      | if length == 0 then null else first | [.key, (.sid // ""), (.title // "")] end
     ' <<<"$json")"
   if [ -n "$top" ] && [ "$top" != "null" ]; then
     key="$(jq -r '.[0] // empty' <<<"$top")"
     sid="$(jq -r '.[1] // empty' <<<"$top")"
+    title="$(jq -r '.[2] // empty' <<<"$top")"
     if [ -n "$sid" ]; then
       emit_decision "DECISION:kind=select cwd=${requested_cwd} session=${sess} pane=${pane} tab_id=${tab} key=${key} sid=${sid}"
       _apply_select_nav "$sid"
       stack_write "$stack"
-      act_land "$key" "$sid" "$sess" "$pane" "$tab"
+      act_land "$key" "$sid" "$sess" "$pane" "$tab" "$title"
       exit 0
     fi
     emit_decision "DECISION:kind=focus-only cwd=${requested_cwd} session=${sess} pane=${pane} tab_id=${tab}"
@@ -108,7 +109,7 @@ fi
 # === Global jump arm ===
 top="$(jq -c '
     .actionable
-    | if length == 0 then null else first | [.cwd, .session, .pane, .tabId, .key, (.sid // "")] end
+    | if length == 0 then null else first | [.cwd, .session, .pane, .tabId, .key, (.sid // ""), (.title // "")] end
   ' <<<"$json")"
 if [ -n "$top" ] && [ "$top" != "null" ]; then
   cwd="$(jq -r  '.[0] // empty' <<<"$top")"
@@ -117,16 +118,17 @@ if [ -n "$top" ] && [ "$top" != "null" ]; then
   tab="$(jq -r  '.[3] // empty' <<<"$top")"
   key="$(jq -r  '.[4] // empty' <<<"$top")"
   sid="$(jq -r  '.[5] // empty' <<<"$top")"
+  title="$(jq -r '.[6] // empty' <<<"$top")"
   if [ -n "$sid" ]; then
     emit_decision "DECISION:kind=select cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab} key=${key} sid=${sid}"
     _apply_select_nav "$sid"
     stack_write "$stack"
-    act_land "$key" "$sid" "$sess" "$pane" "$tab"
+    act_land "$key" "$sid" "$sess" "$pane" "$tab" "$title"
     exit 0
   fi
   emit_decision "DECISION:kind=focus-only cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab}"
   stack_write "$stack"
-  act_land "" "" "$sess" "$pane" "$tab"
+  act_land "" "" "$sess" "$pane" "$tab" "$title"
   exit 0
 fi
 

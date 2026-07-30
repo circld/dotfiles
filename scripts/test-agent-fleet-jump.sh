@@ -125,12 +125,18 @@ run_jump() {
 # from $AGENT_FLEET_TEST_FAKE_DIR/clients-<session>.txt (absent = no clients,
 # header only — mirrors an active-but-unattended session; the real binary's
 # not-found dump never produces digit-leading rows either) and list-sessions
-# from sessions.txt. Routing assertions then read the log.
+# from sessions.txt. Fake aerospace: logs every invocation and answers
+# `list-windows --all --json` from windows.json (absent = empty list).
+# Routing assertions then read the logs.
 write_zellij_fake() {
   local fake_bin="$1"
   mkdir -p "$fake_bin"
   cat > "$fake_bin/aerospace" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "$AGENT_FLEET_TEST_AEROSPACE_LOG"
+if [ "${1:-}" = "list-windows" ]; then
+  cat "$AGENT_FLEET_TEST_FAKE_DIR/windows.json" 2>/dev/null || printf '[]\n'
+fi
 exit 0
 EOF
   cat > "$fake_bin/zellij" <<'EOF'
@@ -152,12 +158,13 @@ EOF
   chmod +x "$fake_bin/aerospace" "$fake_bin/zellij"
 }
 
-# $1 = sandbox (also fake dir), $2 = presser session, $3..$7 = act_land args
+# $1 = sandbox (also fake dir), $2 = presser session, $3..$8 = act_land args
 run_act_land() {
   local sandbox="$1" presser="$2"; shift 2
   STATE_DIR="$sandbox" \
     AGENT_FLEET_STATE_DIR="$sandbox" \
     AGENT_FLEET_TEST_ZELLIJ_LOG="$sandbox/zellij.log" \
+    AGENT_FLEET_TEST_AEROSPACE_LOG="$sandbox/aerospace.log" \
     AGENT_FLEET_TEST_FAKE_DIR="$sandbox" \
     PATH="$sandbox/bin:$PATH" \
     ZELLIJ_SESSION_NAME="$presser" \
@@ -165,52 +172,110 @@ run_act_land() {
     "$REPO_ROOT/scripts/agent-fleet-act.sh" "$@"
 }
 
-# 2a: notes presser, target has a client → drive target client by --session.
+write_windows_fixture() {
+  # Firefox FIRST so a broken app-name filter picks window 303 and fails loudly.
+  cat > "$1/windows.json" <<'EOF'
+[
+  {"window-id": 303, "app-name": "Firefox", "window-title": "Chat alpha - Firefox"},
+  {"window-id": 101, "app-name": "Ghostty", "window-title": "OC | Chat alpha"},
+  {"window-id": 202, "app-name": "Ghostty", "window-title": "OC | Chat beta"}
+]
+EOF
+}
+
+# 2a: notes presser, target has a client → drive target client by --session,
+# then raise THAT window (title match), not the MRU workspace window.
 test_board_notes_presser_target_with_client() {
   local sandbox="$ROOT/notes-2a"
   write_zellij_fake "$sandbox/bin"
+  write_windows_fixture "$sandbox"
   printf 'notes\nagent-session\n' > "$sandbox/sessions.txt"
   printf '1\tterminal_0\topencode\n' > "$sandbox/clients-agent-session.txt"
-  run_act_land "$sandbox" notes key sid agent-session terminal_1 3
+  run_act_land "$sandbox" notes key sid agent-session terminal_1 3 "Chat alpha"
   assert_file_exists "2a: mailbox still written" "$sandbox/key.select"
-  local zlog; zlog="$(cat "$sandbox/zellij.log" 2>/dev/null || true)"
+  local zlog alog
+  zlog="$(cat "$sandbox/zellij.log" 2>/dev/null || true)"
+  alog="$(cat "$sandbox/aerospace.log" 2>/dev/null || true)"
   assert_contains "2a: tab routed to target session's client" \
     "$zlog" "--session agent-session action go-to-tab-by-id 3"
   assert_contains "2a: pane routed to target session's client" \
     "$zlog" "--session agent-session action focus-pane-id terminal_1"
   assert_not_contains "2a: notes client never switch-sessions" \
     "$zlog" "switch-session"
+  assert_contains "2a: exact window raised by title match" \
+    "$alog" "focus --window-id 101"
+  assert_not_contains "2a: no MRU workspace fallback on title hit" \
+    "$alog" "workspace 1"
 }
 
 # 2b: notes presser, target clientless → first non-notes session with a
-# client (home) switches to the target.
+# client (home) switches to the target, then the hijacked window is raised.
 test_board_notes_presser_target_without_client_borrows_home() {
   local sandbox="$ROOT/notes-2b"
   write_zellij_fake "$sandbox/bin"
+  write_windows_fixture "$sandbox"
   printf 'agent-session\nnotes\nhomebase\n' > "$sandbox/sessions.txt"
   printf '1\tterminal_0\topencode\n' > "$sandbox/clients-homebase.txt"
-  run_act_land "$sandbox" notes key sid agent-session terminal_1 3
+  run_act_land "$sandbox" notes key sid agent-session terminal_1 3 "Chat beta"
   assert_file_exists "2b: mailbox still written" "$sandbox/key.select"
-  local zlog; zlog="$(cat "$sandbox/zellij.log" 2>/dev/null || true)"
+  local zlog alog
+  zlog="$(cat "$sandbox/zellij.log" 2>/dev/null || true)"
+  alog="$(cat "$sandbox/aerospace.log" 2>/dev/null || true)"
   assert_contains "2b: home client switches to target session+pane" \
     "$zlog" "--session homebase action switch-session --pane-id terminal_1 agent-session"
   assert_not_contains "2b: clientless target never driven directly" \
     "$zlog" "--session agent-session action go-to-tab-by-id"
+  assert_contains "2b: hijacked window raised by title match" \
+    "$alog" "focus --window-id 202"
 }
 
 # 2c: notes presser, no home client anywhere → last resort moves the notes
-# client (pre-guard behavior).
+# client and does NOT workspace-yank (the just-switched window IS the landing).
 test_board_notes_presser_no_home_falls_back_to_notes() {
   local sandbox="$ROOT/notes-2c"
   write_zellij_fake "$sandbox/bin"
   printf 'notes\nagent-session\n' > "$sandbox/sessions.txt"
-  run_act_land "$sandbox" notes key sid agent-session terminal_1 3
+  run_act_land "$sandbox" notes key sid agent-session terminal_1 3 "Chat alpha"
   assert_file_exists "2c: mailbox still written" "$sandbox/key.select"
   local n
   n="$(grep -cFx 'action switch-session --pane-id terminal_1 agent-session' \
     "$sandbox/zellij.log" 2>/dev/null || true)"
   assert_eq "2c: in-context switch-session from notes (no --session routing)" \
     "1" "$n"
+  assert_file_absent "2c: no aerospace call (stay on the just-switched window)" \
+    "$sandbox/aerospace.log"
+}
+
+# 2d: notes presser, title matches NO window → MRU workspace fallback.
+test_board_notes_presser_title_miss_falls_back_to_workspace() {
+  local sandbox="$ROOT/notes-2d"
+  write_zellij_fake "$sandbox/bin"
+  write_windows_fixture "$sandbox"
+  printf 'notes\nagent-session\n' > "$sandbox/sessions.txt"
+  printf '1\tterminal_0\topencode\n' > "$sandbox/clients-agent-session.txt"
+  run_act_land "$sandbox" notes key sid agent-session terminal_1 3 "Chat gamma"
+  local alog
+  alog="$(cat "$sandbox/aerospace.log" 2>/dev/null || true)"
+  assert_not_contains "2d: no window focus on title miss" \
+    "$alog" "focus --window-id"
+  assert_contains "2d: MRU workspace fallback on title miss" \
+    "$alog" "workspace 1"
+}
+
+# 2e: notes presser, empty title → MRU workspace fallback (no title probe).
+test_board_notes_presser_empty_title_falls_back_to_workspace() {
+  local sandbox="$ROOT/notes-2e"
+  write_zellij_fake "$sandbox/bin"
+  write_windows_fixture "$sandbox"
+  printf 'notes\nagent-session\n' > "$sandbox/sessions.txt"
+  printf '1\tterminal_0\topencode\n' > "$sandbox/clients-agent-session.txt"
+  run_act_land "$sandbox" notes key sid agent-session terminal_1 3
+  local alog
+  alog="$(cat "$sandbox/aerospace.log" 2>/dev/null || true)"
+  assert_not_contains "2e: no list-windows probe without a title" \
+    "$alog" "list-windows"
+  assert_contains "2e: MRU workspace fallback without a title" \
+    "$alog" "workspace 1"
 }
 
 # === test cases ===
@@ -1582,6 +1647,8 @@ run_test test_74_mktemp_failure_continues
 run_test test_board_notes_presser_target_with_client
 run_test test_board_notes_presser_target_without_client_borrows_home
 run_test test_board_notes_presser_no_home_falls_back_to_notes
+run_test test_board_notes_presser_title_miss_falls_back_to_workspace
+run_test test_board_notes_presser_empty_title_falls_back_to_workspace
 
 # Print accumulated log
 cat "$ROOT/log"

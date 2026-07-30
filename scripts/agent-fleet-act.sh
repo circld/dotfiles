@@ -188,21 +188,18 @@ atomic_write_select() {
 # === act_land: DECIDE_ONLY no-op; optional mailbox; aerospace workspace;
 #     zellij tab/pane focus. Skips focus tail when AGENT_FLEET_DECIDE_SELECT=1
 #     or AGENT_FLEET_DECIDE_ACT=1 (board and rear-poll consumers). ===
-# Usage: act_land <key> <sid> <session> <pane> <tab>
+# Usage: act_land <key> <sid> <session> <pane> <tab> [chat-title]
 # Writes mailbox <STATE_DIR>/<key>.select when BOTH key and sid are non-empty
 # (focus-only / fallback-pane callers pass empty key, so no mailbox).
 # Focus-tail routing by presser session ($ZELLIJ_SESSION_NAME):
 #   1. presser == target            → in-context go-to-tab + focus-pane (Alt-y same-session)
-#   2. presser == notes (board path) — never move the notes client (workspace 5):
-#      a. target has a client       → zellij --session <target> go-to-tab + focus-pane
-#      b. target clientless         → first non-notes session with a client ("home")
-#                                     runs switch-session --pane-id <pane> <target>
-#      c. no home client at all     → plain switch-session from notes (last resort)
+#   2. presser == notes (board path) → act_land_from_notes (never moves the
+#      notes client unless no other window exists to land on)
 #   3. otherwise                    → in-context switch-session (Alt-y cross-session)
 # Client probe: client rows start with a numeric CLIENT_ID; exited/missing
 # sessions dump "not found" text (never digit-leading) on stdout with rc=0.
 act_land() {
-  local key="$1" sid="$2" sess="$3" pane="$4" tab="$5"
+  local key="$1" sid="$2" sess="$3" pane="$4" tab="$5" title="${6:-}"
   if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" = "1" ]; then
     return 0
   fi
@@ -213,34 +210,78 @@ act_land() {
       || [ "${AGENT_FLEET_DECIDE_ACT:-0}" = "1" ]; then
     return 0
   fi
+  local presser="${ZELLIJ_SESSION_NAME:-}"
+  if [ "$presser" = "notes" ] && [ -n "$sess" ] && [ -n "$pane" ]; then
+    act_land_from_notes "$sess" "$pane" "$tab" "$title"
+    return 0
+  fi
   aerospace workspace 1 || true
   if [ -n "$sess" ] && [ -n "$pane" ]; then
-    local presser="${ZELLIJ_SESSION_NAME:-}"
     if [ "$sess" = "$presser" ]; then
       zellij action go-to-tab-by-id "$tab" || true
       zellij action focus-pane-id "$pane" || true
-    elif [ "$presser" = "notes" ]; then
-      if zellij --session "$sess" action list-clients 2>/dev/null | grep -qE '^[0-9]+[[:space:]]'; then
-        zellij --session "$sess" action go-to-tab-by-id "$tab" || true
-        zellij --session "$sess" action focus-pane-id "$pane" || true
-      else
-        # ponytail: first-match home heuristic; refine if 2 agent windows ever run
-        local home="" s
-        while IFS= read -r s; do
-          [ -n "$home" ] && break
-          [ "$s" = "notes" ] && continue
-          if zellij --session "$s" action list-clients 2>/dev/null | grep -qE '^[0-9]+[[:space:]]'; then
-            home="$s"
-          fi
-        done < <(zellij list-sessions -s -n 2>/dev/null)
-        if [ -n "$home" ]; then
-          zellij --session "$home" action switch-session --pane-id "$pane" "$sess" || true
-        else
-          zellij action switch-session --pane-id "$pane" "$sess" || true
-        fi
-      fi
     else
       zellij action switch-session --pane-id "$pane" "$sess" || true
     fi
+  fi
+}
+
+# === act_land_from_notes: board landing (presser == notes). ===
+# $1 session, $2 pane, $3 tab, $4 chat title (window-match hint, may be "").
+#   a. target has a client  → drive its own client by --session
+#   b. target clientless    → first non-notes session with a client ("home")
+#     ponytail: first-match home heuristic; refine if 2 agent windows ever run
+#   c. no home client       → move the notes client and STAY PUT: an aerospace
+#                             workspace jump here would strand the user away
+#                             from the just-switched window.
+# a/b then raise the exact window (see act_focus_window) — `aerospace
+# workspace 1` alone focuses the MRU window, which with ≥2 agent windows is
+# whichever was used last, not the jump target.
+act_land_from_notes() {
+  local sess="$1" pane="$2" tab="$3" title="${4:-}"
+  if zellij --session "$sess" action list-clients 2>/dev/null | grep -qE '^[0-9]+[[:space:]]'; then
+    zellij --session "$sess" action go-to-tab-by-id "$tab" || true
+    zellij --session "$sess" action focus-pane-id "$pane" || true
+  else
+    local home="" s
+    while IFS= read -r s; do
+      [ -n "$home" ] && break
+      [ "$s" = "notes" ] && continue
+      if zellij --session "$s" action list-clients 2>/dev/null | grep -qE '^[0-9]+[[:space:]]'; then
+        home="$s"
+      fi
+    done < <(zellij list-sessions -s -n 2>/dev/null)
+    if [ -n "$home" ]; then
+      zellij --session "$home" action switch-session --pane-id "$pane" "$sess" || true
+    else
+      zellij action switch-session --pane-id "$pane" "$sess" || true
+      return 0
+    fi
+  fi
+  act_focus_window "$title"
+}
+
+# === act_focus_window: raise the Ghostty window showing the landed pane. ===
+# No session→window map exists, so match the window title: opencode writes
+# "OC | <chat title>" and zellij forwards the focused pane's title (verified
+# live; same trick as isRepoVisible in agent-fleet-sensor-core.mjs). 32-char
+# prefix survives opencode's own title truncation.
+# ponytail: 0.2s settle for the title to propagate after a hijack/refocus;
+# first title match wins (two windows on one chat collide); empty title or no
+# match → MRU workspace focus (pre-fix behavior).
+act_focus_window() {
+  local t="${1:0:32}" wid
+  if [ -z "$t" ]; then
+    aerospace workspace 1 || true
+    return 0
+  fi
+  sleep 0.2
+  wid="$(aerospace list-windows --all --json 2>/dev/null | jq -r --arg t "$t" \
+    '[.[] | select(."app-name" == "Ghostty" and ((."window-title" // "") | contains($t)))][0]."window-id" // empty' \
+    2>/dev/null || true)"
+  if [ -n "$wid" ]; then
+    aerospace focus --window-id "$wid" || true
+  else
+    aerospace workspace 1 || true
   fi
 }

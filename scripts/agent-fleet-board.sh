@@ -133,7 +133,7 @@ apply_select_nav() {
 }
 
 enter() {
-  local row key sid cwd sess pane tab p stack now_ms
+  local row key sid cwd sess pane tab title p stack now_ms
   if ! refresh_model; then
     emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE"; return
   fi
@@ -153,14 +153,15 @@ enter() {
   key="$(jq -r '.key // empty' <<<"$row")"; sid="$(jq -r '.sid // empty' <<<"$row")"
   cwd="$(jq -r '.cwd // empty' <<<"$row")"; sess="$(jq -r '.session // empty' <<<"$row")"
   pane="$(jq -r '.pane // empty' <<<"$row")"; tab="$(jq -r '.tabId // empty' <<<"$row")"
+  title="$(jq -r '.title // empty' <<<"$row")"
   if [ -z "$sid" ]; then
     emit_decision "DECISION:kind=focus-only cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab}"
-    act_land "" "" "$sess" "$pane" "$tab"; repaint "$HL_LINE"; return
+    act_land "" "" "$sess" "$pane" "$tab" "$title"; repaint "$HL_LINE"; return
   fi
   stack="$(apply_select_nav "$stack" "$sid" "$now_ms")"
   emit_decision "DECISION:kind=select cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab} key=${key} sid=${sid}"
   stack_write "$stack"
-  act_land "$key" "$sid" "$sess" "$pane" "$tab"
+  act_land "$key" "$sid" "$sess" "$pane" "$tab" "$title"
   repaint "$HL_LINE"
 }
 
