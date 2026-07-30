@@ -173,23 +173,34 @@ EOF
 }
 
 # --- timeline.pending: excludes null-sid rows ---
+# Setup uses a v1-LEGACY shape: state at top level, no `sessions` object.
+# baseRow for v1 produces sid=null with rank assigned from top-level state,
+# so it lands in actionable (suppressed=false, rank!=null, source!='warning').
+# The pending filter MUST drop it. If the filter were missing, this row
+# would survive into timeline.pending and the assertions would fail.
 test_timeline_pending_excludes_null_sid() {
   local sandbox="$ROOT/pending_null"
   mkdir -p "$sandbox"
   local pso="$ROOT/ps_pending_null.tsv"
   printf 'OPENCODE\t60201\n' > "$pso"
   local key; key=$(key_for "/nullsid")
-  # v1 legacy (sid=null at row level) is superseded by usable v2 in same cwd,
-  # so the only unsuppressed actionable row comes from the v2 envelope.
-  cat > "$sandbox/${key}-60201.json" <<EOF
-{"repo":"v","cwd":"/nullsid","session":"sx","pid":60201,
- "sessions":{"ses_x":{"state":"needs-attention","reason":"perm","ts":200,"task":null,"title":"x"}}}
+  # v1 legacy: top-level state, no `sessions` object, low pid (does not matter
+  # because v1 doesn't carry pid). NO v2 file: cwd is v1-only so the legacy
+  # row survives and emits sid=null.
+  cat > "$sandbox/${key}.json" <<EOF
+{"repo":"legacy","cwd":"/nullsid","session":"sx","state":"needs-attention","reason":"perm","ts":200,"task":null}
 EOF
   run_model "$sandbox" "$pso" $'/nullsid\tsx\tterminal_0\t0'
-  assert_eq "pending excludes null sid" "ses_x" \
-    "$(jq -r '.timeline.pending | map(.sid) | join(",")' <<<"$MODEL_OUT")"
-  assert_eq "pending: no null-sid entries" "0" \
+  # v1 row IS in rows[] and IS in actionable[] (rank!=null, suppressed=false).
+  assert_eq "null-sid v1: row emitted in rows" "1" \
+    "$(jq '[.rows[] | select(.sid == null and .source == "v1")] | length' <<<"$MODEL_OUT")"
+  assert_eq "null-sid v1: row in actionable" "1" \
+    "$(jq '[.actionable[] | select(.sid == null and .source == "v1")] | length' <<<"$MODEL_OUT")"
+  # But MUST be excluded from pending (sid != null filter).
+  assert_eq "null-sid v1: dropped from pending" "0" \
     "$(jq '[.timeline.pending[] | select(.sid == null)] | length' <<<"$MODEL_OUT")"
+  assert_eq "null-sid v1: timeline.pending empty (no v1 sid to surface)" "0" \
+    "$(jq '.timeline.pending | length' <<<"$MODEL_OUT")"
 }
 
 # --- timeline.viewed: joined to live instance, newest viewedTs first ---
@@ -217,6 +228,11 @@ EOF
 }
 
 # --- timeline.viewed: pending sids win (sids in pending are removed from viewed) ---
+# ses_new_attention is also recorded in viewed.json at ts=100 (BELOW its entryTs=300,
+# so 100 >= 300 is false -> not suppressed -> lands in pending). The viewed merge
+# MUST drop it from timeline.viewed because pending-wins. This proves the
+# pending-exclusion filter is actually wired: if it were missing, the
+# ses_new_attention entry would survive into viewed. ---
 test_timeline_viewed_pending_wins() {
   local sandbox="$ROOT/pending_wins"
   mkdir -p "$sandbox"
@@ -231,23 +247,28 @@ test_timeline_viewed_pending_wins() {
    "ses_suppressed_done":{"state":"done","reason":null,"ts":150,"task":null,"title":"sup d"}
  }}
 EOF
-  # viewed marks both old_done and suppressed_done (>= entryTs -> suppressed).
+  # viewed marks BOTH suppressed sids (>= entryTs -> suppressed) AND
+  # ses_new_attention at 100 (< entryTs=300 -> NOT suppressed -> pending).
   cat > "$sandbox/${key}-70201.viewed.json" <<'EOF'
-{"ses_old_done": 80, "ses_suppressed_done": 200}
+{"ses_old_done": 80, "ses_suppressed_done": 200, "ses_new_attention": 100}
 EOF
   run_model "$sandbox" "$pso" $'/pw\tsx\tterminal_0\t0'
   # ses_old_done: 80 >= 50 -> suppressed -> not actionable -> not in pending.
   # ses_suppressed_done: 200 >= 150 -> suppressed -> not in pending.
-  # Only ses_new_attention is unsuppressed actionable.
-  assert_eq "pending: only unsuppressed actionable" "ses_new_attention" \
+  # ses_new_attention: 100 < 300 -> NOT suppressed -> lands in pending.
+  assert_eq "pending: only unsuppressed actionable (ses_new_attention)" "ses_new_attention" \
     "$(jq -r '.timeline.pending | map(.sid) | join(",")' <<<"$MODEL_OUT")"
   # viewed includes both suppressed done sids (not pending, viewed marks applied).
   assert_eq "viewed includes ses_old_done" "ses_old_done" \
     "$(jq -r '[.timeline.viewed[] | select(.sid == "ses_old_done")] | first | .sid' <<<"$MODEL_OUT")"
   assert_eq "viewed includes ses_suppressed_done" "ses_suppressed_done" \
     "$(jq -r '[.timeline.viewed[] | select(.sid == "ses_suppressed_done")] | first | .sid' <<<"$MODEL_OUT")"
-  # pending wins: ses_new_attention is in pending -> MUST NOT appear in viewed.
-  assert_eq "pending wins over viewed (ses_new_attention absent)" "0" \
+  # pending wins: ses_new_attention IS in pending AND IS in the merged viewed
+  # source map (viewedTs=100 < entryTs=300 means it's still recorded). The
+  # pending-exclusion filter MUST drop it. If the filter is missing,
+  # ses_new_attention will appear in timeline.viewed and the next assertion
+  # fails.
+  assert_eq "pending wins over viewed (ses_new_attention absent in viewed)" "0" \
     "$(jq '[.timeline.viewed[] | select(.sid == "ses_new_attention")] | length' <<<"$MODEL_OUT")"
 }
 
@@ -292,6 +313,37 @@ EOF
     "$(jq '.timeline.viewed | length' <<<"$MODEL_OUT")"
   assert_eq "corrupt viewed: ses_x not suppressed (no viewed)" "false" \
     "$(jq -r '.rows[] | select(.sid == "ses_x") | .suppressed' <<<"$MODEL_OUT")"
+}
+
+# --- missing viewed.json file acts as empty map ---
+# Distinct from the corrupt case: nothing on disk at all. merge must produce
+# {} so rows are unsuppressed and timeline.viewed is empty. ---
+test_timeline_viewed_missing_file_handles() {
+  local sandbox="$ROOT/viewed_missing"
+  mkdir -p "$sandbox"
+  local pso="$ROOT/ps_viewed_missing.tsv"
+  printf 'OPENCODE\t90001\n' > "$pso"
+  local key; key=$(key_for "/no_viewed")
+  cat > "$sandbox/${key}-90001.json" <<EOF
+{"repo":"n","cwd":"/no_viewed","session":"sx","pid":90001,
+ "sessions":{
+   "ses_a":{"state":"needs-attention","reason":"perm","ts":200,"task":null,"title":"a"},
+   "ses_b":{"state":"done","reason":null,"ts":100,"task":null,"title":"b"}
+ }}
+EOF
+  # Confirm: no viewed.json files exist for /no_viewed's cwd-hash.
+  run_model "$sandbox" "$pso" $'/no_viewed\tsx\tterminal_0\t0'
+  assert_eq "missing viewed: rc=0" "0" "$MODEL_RC"
+  assert_eq "missing viewed: timeline.viewed empty" "0" \
+    "$(jq '.timeline.viewed | length' <<<"$MODEL_OUT")"
+  assert_eq "missing viewed: ses_a unsuppressed" "false" \
+    "$(jq -r '.rows[] | select(.sid == "ses_a") | .suppressed' <<<"$MODEL_OUT")"
+  assert_eq "missing viewed: ses_b unsuppressed" "false" \
+    "$(jq -r '.rows[] | select(.sid == "ses_b") | .suppressed' <<<"$MODEL_OUT")"
+  # Sanity: view of on-disk state shows NO viewed files for this cwd-hash.
+  local key_hash; key_hash=$(key_for "/no_viewed")
+  assert_eq "missing viewed: state-dir has no viewed files for cwd-hash" "0" \
+    "$(find "$sandbox" -maxdepth 1 -name "${key_hash}*.viewed.json" | wc -l | tr -d ' ')"
 }
 
 # --- restarted process inherits max viewed ts from dead pid sibling;
@@ -381,6 +433,7 @@ test_timeline_viewed_newest_first
 test_timeline_viewed_pending_wins
 test_timeline_viewed_pruned_absent
 test_timeline_viewed_corrupt_handles
+test_timeline_viewed_missing_file_handles
 test_timeline_inherits_dead_pid_sibling
 test_timeline_ignores_meta_files
 
