@@ -305,6 +305,18 @@ in
               close_on_exit = true;   # transient pane disposes itself after the jump
             };
           };
+          "Alt ," = {
+            "Run" = {
+              _args = [ "${pkgs.bash}/bin/bash" "${config.home.homeDirectory}/dotfiles/scripts/agent-fleet-traverse.sh" "prev" ];
+              close_on_exit = true;
+            };
+          };
+          "Alt ." = {
+            "Run" = {
+              _args = [ "${pkgs.bash}/bin/bash" "${config.home.homeDirectory}/dotfiles/scripts/agent-fleet-traverse.sh" "next" ];
+              close_on_exit = true;
+            };
+          };
         };
         "shared_except \"locked\"" = binds {
           "Esc" = {

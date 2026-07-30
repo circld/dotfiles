@@ -20,4 +20,40 @@ if rg -q 'Run "bash" "-lc" ".*agent-fleet-jump\.sh"' "$CONFIG"; then
   exit 1
 fi
 
+if rg -q "bind \"Alt \\[\"" "$CONFIG"; then
+  echo "PASS: Alt-[ swap-layout unchanged"
+else
+  echo "FAIL: Alt-[ swap-layout bind missing" >&2
+  exit 1
+fi
+
+if rg -q "bind \"Alt \\]\"" "$CONFIG"; then
+  echo "PASS: Alt-] swap-layout unchanged"
+else
+  echo "FAIL: Alt-] swap-layout bind missing" >&2
+  exit 1
+fi
+
+if rg -q 'Run "/nix/store/.*/bin/bash" "/Users/paul\.garaud/dotfiles/scripts/agent-fleet-traverse\.sh" "prev"' "$CONFIG"; then
+  echo "PASS: Alt-, runs agent-fleet-traverse.sh prev with Nix bash"
+else
+  echo "FAIL: Alt-, must use Nix bash for agent-fleet-traverse.sh prev" >&2
+  rg -n 'agent-fleet-traverse|bind "Alt ,"|Run .*bash' "$CONFIG" >&2 || true
+  exit 1
+fi
+
+if rg -q 'Run "/nix/store/.*/bin/bash" "/Users/paul\.garaud/dotfiles/scripts/agent-fleet-traverse\.sh" "next"' "$CONFIG"; then
+  echo "PASS: Alt-. runs agent-fleet-traverse.sh next with Nix bash"
+else
+  echo "FAIL: Alt-. must use Nix bash for agent-fleet-traverse.sh next" >&2
+  rg -n 'agent-fleet-traverse|bind "Alt ."|Run .*bash' "$CONFIG" >&2 || true
+  exit 1
+fi
+
+if rg -q 'Run "bash" "-lc" ".*agent-fleet-traverse\.sh"' "$CONFIG"; then
+  echo "FAIL: traverse still uses PATH-dependent bash -lc" >&2
+  exit 1
+fi
+
 echo "PASS: Alt-y avoids PATH-dependent bash -lc"
+echo "PASS: traverse avoids PATH-dependent bash -lc"
