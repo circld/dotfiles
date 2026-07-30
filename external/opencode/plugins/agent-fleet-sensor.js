@@ -293,19 +293,17 @@ async function pollSelectMailbox(client, { selectPath, viewedPath, statePath,
   // callback, so FIFO ordering against transition writes is preserved.
   if (selectOk && sessionID) {
     const existing = readExistingState(statePath);
-    if (existing?.sessions?.[sessionID] != null) {
-      const nextRecord = buildV2StateRecord({
-        repo,
-        cwd: directory,
-        session,
-        pid,
-        selectedSid: sessionID,
-        selectedTs: Date.now(),
-        sessions: existing.sessions,
-      });
-      writeStateRecord(statePath, nextRecord);
-      reapLegacyV1(directory);
-    }
+    const nextRecord = buildV2StateRecord({
+      repo,
+      cwd: directory,
+      session,
+      pid,
+      selectedSid: sessionID,
+      selectedTs: Date.now(),
+      sessions: existing?.sessions ?? {},
+    });
+    writeStateRecord(statePath, nextRecord);
+    reapLegacyV1(directory);
   }
 }
 
