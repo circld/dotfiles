@@ -957,6 +957,61 @@ EOF
     "$sandbox/${key}-${pid}.select"
 }
 
+# --- 34. MRU dedup: when old current is already on back, the reconcile flip
+#         AND select-navigation MRU push must NOT double-insert it. Fixture
+#         puts ses_pre ON back twice already so the dedup is observable —
+#         push without dedup leaves ses_pre on the stack twice after the flip
+#         AND twice again after select nav (cumulative). With dedup each
+#         MRU push collapses the prior entries so ses_pre lands at top exactly
+#         once. ---
+test_34_mru_dedup_no_double_insert() {
+  local sandbox="$ROOT/case34"
+  mkdir -p "$sandbox"
+  local pid=34001
+  local pso="$ROOT/ps34.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/dp" | shasum -a 256 | cut -c1-16)
+  # selectedSid=ses_past, actionable=ses_target. P != initial current → flip.
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/dp","session":"sx","pid":${pid},
+ "selectedSid":"ses_past","selectedTs":1800000000005,
+ "sessions":{
+   "ses_past":{"state":"done","reason":null,"ts":50,"task":null,"title":"past"},
+   "ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"target"}
+ }}
+EOF
+  # Pre-stack: ses_pre is BOTH current AND on back (twice). The MRU push of
+  # old current must dedup. ses_old_marker is on back twice already and is
+  # unrelated to any push — its duplicates must survive untouched.
+  write_stack "$sandbox/traverse-stack.json" \
+    '{"v":1,"current":{"sid":"ses_pre","ts":1700000000000},"back":["ses_old_marker","ses_pre","ses_old_marker"],"forward":["ses_f"]}'
+  local now_ms=1800000000010
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/dp\tsx\tterminal_0\t0' "" "$now_ms"
+  assert_eq "case34 dedup: select decision preserved" \
+    "DECISION:kind=select cwd=/dp session=sx pane=terminal_0 tab_id=0 key=${key}-${pid} sid=ses_target" \
+    "$JUMP_STDOUT"
+  # Post flip + nav: back = [ses_old_marker×2, ses_pre×1, ses_past×1] (the two
+  # new MRUs are dedup-collapsed; pre-existing ses_old_marker duplicates
+  # untouched). current=ses_target, forward=[].
+  assert_stack_eq "case34 dedup exact back sequence (MRU drops old-current's incumbency from both reconcile flip and nav)" \
+    '{"v":1,"current":{"sid":"ses_target","ts":1800000000010},"back":["ses_old_marker","ses_old_marker","ses_pre","ses_past"],"forward":[]}' \
+    "$sandbox/traverse-stack.json"
+  # Cross-check via counts: ses_old_marker survives the pre-existing 2;
+  # ses_pre (pushed by both reconcile AND select nav) lands exactly once;
+  # ses_past (pushed once by select nav) lands exactly once.
+  local back n_old n_pre n_past n_target
+  back="$(jq -c .back "$sandbox/traverse-stack.json")"
+  n_old="$(jq --arg s "ses_old_marker" '[.[]|select(.==$s)]|length' <<<"$back")"
+  n_pre="$(jq --arg s "ses_pre"        '[.[]|select(.==$s)]|length' <<<"$back")"
+  n_past="$(jq --arg s "ses_past"      '[.[]|select(.==$s)]|length' <<<"$back")"
+  n_target="$(jq --arg s "ses_target"  '[.[]|select(.==$s)]|length' <<<"$back")"
+  assert_eq "case34 ses_old_marker dedup untouched: still 2 in back" "2" "$n_old"
+  assert_eq "case34 ses_pre dedup: exactly 1 in back (reconcile + nav did not double)" "1" "$n_pre"
+  assert_eq "case34 ses_past dedup: exactly 1 in back (nav did not double)" "1" "$n_past"
+  assert_eq "case34 ses_target NOT on back (current-removal invariant)" "0" "$n_target"
+}
+
 # --- 40a. noop branch persists reconcile mutation but adds no navigation mutation ---
 test_40a_noop_persists_reconcile() {
   local sandbox="$ROOT/case40a"
@@ -1225,6 +1280,7 @@ run_test test_30_select_writes_reconciled_stack
 run_test test_31_fresh_stack_adopts_no_push
 run_test test_32_corrupt_stack_treated_as_fresh
 run_test test_33_passive_departure_clears_forward
+run_test test_34_mru_dedup_no_double_insert
 run_test test_40a_noop_persists_reconcile
 run_test test_40b_warn_persists_reconcile
 run_test test_40c_focus_only_persists_reconcile

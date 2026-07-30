@@ -53,11 +53,10 @@ stack="$(stack_reconcile "$P_json" "$now_ms" <<<"$stack")"
 _apply_select_nav() {
   stack="$(jq --arg target "$1" --argjson now_ms "$now_ms" '
     . as $s
-    | .back |= ((map(select(. != $target))) +
+    | .back |= ((map(select((. != $target) and (. != $s.current.sid))) +
                 (if ($s.current != null) and ($s.current.sid != $target)
                    then [$s.current.sid]
-                   else [] end))
-    | .forward |= map(select(. != $target))
+                   else [] end)))
     | .forward |= []
     | .current = {sid: $target, ts: $now_ms}
   ' <<<"$stack")"

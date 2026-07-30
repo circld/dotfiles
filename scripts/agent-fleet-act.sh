@@ -44,11 +44,11 @@ stack_read() {
 # === stack_write: atomic tmp+rename; DECIDE_ONLY no-op; warn-and-return-0 on failure. ===
 # Caller passes JSON. Failure is non-fatal: caller continues to landing.
 stack_write() {
-  local stack_json="$1"
-  local path="${2:-$STATE_DIR/traverse-stack.json}"
   if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" = "1" ]; then
     return 0
   fi
+  local stack_json="$1"
+  local path="${2:-$STATE_DIR/traverse-stack.json}"
   local tmp="${path}.tmp.$$"
   if ! printf '%s\n' "$stack_json" > "$tmp" 2>/dev/null; then
     echo "agent-fleet-act: stack_write: failed to write tmp $tmp" >&2
@@ -100,10 +100,10 @@ stack_reconcile() {
         then ($s | .current = {sid: $p.sid, ts: $now_ms})
       else
         ($s
-         | .back |= ((map(select(. != $p.sid))) +
+         | .back |= ((map(select((. != $p.sid) and (. != $s.current.sid))) +
                      (if ($s.current != null) and ($s.current.sid != $p.sid)
                         then [$s.current.sid]
-                        else [] end))
+                        else [] end)))
          | .forward |= []
          | .current = {sid: $p.sid, ts: $now_ms})
       end
@@ -111,16 +111,18 @@ stack_reconcile() {
 }
 
 # === atomic_write_select: DECIDE_ONLY no-op; else atomic-write {sessionID}
-#     (or {sessionID, markOnly: true} when third arg is 1).
+#     (or {sessionID, markOnly: true} when third arg is literal `true`).
 # The markOnly variant is reserved for board dismiss (Task 10); jump/traverse
-# always pass 0.
+# always omit it. Default "${3:-false}" so two-arg callers under `set -u`
+# don't abort with unbound-variable. Also tolerates "1" for symmetry with
+# earlier numeric-flag callers.
 atomic_write_select() {
   if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" = "1" ]; then
     return 0
   fi
-  local target="$1" sid="$2" mark_only="${3:-}"
+  local target="$1" sid="$2" mark_only="${3:-false}"
   local body
-  if [ "$mark_only" = "1" ]; then
+  if [ "$mark_only" = "true" ] || [ "$mark_only" = "1" ]; then
     body=$(printf '{\n  "sessionID": "%s",\n  "markOnly": true\n}\n' "$sid")
   else
     body=$(printf '{\n  "sessionID": "%s"\n}\n' "$sid")
