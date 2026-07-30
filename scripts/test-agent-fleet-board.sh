@@ -1087,7 +1087,7 @@ test_enter_duplicate_and_vanished_are_noop() {
   local sandbox="$ROOT/case13_enter_noop" key; mkdir -p "$sandbox"; key=$(key_for "/dup")
   local row; row=$(mk_row warning "" "" /dup sess duplicate duplicate $NOW_MS)
   write_model_with_instances "$sandbox/.fake-model.json" "$row"
-  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"; wait_log_count "$sandbox/log-render" '^render complete' 1 3; printf '\n' > "$BOARD_FIFO"; wait_log_count "$sandbox/stdout" 'DECISION:kind=select' 1 3; stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"; wait_log_count "$sandbox/log-render" '^render complete' 1 3; printf '\n' > "$BOARD_FIFO"; wait_log_count "$sandbox/stdout" 'DECISION:kind=noop' 1 3; stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
   if grep -qF 'DECISION:kind=noop' "$sandbox/stdout" && ! grep -qF 'DECISION:kind=focus-only' "$sandbox/stdout"; then pass "case13: Enter duplicate row noops"; else fail_msg "case13: Enter duplicate row noops"; fi
 }
 
