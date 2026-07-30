@@ -7,6 +7,41 @@ CONFIG="$REPO_ROOT/result/home-files/.config/zellij/config.kdl"
 
 home-manager build >/dev/null
 
+# Extract the KDL bind block whose key matches the given literal (e.g. "Alt ,").
+# Brace-balanced so subsequent rg assertions are scoped to that bind alone.
+extract_bind() {
+  local key="$1"
+  awk -v key="$key" '
+    function count_chars(s,    c, i, ch) {
+      c = 0
+      for (i = 1; i <= length(s); i++) {
+        ch = substr(s, i, 1)
+        if (ch == "{") c++
+        if (ch == "}") c--
+      }
+      return c
+    }
+    BEGIN { in_block = 0; depth = 0 }
+    {
+      if (!in_block) {
+        needle = "bind \"" key "\""
+        if (index($0, needle) > 0) {
+          in_block = 1
+          depth = count_chars($0)
+          block = $0 ORS
+          if (depth <= 0) { print block; in_block = 0; block = ""; depth = 0 }
+          next
+        }
+      }
+      if (in_block) {
+        block = block $0 ORS
+        depth += count_chars($0)
+        if (depth <= 0) { print block; in_block = 0; block = ""; depth = 0 }
+      }
+    }
+  ' "$CONFIG"
+}
+
 if rg -q 'Run "/nix/store/.*/bin/bash" "/Users/paul\.garaud/dotfiles/scripts/agent-fleet-jump\.sh"' "$CONFIG"; then
   echo "PASS: Alt-y runs agent-fleet-jump with Nix bash"
 else
@@ -20,33 +55,39 @@ if rg -q 'Run "bash" "-lc" ".*agent-fleet-jump\.sh"' "$CONFIG"; then
   exit 1
 fi
 
-if rg -q "bind \"Alt \\[\"" "$CONFIG"; then
-  echo "PASS: Alt-[ swap-layout unchanged"
+block=$(extract_bind "Alt [")
+if rg -q 'PreviousSwapLayout' <<<"$block"; then
+  echo "PASS: Alt-[ -> PreviousSwapLayout"
 else
-  echo "FAIL: Alt-[ swap-layout bind missing" >&2
+  echo "FAIL: Alt-[ no longer maps to PreviousSwapLayout" >&2
+  echo "$block" >&2
   exit 1
 fi
 
-if rg -q "bind \"Alt \\]\"" "$CONFIG"; then
-  echo "PASS: Alt-] swap-layout unchanged"
+block=$(extract_bind "Alt ]")
+if rg -q 'NextSwapLayout' <<<"$block"; then
+  echo "PASS: Alt-] -> NextSwapLayout"
 else
-  echo "FAIL: Alt-] swap-layout bind missing" >&2
+  echo "FAIL: Alt-] no longer maps to NextSwapLayout" >&2
+  echo "$block" >&2
   exit 1
 fi
 
-if rg -q 'Run "/nix/store/.*/bin/bash" "/Users/paul\.garaud/dotfiles/scripts/agent-fleet-traverse\.sh" "prev"' "$CONFIG"; then
-  echo "PASS: Alt-, runs agent-fleet-traverse.sh prev with Nix bash"
+block=$(extract_bind "Alt ,")
+if rg -q 'Run "[^"]*" "[^"]*agent-fleet-traverse\.sh" "prev"' <<<"$block"; then
+  echo "PASS: Alt-, -> agent-fleet-traverse.sh prev"
 else
-  echo "FAIL: Alt-, must use Nix bash for agent-fleet-traverse.sh prev" >&2
-  rg -n 'agent-fleet-traverse|bind "Alt ,"|Run .*bash' "$CONFIG" >&2 || true
+  echo "FAIL: Alt-, block does not run agent-fleet-traverse.sh prev" >&2
+  echo "$block" >&2
   exit 1
 fi
 
-if rg -q 'Run "/nix/store/.*/bin/bash" "/Users/paul\.garaud/dotfiles/scripts/agent-fleet-traverse\.sh" "next"' "$CONFIG"; then
-  echo "PASS: Alt-. runs agent-fleet-traverse.sh next with Nix bash"
+block=$(extract_bind "Alt .")
+if rg -q 'Run "[^"]*" "[^"]*agent-fleet-traverse\.sh" "next"' <<<"$block"; then
+  echo "PASS: Alt-. -> agent-fleet-traverse.sh next"
 else
-  echo "FAIL: Alt-. must use Nix bash for agent-fleet-traverse.sh next" >&2
-  rg -n 'agent-fleet-traverse|bind "Alt ."|Run .*bash' "$CONFIG" >&2 || true
+  echo "FAIL: Alt-. block does not run agent-fleet-traverse.sh next" >&2
+  echo "$block" >&2
   exit 1
 fi
 
