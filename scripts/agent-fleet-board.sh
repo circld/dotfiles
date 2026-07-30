@@ -13,6 +13,7 @@ RENDER="${AGENT_FLEET_RENDER:-$SCRIPT_DIR/agent-fleet-render.sh}"
 INTERVAL="${AGENT_FLEET_REFRESH_SECS:-2}"
 CACHE="$STATE_DIR/.board-cache.json"
 LINEMAP="$STATE_DIR/.board-linemap.tsv"
+# ponytail: one board per state dir assumed; use flock on state dir if concurrent boards matter.
 
 mkdir -p "$STATE_DIR"
 
@@ -41,16 +42,50 @@ trap 'printf "\e[2J"' WINCH
 # Run the model into a tmp file, validate JSON, atomic rename on success.
 # Failure: leave the prior cache untouched.
 refresh_model() {
-  local tmp rc
+  local tmp
   tmp="$(mktemp "$CACHE.tmp.XXXXXX")"
-  if "$MODEL" > "$tmp" 2>/dev/null; then
-    if jq -e . >/dev/null 2>&1 < "$tmp"; then
-      mv -f "$tmp" "$CACHE"
-      return 0
+  if [ -x "$MODEL" ]; then
+    if ! "$MODEL" > "$tmp" 2>/dev/null; then
+      rm -f "$tmp"
+      return 1
     fi
+  else
+    if ! node "$MODEL" > "$tmp" 2>/dev/null; then
+      rm -f "$tmp"
+      return 1
+    fi
+  fi
+  if jq -e type >/dev/null 2>&1 < "$tmp"; then
+    mv -f "$tmp" "$CACHE"
+    return 0
   fi
   rm -f "$tmp"
   return 1
+}
+
+linemap_read_row() {
+  local row="$1" rest
+  LM_LINE="${row%%$'\t'*}"
+  rest="${row#*$'\t'}"
+  LM_KEY="${rest%%$'\t'*}"
+  rest="${rest#*$'\t'}"
+  LM_SID="${rest%%$'\t'*}"
+  LM_CWD="${rest#*$'\t'}"
+}
+
+linemap_field_for_line() {
+  local want="$1" field="$2" row
+  while IFS= read -r row; do
+    linemap_read_row "$row"
+    if [ "$LM_LINE" = "$want" ]; then
+      case "$field" in
+        key) printf '%s' "$LM_KEY" ;;
+        sid) printf '%s' "$LM_SID" ;;
+        cwd) printf '%s' "$LM_CWD" ;;
+      esac
+      return 0
+    fi
+  done < "$LINEMAP"
 }
 
 # Re-find the highlighted identity in the current linemap; fall back to the
@@ -69,12 +104,24 @@ find_hl_line() {
   local found
   if [ -n "$HL_SID" ]; then
     # sid row: match (key,sid).
-    found="$(awk -F $'\t' -v k="$HL_KEY" -v s="$HL_SID" \
-      '$2 == k && $3 == s {print $1; exit}' "$LINEMAP")"
+    found=""
+    while IFS= read -r row; do
+      linemap_read_row "$row"
+      if [ "$LM_KEY" = "$HL_KEY" ] && [ "$LM_SID" = "$HL_SID" ]; then
+        found="$LM_LINE"
+        break
+      fi
+    done < "$LINEMAP"
   elif [ -n "$HL_CWD" ]; then
     # sid-less row: match cwd.
-    found="$(awk -F $'\t' -v c="$HL_CWD" \
-      '$4 == c {print $1; exit}' "$LINEMAP")"
+    found=""
+    while IFS= read -r row; do
+      linemap_read_row "$row"
+      if [ "$LM_CWD" = "$HL_CWD" ]; then
+        found="$LM_LINE"
+        break
+      fi
+    done < "$LINEMAP"
   else
     found=""
   fi
@@ -96,18 +143,19 @@ find_hl_line() {
   HL_LINE="$target"
   # Re-derive identity atoms from the line we landed on (fallback may have
   # been clamped downward).
-  HL_KEY="$(awk -F $'\t' -v ln="$HL_LINE" '$1 == ln {print $2; exit}' "$LINEMAP")"
-  HL_SID="$(awk -F $'\t' -v ln="$HL_LINE" '$1 == ln {print $3; exit}' "$LINEMAP")"
-  HL_CWD="$(awk -F $'\t' -v ln="$HL_LINE" '$1 == ln {print $4; exit}' "$LINEMAP")"
+  HL_KEY="$(linemap_field_for_line "$HL_LINE" key)"
+  HL_SID="$(linemap_field_for_line "$HL_LINE" sid)"
+  HL_CWD="$(linemap_field_for_line "$HL_LINE" cwd)"
   return 0
 }
 
 # Repaint: invoke renderer with the highlight line, then refresh identity.
 repaint() {
   local hl_line="${1-}"
+  printf '\e[H'
   AGENT_FLEET_STATE_DIR="$STATE_DIR" \
     AGENT_FLEET_HIGHLIGHT_LINE="$hl_line" \
-    "$RENDER" >/dev/null 2>&1 || true   # transient render errors must not kill the board
+    "$RENDER" 2>>"$STATE_DIR/.board-render.log" || true   # transient render errors must not kill the board
   printf '\e[J'   # erase from render tail down: clears rows a shorter frame left behind
   find_hl_line "$HL_LINE"
 }
@@ -154,9 +202,9 @@ navigate() {
     if (( HL_LINE > last )); then HL_LINE="$last"; fi
   fi
   # Re-derive identity atoms for the new line (so reorder preserves us).
-  HL_KEY="$(awk -F $'\t' -v ln="$HL_LINE" '$1 == ln {print $2; exit}' "$LINEMAP")"
-  HL_SID="$(awk -F $'\t' -v ln="$HL_LINE" '$1 == ln {print $3; exit}' "$LINEMAP")"
-  HL_CWD="$(awk -F $'\t' -v ln="$HL_LINE" '$1 == ln {print $4; exit}' "$LINEMAP")"
+  HL_KEY="$(linemap_field_for_line "$HL_LINE" key)"
+  HL_SID="$(linemap_field_for_line "$HL_LINE" sid)"
+  HL_CWD="$(linemap_field_for_line "$HL_LINE" cwd)"
   repaint "$HL_LINE"
 }
 

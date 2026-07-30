@@ -60,15 +60,31 @@ fi
 EOF
 chmod +x "$FAKES/model.sh"
 
-# Fake model that ALWAYS fails (exit 7, stderr noise).
-cat > "$FAKES/model-fail.sh" <<'EOF'
+# Fake model that succeeds once, then fails on every later invocation.
+cat > "$FAKES/model-then-fail.sh" <<'EOF'
 #!/usr/bin/env bash
 log="${AGENT_FLEET_TEST_LOG_M:-}"
-[ -n "$log" ] && printf 'model FAIL ts=%s\n' "$(date +%s%N)" >> "$log"
-echo "garbage model stderr noise" >&2
-exit 7
+state_dir="${AGENT_FLEET_STATE_DIR:-}"
+calls_file="$state_dir/.model-calls"
+calls=0
+if [ -f "$calls_file" ]; then calls="$(cat "$calls_file")"; fi
+calls=$((calls + 1))
+printf '%s\n' "$calls" > "$calls_file"
+if (( calls == 1 )); then
+  [ -n "$log" ] && printf 'model ok ts=%s\n' "$(date +%s%N)" >> "$log"
+  cat "$state_dir/.fake-model.json"
+else
+  [ -n "$log" ] && printf 'model FAIL ts=%s\n' "$(date +%s%N)" >> "$log"
+  exit 7
+fi
 EOF
-chmod +x "$FAKES/model-fail.sh"
+chmod +x "$FAKES/model-then-fail.sh"
+
+# Fake non-executable Node model.
+cat > "$FAKES/model.mjs" <<'EOF'
+console.log(JSON.stringify({rows: []}));
+EOF
+
 
 # Fake renderer: emits a deterministic line-numbered TSV from any cache
 # rows. Logs every invocation with the received HIGHLIGHT_LINE so the
@@ -98,8 +114,15 @@ while IFS= read -r row; do
   printf '%d\t%s\t%s\t%s\n' "$n" "$key" "$sid" "$cwd" >> "$tmp"
 done < <(jq -r '.rows[] | [(.key // ""), (.sid // ""), (.cwd // "")] | @tsv' < "$cache" 2>/dev/null)
 mv -f "$tmp" "$linemap"
+printf 'FRAME\n'
 EOF
 chmod +x "$FAKES/renderer.sh"
+cat > "$FAKES/renderer-stderr.sh" <<EOF
+#!/usr/bin/env bash
+printf 'renderer diagnostic\n' >&2
+exec "$FAKES/renderer.sh"
+EOF
+chmod +x "$FAKES/renderer-stderr.sh"
 
 # === harness plumbing ===
 NOW_MS="$(($(date +%s) * 1000))"
@@ -117,16 +140,6 @@ assert_eq() {
   local label="$1" want="$2" got="$3"
   if [ "$want" = "$got" ]; then pass "$label"
   else fail_msg "$label" "want=[$want]" "got=[$got]"; fi
-}
-assert_contains() {
-  local label="$1" haystack="$2" needle="$3"
-  if [[ "$haystack" == *"$needle"* ]]; then pass "$label"
-  else fail_msg "$label" "haystack=" "<see test output>" "expected substring:" "$needle"; fi
-}
-assert_not_contains() {
-  local label="$1" haystack="$2" needle="$3"
-  if [[ "$haystack" != *"$needle"* ]]; then pass "$label"
-  else fail_msg "$label" "haystack unexpectedly contained:" "$needle"; fi
 }
 
 key_for() { printf '%s' "$1" | shasum -a 256 | cut -c1-16; }
@@ -290,6 +303,17 @@ wait_first_render() {
   return 1
 }
 
+wait_log_count() {
+  local log="$1" pattern="$2" target="$3" max="${4:-3}"
+  local start=$SECONDS count
+  while (( SECONDS - start < max )); do
+    count="$(grep -cE "$pattern" "$log" 2>/dev/null || true)"
+    if (( count >= target )); then return 0; fi
+    sleep 0.05
+  done
+  return 1
+}
+
 # === TESTS ===
 
 # --- 1. Initial tick writes model JSON atomically, then renders. ---
@@ -298,15 +322,34 @@ test_initial_tick_writes_cache_and_renders() {
   mkdir -p "$sandbox"
   local key; key=$(key_for "/init_tick")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$key" ses_init /init_tick sx done "" $NOW_MS)"
+     "$(mk_row v2 "$key" ses_init /init_tick sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
-  # Open FIFO for write then close after a pause → board sees EOF after
-  # the initial tick has had time to fire.
-  ( exec 9>"$BOARD_FIFO"; sleep 1.2; exec 9>&- )
+  feed_forever "$BOARD_FIFO"
+  if ! wait_first_render "$sandbox/log-render" 3; then
+    fail_msg "case01: initial render recorded" "no first render"
+    stop_feeder; wait_board 3; return 0
+  fi
+  if cmp -s "$sandbox/.fake-model.json" "$sandbox/.board-cache.json"; then
+    pass "case01: cache bytes match model output"
+  else
+    fail_msg "case01: cache bytes match model output" "cache was not written atomically from model output"
+  fi
+  local leftovers
+  local tmp_start=$SECONDS
+  while (( SECONDS - tmp_start < 2 )); do
+    leftovers="$(compgen -G "$sandbox/.board-cache.json.tmp*" || true)"
+    leftovers+="$(compgen -G "$sandbox/.board-linemap.tsv.tmp*" || true)"
+    [ -z "$leftovers" ] && break
+    sleep 0.05
+  done
+  if [ -z "$leftovers" ]; then
+    pass "case01: no cache or linemap temp files remain after initial tick"
+  else
+    fail_msg "case01: no cache or linemap temp files remain after initial tick" "$leftovers"
+  fi
+  stop_feeder
   wait_board 6
   assert_eq "case01: board exited 0" "0" "$?"
-  # Post-exit, .board-cache.json was removed by EXIT trap (verified in case09);
-  # here, prove the cache and linemap DID exist mid-run by inspecting logs.
   if [ -f "$sandbox/log-render" ] && grep -qF "render hl=" "$sandbox/log-render"; then
     pass "case01: renderer was invoked (cache existed mid-run)"
   else
@@ -320,7 +363,173 @@ test_initial_tick_writes_cache_and_renders() {
   fi
 }
 
-# --- 2. j / down arrow moves to next mapped row; k / up arrow moves previous; bounds clamp. ---
+# --- 2. Non-executable .mjs model runs through node. ---
+test_non_executable_node_model_refreshes_cache() {
+  local sandbox="$ROOT/case02_node_model"
+  mkdir -p "$sandbox"
+  launch_board_async "$sandbox" "$FAKES/model.mjs" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO"
+  if ! wait_first_render "$sandbox/log-render" 3; then
+    fail_msg "case02: non-executable Node model rendered" "no first render"
+    stop_feeder; wait_board 3; return 0
+  fi
+  if [ -f "$sandbox/.board-cache.json" ] && [ "$(cat "$sandbox/.board-cache.json")" = '{"rows":[]}' ]; then
+    pass "case02: non-executable .mjs model refreshed cache through node"
+  else
+    fail_msg "case02: non-executable .mjs model refreshed cache through node" "cache missing or incorrect"
+  fi
+  stop_feeder
+  wait_board 6
+}
+
+# --- 3. Renderer stderr is retained in explicit diagnostic log. ---
+test_renderer_stderr_is_logged() {
+  local sandbox="$ROOT/case03_renderer_log"
+  mkdir -p "$sandbox"
+  printf '{"rows":[]}' > "$sandbox/.fake-model.json"
+  launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer-stderr.sh"
+  feed_close "$BOARD_FIFO" "" 1.2
+  wait_board 6
+  if grep -qF 'renderer diagnostic' "$sandbox/.board-render.log" 2>/dev/null; then
+    pass "case03: renderer stderr reached diagnostic log"
+  else
+    fail_msg "case03: renderer stderr reached diagnostic log" "diagnostic log missing line"
+  fi
+}
+
+# --- 4. Highlight identity with a backslash survives repaint reorder. ---
+test_backslash_identity_survives_reorder() {
+  local sandbox="$ROOT/case04_backslash_identity"
+  mkdir -p "$sandbox"
+  local kA; kA=$(key_for "/slash-a")
+  local kB; kB=$(key_for "/slash-b")
+  local sidB='s\id'
+  write_cache "$sandbox/.fake-model.json" \
+    "$(mk_row v2 "$kA" sA /slash-a sx "done" "" $NOW_MS)" \
+    "$(mk_row v2 "$kB" "$sidB" '/slash\cwd' sx "done" "" $NOW_MS)"
+  launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO" j
+  sleep 0.3
+  if ! grep -qE 'hl=\[2\]' "$sandbox/log-render" 2>/dev/null; then
+    fail_msg "case04: backslash row selected before reorder" "$(hls_in_log "$sandbox/log-render")"
+    stop_feeder; wait_board 3; return 0
+  fi
+  write_cache "$sandbox/.fake-model.json" \
+    "$(mk_row v2 "$kB" "$sidB" '/slash\cwd' sx "done" "" $NOW_MS)" \
+    "$(mk_row v2 "$kA" sA /slash-a sx "done" "" $NOW_MS)"
+  sleep 1.2
+  if grep -qE 'hl=\[1\]' "$sandbox/log-render"; then
+    pass "case04: backslash identity followed row across reorder"
+  else
+    fail_msg "case04: backslash identity followed row across reorder" \
+      "$(hls_in_log "$sandbox/log-render")"
+  fi
+  stop_feeder
+  wait_board 3
+}
+
+# --- 5. Every repaint starts at cursor home before renderer output. ---
+test_repaint_returns_cursor_home() {
+  local sandbox="$ROOT/case02_cursor_home"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/cursor")
+  write_cache "$sandbox/.fake-model.json" \
+     "$(mk_row v2 "$key" sCursor /cursor sx "done" "" $NOW_MS)"
+  launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO" j
+  if ! wait_first_render "$sandbox/log-render" 3; then
+    fail_msg "case02: initial render recorded" "no first render"
+    stop_feeder; wait_board 3; return 0
+  fi
+  local start=$SECONDS renders=0
+  while (( SECONDS - start < 3 )); do
+    renders="$(grep -cE '^render hl=' "$sandbox/log-render" 2>/dev/null || true)"
+    if (( renders >= 2 )); then break; fi
+    sleep 0.05
+  done
+  stop_feeder
+  wait_board 6
+  assert_eq "case02: board exited 0" "0" "$?"
+  local frames homes
+  frames="$(grep -oF 'FRAME' "$sandbox/stdout" 2>/dev/null | wc -l | tr -d ' ')"
+  homes="$(grep -oF $'\e[H' "$sandbox/stdout" 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "$frames" -ge 2 ] && [ "$homes" = "$frames" ] && grep -qF $'\e[HFRAME' "$sandbox/stdout"; then
+    pass "case02: every rendered frame follows cursor-home escape (frames=$frames homes=$homes)"
+  else
+    fail_msg "case02: every rendered frame follows cursor-home escape" \
+      "frames=$frames homes=$homes stdout=$(cat "$sandbox/stdout")"
+  fi
+}
+
+# --- 6. JSON false is valid input and must replace the cache. ---
+test_false_json_updates_cache() {
+  local sandbox="$ROOT/case03_false_json"
+  mkdir -p "$sandbox"
+  printf 'false' > "$sandbox/.fake-model.json"
+  launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO"
+  if ! wait_first_render "$sandbox/log-render" 3; then
+    fail_msg "case03: renderer ran for JSON false" "valid JSON was rejected"
+    stop_feeder; wait_board 3; return 0
+  fi
+  if cmp -s "$sandbox/.fake-model.json" "$sandbox/.board-cache.json"; then
+    pass "case03: valid JSON false replaced cache"
+  else
+    fail_msg "case03: valid JSON false replaced cache" "cache missing or changed"
+  fi
+  stop_feeder
+  wait_board 6
+}
+
+# --- 7. JSON null is valid input and must replace the cache. ---
+test_null_json_updates_cache() {
+  local sandbox="$ROOT/case04_null_json"
+  mkdir -p "$sandbox"
+  printf 'null' > "$sandbox/.fake-model.json"
+  launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO"
+  if ! wait_first_render "$sandbox/log-render" 3; then
+    fail_msg "case04: renderer ran for JSON null" "valid JSON was rejected"
+    stop_feeder; wait_board 3; return 0
+  fi
+  if cmp -s "$sandbox/.fake-model.json" "$sandbox/.board-cache.json"; then
+    pass "case04: valid JSON null replaced cache"
+  else
+    fail_msg "case04: valid JSON null replaced cache" "cache missing or changed"
+  fi
+  stop_feeder
+  wait_board 6
+}
+
+# --- 8. Invalid JSON must leave the prior cache untouched. ---
+test_invalid_json_preserves_prior_cache() {
+  local sandbox="$ROOT/case05_invalid_json"
+  mkdir -p "$sandbox"
+  write_cache "$sandbox/.fake-model.json" \
+     "$(mk_row v2 "$(key_for "/invalid")" sInvalid /invalid sx "done" "" $NOW_MS)"
+  launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO"
+  if ! wait_first_render "$sandbox/log-render" 3; then
+    fail_msg "case05: valid cache rendered before invalid JSON" "no initial render"
+    stop_feeder; wait_board 3; return 0
+  fi
+  local prior_cache before_models
+  prior_cache="$(cat "$sandbox/.board-cache.json")"
+  before_models="$(grep -cE '^model ok' "$sandbox/log-model" 2>/dev/null || true)"
+  printf '{broken' > "$sandbox/.fake-model.json"
+  if ! wait_log_count "$sandbox/log-model" '^model ok' "$((before_models + 1))" 3; then
+    fail_msg "case05: invalid JSON refresh attempted" "no model tick after invalid input"
+  fi
+  if [ -f "$sandbox/.board-cache.json" ] && [ "$prior_cache" = "$(cat "$sandbox/.board-cache.json")" ]; then
+    pass "case05: invalid JSON preserved prior cache"
+  else
+    fail_msg "case05: invalid JSON preserved prior cache" "cache was replaced or removed"
+  fi
+  stop_feeder
+  wait_board 6
+}
+
+# --- 9. j / down arrow moves to next mapped row; k / up arrow moves previous; bounds clamp. ---
 test_jk_arrow_navigation_bounds_clamp() {
   local sandbox="$ROOT/case02_nav_bounds"
   mkdir -p "$sandbox"
@@ -328,9 +537,9 @@ test_jk_arrow_navigation_bounds_clamp() {
   local k2; k2=$(key_for "/nav2")
   local k3; k3=$(key_for "/nav3")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$k1" s1 /nav1 sx done "" $NOW_MS)" \
-    "$(mk_row v2 "$k2" s2 /nav2 sx done "" $NOW_MS)" \
-    "$(mk_row v2 "$k3" s3 /nav3 sx done "" $NOW_MS)"
+     "$(mk_row v2 "$k1" s1 /nav1 sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$k2" s2 /nav2 sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$k3" s3 /nav3 sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
   # Feed: 1.4s pause, then \e[B jj jjj 0.4s pause, then kkkk k k 2.0s, EOF.
   feed_close "$BOARD_FIFO" "$(printf '\e[Bjjjj')kkkk" 1.5
@@ -362,7 +571,7 @@ test_jk_arrow_navigation_bounds_clamp() {
   fi
 }
 
-# --- 3. Highlight identity survives row reorder; vanished identity falls to same prior index or last row. ---
+# --- 10. Highlight identity survives row reorder; vanished identity falls to same prior index or last row. ---
 test_identity_survives_reorder_and_falls_on_vanish() {
   local sandbox="$ROOT/case03_identity_reorder"
   mkdir -p "$sandbox"
@@ -371,9 +580,9 @@ test_identity_survives_reorder_and_falls_on_vanish() {
   local kC; kC=$(key_for "/reC")
   # Initial: A,B,C in that order (line 1=A, 2=B, 3=C).
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$kA" sA /reA sx done "" $NOW_MS)" \
-    "$(mk_row v2 "$kB" sB /reB sx done "" $NOW_MS)" \
-    "$(mk_row v2 "$kC" sC /reC sx done "" $NOW_MS)"
+     "$(mk_row v2 "$kA" sA /reA sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$kB" sB /reB sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$kC" sC /reC sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
   feed_forever "$BOARD_FIFO" "j"
   sleep 0.3
@@ -386,9 +595,9 @@ test_identity_survives_reorder_and_falls_on_vanish() {
   pass "case03: initial j moved to HL=2"
   # Snapshot the second cache file: B,A,C (B now at line 1).
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$kB" sB /reB sx done "" $NOW_MS)" \
-    "$(mk_row v2 "$kA" sA /reA sx done "" $NOW_MS)" \
-    "$(mk_row v2 "$kC" sC /reC sx done "" $NOW_MS)"
+     "$(mk_row v2 "$kB" sB /reB sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$kA" sA /reA sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$kC" sC /reC sx "done" "" $NOW_MS)"
   # Let the next deadline tick pick up the new file.
   sleep 1.2
   # Now post-reorder, B's identity must be re-discovered at line 1.
@@ -400,8 +609,8 @@ test_identity_survives_reorder_and_falls_on_vanish() {
   fi
   # Vanish B: cache only has A,C (B removed).
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$kA" sA /reA sx done "" $NOW_MS)" \
-    "$(mk_row v2 "$kC" sC /reC sx done "" $NOW_MS)"
+     "$(mk_row v2 "$kA" sA /reA sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$kC" sC /reC sx "done" "" $NOW_MS)"
   sleep 1.2
   # B vanished → fallback to "same prior index, clamped to last row".
   # Last mapped line is now 2 (rows reduced). HL was 1 before vanish
@@ -419,7 +628,7 @@ test_identity_survives_reorder_and_falls_on_vanish() {
   wait_board 3
 }
 
-# --- 4. Sid-less identity uses cwd even when its model key changes. ---
+# --- 11. Sid-less identity uses cwd even when its model key changes. ---
 test_sidless_identity_uses_cwd() {
   local sandbox="$ROOT/case04_sidless_identity"
   mkdir -p "$sandbox"
@@ -427,8 +636,8 @@ test_sidless_identity_uses_cwd() {
   local new_key; new_key=$(key_for "/sidless-new")
   local other_key; other_key=$(key_for "/sidless-other")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v1 "$old_key" "" /sidless sx done "" $NOW_MS)" \
-    "$(mk_row v2 "$other_key" sOther /other sx done "" $NOW_MS)"
+     "$(mk_row v1 "$old_key" "" /sidless sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$other_key" sOther /other sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
   feed_forever "$BOARD_FIFO"
   if ! wait_first_render "$sandbox/log-render" 3; then
@@ -436,8 +645,8 @@ test_sidless_identity_uses_cwd() {
     stop_feeder; wait_board 3; return 0
   fi
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$other_key" sOther /other sx done "" $NOW_MS)" \
-    "$(mk_row v1 "$new_key" "" /sidless sx done "" $NOW_MS)"
+     "$(mk_row v2 "$other_key" sOther /other sx "done" "" $NOW_MS)" \
+     "$(mk_row v1 "$new_key" "" /sidless sx "done" "" $NOW_MS)"
   sleep 2.6
   if grep -qE 'hl=\[2\]' "$sandbox/log-render"; then
     pass "case04: sid-less highlight followed cwd across key change"
@@ -449,13 +658,13 @@ test_sidless_identity_uses_cwd() {
   wait_board 3
 }
 
-# --- 4. Bare ESC, SPACE, TAB, backslash are ignored; SPACE/TAB never become Enter. ---
+# --- 12. Bare ESC, SPACE, TAB, backslash are ignored; SPACE/TAB never become Enter. ---
 test_garbage_keys_ignored_no_enter() {
   local sandbox="$ROOT/case04_garbage_keys"
   mkdir -p "$sandbox"
   local k1; k1=$(key_for "/gk")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$k1" sGK /gk sx done "" $NOW_MS)"
+     "$(mk_row v2 "$k1" sGK /gk sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
   feed_close "$BOARD_FIFO" "$(printf '\e \t\\\\dq\n')" 1.5
   wait_board 7
@@ -478,13 +687,13 @@ test_garbage_keys_ignored_no_enter() {
   fi
 }
 
-# --- 5. EOF exits 0 instead of busy-spinning. ---
+# --- 13. EOF exits 0 instead of busy-spinning. ---
 test_eof_exits_zero() {
   local sandbox="$ROOT/case05_eof"
   mkdir -p "$sandbox"
   local k1; k1=$(key_for "/eof")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$k1" sEOF /eof sx done "" $NOW_MS)"
+     "$(mk_row v2 "$k1" sEOF /eof sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
   # Open the FIFO briefly then close → board sees EOF immediately.
   exec 9>"$BOARD_FIFO"
@@ -493,13 +702,13 @@ test_eof_exits_zero() {
   assert_eq "case05: board exited cleanly on EOF (rc=0)" "0" "$?"
 }
 
-# --- 6. Deadline tick still runs under sustained key input. ---
+# --- 14. Deadline tick still runs under sustained key input. ---
 test_deadline_tick_under_sustained_keys() {
   local sandbox="$ROOT/case06_deadline"
   mkdir -p "$sandbox"
   local k1; k1=$(key_for "/dl")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$k1" sDL /dl sx done "" $NOW_MS)"
+     "$(mk_row v2 "$k1" sDL /dl sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
   # Long-lived feeder: write 'j' every 0.2s for ~3s. INTERVAL=1 means
   # the deadline-driven refresh must still fire even though `read`
@@ -519,30 +728,33 @@ test_deadline_tick_under_sustained_keys() {
   fi
 }
 
-# --- 7. Model failure keeps prior cache/frame. ---
+# --- 15. Model failure keeps prior cache/frame. ---
 test_model_failure_preserves_prior_cache() {
   local sandbox="$ROOT/case07_model_fail"
   mkdir -p "$sandbox"
   local k1; k1=$(key_for "/mf")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$k1" sMF /mf sx done "" $NOW_MS)"
-  # Pre-load the cache the failing model must NOT overwrite.
-  cp "$sandbox/.fake-model.json" "$sandbox/.board-cache.json"
+     "$(mk_row v2 "$k1" sMF /mf sx "done" "" $NOW_MS)"
+  launch_board_async "$sandbox" "$FAKES/model-then-fail.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO"
+  if ! wait_first_render "$sandbox/log-render" 3; then
+    fail_msg "case07: successful frame precedes model failure" "no initial render"
+    stop_feeder; kill -KILL "$BOARD_PID" 2>/dev/null || true; wait "$BOARD_PID" 2>/dev/null || true
+    return 0
+  fi
   local preloaded_bytes; preloaded_bytes="$(cat "$sandbox/.board-cache.json")"
-  launch_board_async "$sandbox" "$FAKES/model-fail.sh" "$FAKES/renderer.sh"
-  # Hold stdin open indefinitely (just sleep 60s; we'll KILL before then).
-  (
-    exec 9>"$BOARD_FIFO"
-    sleep 30
-  ) &
-  FEEDER_PID=$!
-  sleep 2.2
+  local renders_before; renders_before="$(grep -cE '^render hl=' "$sandbox/log-render" 2>/dev/null || true)"
+  # Change source after the successful frame; subsequent model calls fail.
+  write_cache "$sandbox/.fake-model.json" \
+    "$(mk_row v2 "$k1" sMF /mf sx needs-attention permission $NOW_MS)"
+  if ! wait_log_count "$sandbox/log-model" '^model FAIL' 2 5; then
+    fail_msg "case07: model was called and failed ≥2 times" \
+      "timed out waiting for 2 failures"
+  fi
   # SIGKILL the board (skip EXIT trap, keep cache on disk for inspection).
   kill -KILL "$BOARD_PID" 2>/dev/null || true
-  kill "$FEEDER_PID" 2>/dev/null || true
+  stop_feeder
   wait "$BOARD_PID" 2>/dev/null || true
-  wait "$FEEDER_PID" 2>/dev/null || true
-  # 1) Model was called and failed at least twice.
   local fail_count
   fail_count="$(grep -cE '^model FAIL' "$sandbox/log-model" 2>/dev/null || true)"
   if (( fail_count >= 2 )); then
@@ -550,8 +762,6 @@ test_model_failure_preserves_prior_cache() {
   else
     fail_msg "case07: model was called and failed ≥2 times" "got=$fail_count"
   fi
-  # 2) Cache file must STILL hold the preloaded bytes (model didn't
-  #    overwrite) — bytes-identical, byte-for-byte.
   if [ -f "$sandbox/.board-cache.json" ]; then
     assert_eq "case07: cache bytes preserved across model failures" \
       "$preloaded_bytes" "$(cat "$sandbox/.board-cache.json")"
@@ -559,25 +769,23 @@ test_model_failure_preserves_prior_cache() {
     fail_msg "case07: cache bytes preserved across model failures" \
       "cache file absent (EXIT trap shouldn't have run on SIGKILL)"
   fi
-  # 3) No renderer repaints on FAIL ticks (the board only repaints on
-  #    SUCCESSFUL refreshes — model failure must NOT trigger repaint).
-  local renders
-  renders="$(grep -cE '^render hl=' "$sandbox/log-render" 2>/dev/null || true)"
-  if (( renders <= fail_count )); then
-    pass "case07: renderer log not bloated by failures (renders=$renders, fails=$fail_count)"
+  local renders_after
+  renders_after="$(grep -cE '^render hl=' "$sandbox/log-render" 2>/dev/null || true)"
+  if [ "$renders_after" = "$renders_before" ]; then
+    pass "case07: prior rendered frame preserved on failed refresh (renders=$renders_after)"
   else
-    fail_msg "case07: renderer log not bloated by failures" \
-      "renders=$renders > fails=$fail_count"
+    fail_msg "case07: prior rendered frame preserved on failed refresh" \
+      "before=$renders_before after=$renders_after"
   fi
 }
 
-# --- 8. WINCH-interrupted read becomes repaint tick. ---
+# --- 16. WINCH-interrupted read becomes repaint tick. ---
 test_winch_repaint() {
   local sandbox="$ROOT/case08_winch"
   mkdir -p "$sandbox"
   local k1; k1=$(key_for "/winch")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$k1" sW /winch sx done "" $NOW_MS)"
+     "$(mk_row v2 "$k1" sW /winch sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
   # Hold stdin open long enough to interact (send WINCH).
   feed_forever "$BOARD_FIFO"
@@ -614,13 +822,13 @@ test_winch_repaint() {
   wait_board 6
 }
 
-# --- 9. Exit removes .board-cache.json and .board-linemap.tsv. ---
+# --- 17. Exit removes .board-cache.json and .board-linemap.tsv. ---
 test_exit_cleans_state_files() {
   local sandbox="$ROOT/case09_cleanup"
   mkdir -p "$sandbox"
   local k1; k1=$(key_for "/clean")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$k1" sC /clean sx done "" $NOW_MS)"
+     "$(mk_row v2 "$k1" sC /clean sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
   feed_close "$BOARD_FIFO" "" 1.2
   wait_board 5
@@ -637,15 +845,15 @@ test_exit_cleans_state_files() {
   fi
 }
 
-# --- 10. Non-TTY input tolerates failed stty calls. ---
+# --- 18. Non-TTY input tolerates failed stty calls. ---
 test_non_tty_stty_tolerated() {
   local sandbox="$ROOT/case10_stty"
   mkdir -p "$sandbox"
   local k1; k1=$(key_for "/stty")
   local k2; k2=$(key_for "/stty2")
   write_cache "$sandbox/.fake-model.json" \
-    "$(mk_row v2 "$k1" sS1 /stty sx done "" $NOW_MS)" \
-    "$(mk_row v2 "$k2" sS2 /stty2 sx done "" $NOW_MS)"
+     "$(mk_row v2 "$k1" sS1 /stty sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$k2" sS2 /stty2 sx "done" "" $NOW_MS)"
   launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
   feed_close "$BOARD_FIFO" "$(printf '\e[B')" 1.5
   wait_board 6
@@ -667,6 +875,13 @@ test_non_tty_stty_tolerated() {
 
 # === run all ===
 test_initial_tick_writes_cache_and_renders
+test_non_executable_node_model_refreshes_cache
+test_renderer_stderr_is_logged
+test_backslash_identity_survives_reorder
+test_repaint_returns_cursor_home
+test_false_json_updates_cache
+test_null_json_updates_cache
+test_invalid_json_preserves_prior_cache
 test_jk_arrow_navigation_bounds_clamp
 test_identity_survives_reorder_and_falls_on_vanish
 test_sidless_identity_uses_cwd
