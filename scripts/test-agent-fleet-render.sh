@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # scripts/test-agent-fleet-render.sh
 #
-# Hermetic test for agent-fleet-render.sh (Task 6). Drives the script with
-# synthetic inputs: live-pane table text + state files + ps comm lookup, so
-# no real zellij session or live opencode process is needed. Mirrors the
-# injection-seam conventions of test-agent-fleet-jump.sh (same env var names
-# AGENT_FLEET_LIVE_PANES_OVERRIDE / AGENT_FLEET_PS_OVERRIDE) so the render
-# and jump can never silently disagree about what's live, ambiguous, or
-# suppressed.
+# Hermetic test for agent-fleet-render.sh (Task 7). The renderer is paint-only:
+# it reads `$STATE_DIR/.board-cache.json` (written by Task 8's board) and never
+# invokes the model. Tests therefore write cache JSON fixtures directly and
+# inspect stdout plus `$STATE_DIR/.board-linemap.tsv` (the line map the board
+# uses to translate screen lines into row identities for keyboard navigation).
+#
+# Visual invariants (collapse/nested rows, duplicate warning, suppression
+# filtering, synthetic/idle rows, label widths, age alignment) are retained
+# from the pre-cache harness below.
 #
 # Run via: bash scripts/test-agent-fleet-render.sh from repo root.
-# Self-contained: no real zellij session required.
-# Note: deliberately NOT `set -e` — exercises of buggy code paths (junk
-# panes, partial JSON) intentionally produce warnings whose very presence
-# is the test signal.
+# Self-contained: no real zellij session, no model invocation.
+# Note: deliberately NOT `set -e` — exercises of buggy code paths (missing
+# cache, partial JSON, etc.) intentionally rely on RC semantics that strict
+# mode would mask.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -64,9 +66,6 @@ assert_not_contains() {
   fi
 }
 assert_count() {
-  # Count non-overlapping occurrences of $needle in $haystack across lines.
-  # Used to assert RowCount and verify that ambiguity warning produces ONE
-  # warning row, not two — and that per-cwd outputs don't bleed.
   local label="$1" haystack="$2" needle="$3" want="$4" got
   got=$(grep -c -F -- "$needle" <<<"$haystack" || true)
   if [ "$want" = "$got" ]; then
@@ -94,552 +93,586 @@ time_column_for_line() {
   printf '%s' -1
 }
 
-# === driver: run render.sh against a synthetic sandbox ===
-# $1 = sandbox STATE_DIR
-# $2 = AGENT_FLEET_PS_OVERRIDE file path ("" to disable)
-# $3 = live pane table text  (TAB-separated cwd<TAB>session<TAB>terminal_<id><TAB>tab_id)
-# Sets globals: RENDER_OUT
+# === helper: extract a tab-separated field from a TSV line via awk ===
+# Bash read -ra collapses empty middle fields; awk preserves them so we can
+# verify that null key/sid fields really landed in the linemap as empty.
+# Args: $1=line, $2=1-based field index.
+linemap_field() {
+  awk -F $'\t' -v f="$2" 'NR==1 {print (f<=NF ? $f : "")}' <<<"$1"
+}
+# === driver: run render.sh against a synthetic cache in a sandbox ===
+# $1 = sandbox STATE_DIR (will hold .board-cache.json and .board-linemap.tsv)
+# Sets globals: RENDER_OUT, LINEMAP_OUT, LINEMAP_PATH, RC.
+# Optional env in caller scope, picked up and forwarded:
+#   AGENT_FLEET_HIGHLIGHT_LINE  — forward to renderer for highlight tests
+#   AGENT_FLEET_MODEL           — forward for never-invokes-model test
+#   AGENT_FLEET_NOW_MS          — forward to pin the renderer's wall clock
+#                                  (lets highlight/no-highlight tests compare
+#                                  byte-identical output regardless of drift)
 run_render() {
-  local sandbox="$1" pso="$2" live="$3"
-  local pane_file="$ROOT/pane-${RANDOM}-$$-${RANDOM}.tsv"
-  printf '%s\n' "$live" > "$pane_file"
-  local env_args=(
-    "AGENT_FLEET_LIVE_PANES_OVERRIDE=$pane_file"
-    "AGENT_FLEET_STATE_DIR=$sandbox"
-  )
-  if [ -n "$pso" ]; then
-    env_args+=( "AGENT_FLEET_PS_OVERRIDE=$pso" )
-  fi
+  local sandbox="$1"
+  local linemap_path="$sandbox/.board-linemap.tsv"
   local tmp_err="$ROOT/err-${RANDOM}-$$-${RANDOM}.txt"
   RENDER_OUT=""
+  LINEMAP_OUT=""
+  LINEMAP_PATH="$linemap_path"
+  local env_args=( "AGENT_FLEET_STATE_DIR=$sandbox" )
+  if [ -n "${AGENT_FLEET_HIGHLIGHT_LINE:-}" ]; then
+    env_args+=( "AGENT_FLEET_HIGHLIGHT_LINE=$AGENT_FLEET_HIGHLIGHT_LINE" )
+  fi
+  if [ -n "${AGENT_FLEET_MODEL:-}" ]; then
+    env_args+=( "AGENT_FLEET_MODEL=$AGENT_FLEET_MODEL" )
+  fi
+  if [ -n "${AGENT_FLEET_NOW_MS:-}" ]; then
+    env_args+=( "AGENT_FLEET_NOW_MS=$AGENT_FLEET_NOW_MS" )
+  fi
   set +e
   RENDER_OUT="$(env "${env_args[@]}" bash "$RENDER" 2>"$tmp_err")"
-  local rc=$?
-  # render is read-only; rc intentionally ignored (header comment: no
-  # set -e — junk-pane / partial-JSON / etc. errors are the assertion
-  # signal, not script-aborts).
-  : "$rc"
+  RC=$?
+  set -e
+  if [ -f "$linemap_path" ]; then
+    LINEMAP_OUT="$(cat "$linemap_path")"
+  fi
 }
 
+# Round the inputs we use a lot so each fixture stays compact.
+NOW_MS="$(($(date +%s) * 1000))"
 key_for() { printf '%s' "$1" | shasum -a 256 | cut -c1-16; }
 
-# === test cases ===
+# Build cache JSON from explicit row objects. Drops the assembled payload at
+# $1 (file path). Subsequent args are pre-built row JSON strings; they become
+# body of `.rows[]`. Use `mk_row` below for the common shape.
+write_cache() {
+  local path="$1"; shift
+  local joined=""
+  for r in "$@"; do
+    if [ -z "$joined" ]; then joined="$r"; else joined="$joined,$r"; fi
+  done
+  printf '{"rows":[%s]}' "$joined" > "$path"
+}
 
-# --- 1. v2 file with ONE visible session renders as a single legacy line ---
-# (Step 5: "Render one visible session as current single-line format where
-# possible." Collapse behavior — one session ⇒ no process header, just the row.)
+# mk_row produces a single JSON row object in the model's row[] shape.
+# Empty optional fields → null. Source determines which downstream paths
+# activate (label rules, idle append, etc.).
+#
+# args in order:
+#   1 source        2 key        3 sid          4 cwd         5 session
+#   6 state         7 reason     8 ts           9 title      10 label
+#  11 suppressed   12 rank       13 repo       14 pid       15 pane
+#  16 tabId
+mk_row() {
+  local source="$1" key="$2" sid="$3" cwd="$4" session="$5"
+  local state="$6" reason="$7" ts="$8" title="$9" label="${10}"
+  local suppressed="${11}" rank="${12}" repo="${13}" pid="${14}"
+  local pane="${15}" tabId="${16}"
+  jq -c -n \
+    --arg source "$source" --arg cwd "$cwd" --arg session "$session" \
+    --arg state "$state" --argjson ts "$ts" \
+    --arg repo "$repo" --arg pane "$pane" --arg tabId "$tabId" \
+    --arg key "$key" --arg sid "$sid" --arg reason "$reason" \
+    --arg title "$title" --arg label "$label" \
+    --arg suppressed "$suppressed" --arg rank "$rank" --arg pid "$pid" \
+    '{
+      source: $source,
+      cwd: $cwd,
+      session: $session,
+      state: $state,
+      ts: $ts,
+      repo: $repo,
+      pane: $pane,
+      tabId: $tabId,
+      key: (if $key == "" then null else $key end),
+      sid: (if $sid == "" then null else $sid end),
+      reason: (if $reason == "" then null else $reason end),
+      title: (if $title == "" then null else $title end),
+      label: (if $label == "" then null else $label end),
+      suppressed: ($suppressed == "true"),
+      rank: (if $rank == "" then null else ($rank | tonumber) end),
+      pid: (if $pid == "" then null else ($pid | tonumber) end)
+    }'
+}
+
+# === CACHE-INPUT VISUAL TESTS (preserve pre-cache behaviors) ===
+
+# --- 1. v2 file with ONE visible session renders as a single legacy line. ---
 test_v2_single_session_collapses_one_line() {
   local sandbox="$ROOT/case1"
   mkdir -p "$sandbox"
-  local pid=10101
-  local pso="$ROOT/ps1.tsv"
-  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
   local key; key=$(key_for "/solo")
-  cat > "$sandbox/${key}-${pid}.json" <<EOF
-{"repo":"solo","cwd":"/solo","session":"sx","pid":${pid},
- "sessions":{"ses_n":{"state":"needs-attention","reason":"permission","ts":300,"task":null,"title":"need perm"}}}
-EOF
-  run_render "$sandbox" "$pso" $'/solo\tsx\tterminal_0\t0'
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" ses_n /solo sx needs-attention permission $((NOW_MS - 300000)) "need perm" "need perm" false 3 solo 10101 terminal_0 0)"
+  run_render "$sandbox"
   assert_contains "case1 collapse: icon for needs-attention"  "$RENDER_OUT" "🔴"
   assert_contains "case1 collapse: state:reason text present" "$RENDER_OUT" "needs-attention: permission"
-  # Spec step 5: label = title (here 'need perm'); v1 falls back to repo.
   assert_contains "case1 collapse: title 'need perm' shown as label"  "$RENDER_OUT" "need perm"
-  # No "pid=" header emitted (single-session collapse path):
   assert_not_contains "case1 collapse: NO pid= process header for single-session" \
-    "$RENDER_OUT" "pid=${pid}"
+    "$RENDER_OUT" "pid=${pid:-10101}"
+  # linemap: 1 navigable row, 1 mapped entry.
+  assert_eq "case1 linemap: 1 mapped row" "1" "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
 }
 
-# --- 2. v2 file with MULTIPLE visible sessions nests them under a process row ---
+# --- 2. v2 file with MULTIPLE visible sessions nests them under a process row. ---
 test_v2_multi_session_nests_under_process() {
   local sandbox="$ROOT/case2"
   mkdir -p "$sandbox"
-  local pid=10202
-  local pso="$ROOT/ps2.tsv"
-  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
   local key; key=$(key_for "/multi")
-  cat > "$sandbox/${key}-${pid}.json" <<EOF
-{"repo":"multi","cwd":"/multi","session":"sx","pid":${pid},
- "sessions":{
-   "ses_d_old":{"state":"done","reason":null,"ts":50,"task":null,"title":"old d"},
-   "ses_d_new":{"state":"done","reason":null,"ts":250,"task":null,"title":"new d"},
-   "ses_n":{"state":"needs-attention","reason":"permission","ts":300,"task":null,"title":"new n"}
- }}
-EOF
-  run_render "$sandbox" "$pso" $'/multi\tsx\tterminal_0\t0'
-  # Process header must appear (multi-session ⇒ process row + indented children).
+  local pid=10202
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" ses_d_old /multi sx done "" $((NOW_MS - 950000)) "old d" "old d" false 0 multi $pid terminal_0 0)" \
+    "$(mk_row v2 "$key" ses_d_new /multi sx done "" $((NOW_MS - 750000)) "new d" "new d" false 0 multi $pid terminal_0 0)" \
+    "$(mk_row v2 "$key" ses_n /multi sx needs-attention permission $((NOW_MS - 700000)) "new n" "new n" false 1 multi $pid terminal_0 0)"
+  run_render "$sandbox"
   assert_contains "case2 multi: pid= process header present" "$RENDER_OUT" "pid=${pid}"
   assert_contains "case2 multi: repo label in header"       "$RENDER_OUT" "multi"
-  # Three separate visible sessions should each appear with their TITLE.
-  # Step 5 collapses are not in play here — multi-session ⇒ nested children;
-  # label = title (priority over truncated id per spec).
   assert_contains "case2 multi: 'old d' (ses_d_old title) row"  "$RENDER_OUT" "old d"
   assert_contains "case2 multi: 'new d' (ses_d_new title) row"  "$RENDER_OUT" "new d"
   assert_contains "case2 multi: 'new n' (ses_n title) row"      "$RENDER_OUT" "new n"
-  # Needs-attention icon appears at least once.
   assert_contains "case2 multi: red icon present"  "$RENDER_OUT" "🔴"
-  # Done icon appears at least twice (two done sessions).
   local green_count; green_count=$(grep -c -F "🟢" <<<"$RENDER_OUT" || true)
   if [ "${green_count:-0}" -ge 2 ]; then
     pass "case2 multi: at least 2 🟢 icons for two done sessions (got $green_count)"
   else
     fail "case2 multi: at least 2 🟢 icons for two done sessions" "got" "${green_count:-0}"
   fi
+  # linemap: 1 process row is NOT navigable; 3 children → 3 mapped entries.
+  assert_eq "case2 multi: linemap row count (3 children only)" "3" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
 }
 
-# --- 3. Headless pid SHARING a live cwd (two usable v2 files, one cwd, one
-#         live pane): RENDER emits ONE duplicate-cwd warning row, not two
-#         actionable rows. Spec: "Render duplicate cwd as warning, not
-#         actionable rows." ---
-test_headless_share_live_cwd_renders_warning() {
+# --- 3. Two usable v2 files share a live cwd: ONE warning row, not two actionable rows. ---
+test_duplicate_cwd_renders_warning() {
   local sandbox="$ROOT/case3"
   mkdir -p "$sandbox"
-  local pidA=10301
-  local pidB=10302
-  local pso="$ROOT/ps3.tsv"
-  printf 'OPENCODE\t%s\n' "$pidA" > "$pso"
-  printf 'OPENCODE\t%s\n' "$pidB" >> "$pso"
   local key; key=$(key_for "/share")
-  cat > "$sandbox/${key}-${pidA}.json" <<EOF
-{"repo":"a","cwd":"/share","session":"sx","pid":${pidA},
- "sessions":{"s1":{"state":"needs-attention","reason":"perm","ts":100,"task":null,"title":"a needs"}}}
-EOF
-  cat > "$sandbox/${key}-${pidB}.json" <<EOF
-{"repo":"b","cwd":"/share","session":"sx","pid":${pidB},
- "sessions":{"s2":{"state":"done","reason":null,"ts":200,"task":null,"title":"b done"}}}
-EOF
-  run_render "$sandbox" "$pso" $'/share\tsx\tterminal_0\t0'
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row warning "" "" /share sx duplicate "duplicate opencode instance" 0 "" "/share" false "" "/share" "" terminal_0 0)"
+  run_render "$sandbox"
   assert_contains "case3 ambiguous: warning icon"        "$RENDER_OUT" "⚠️"
   assert_contains "case3 ambiguous: scope to /share"     "$RENDER_OUT" "/share"
   assert_contains "case3 ambiguous: warning phrase"      "$RENDER_OUT" "duplicate opencode instance"
-  # The two underlying session ids must NOT appear as actionable rows.
-  assert_not_contains "case3 ambiguous: s1 NOT shown as actionable" "$RENDER_OUT" "s1"
-  assert_not_contains "case3 ambiguous: s2 NOT shown as actionable" "$RENDER_OUT" "s2"
-  # Exactly ONE warning about /share. (No double-row accidental duplication.)
   assert_count "case3 ambiguous: exactly one /share warning row" \
     "$RENDER_OUT" "/share" 1
+  # linemap: only the warning row; key="" sid="" cwd="/share".
+  assert_eq "case3 linemap: 1 mapped row (warning)" "1" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
+  # Spot-check: linemap entry has line=1, two empty fields, then cwd=/share.
+  assert_eq "case3 linemap: warning line=1"   "1"          "$(linemap_field "$LINEMAP_OUT" 1)"
+  assert_eq "case3 linemap: empty key"        ""           "$(linemap_field "$LINEMAP_OUT" 2)"
+  assert_eq "case3 linemap: empty sid"        ""           "$(linemap_field "$LINEMAP_OUT" 3)"
+  assert_eq "case3 linemap: cwd /share"       "/share"     "$(linemap_field "$LINEMAP_OUT" 4)"
 }
 
-# --- 4. Pane-count ambiguity arm: two LIVE panes same cwd, no state files.
-#         Pane-table arm fires alone. Renders ONE warning row. ---
-test_pane_count_ambiguity_alone_warns() {
+# --- 4. Synthetic row: live pane, no state file, no v1/v2 → unknown/no sensor yet fallback. ---
+test_no_state_file_synthetic_unknown_row() {
   local sandbox="$ROOT/case4"
   mkdir -p "$sandbox"
-  local pso="$ROOT/ps4.tsv"  # pso present but unused (no files reference it)
-  : > "$pso"
-  run_render "$sandbox" "$pso" \
-    $'/dup\tsx\tterminal_0\t0\n/dup\tsx\tterminal_1\t1'
-  assert_contains "case4 pane-ambiguous: warning icon"      "$RENDER_OUT" "⚠️"
-  assert_contains "case4 pane-ambiguous: cwd /dup shown"    "$RENDER_OUT" "/dup"
-  assert_contains "case4 pane-ambiguous: warning phrase"    "$RENDER_OUT" "duplicate opencode instance"
-  assert_count "case4 pane-ambiguous: exactly one /dup row" "$RENDER_OUT" "/dup" 1
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row synthetic "" "" /ghost sx unknown "no sensor yet" $NOW_MS "" "ghost" false "" ghost "" terminal_0 0)"
+  run_render "$sandbox"
+  assert_contains "case4 synthetic: 'unknown' state text present" "$RENDER_OUT" "unknown"
+  assert_contains "case4 synthetic: 'no sensor yet' hint present" "$RENDER_OUT" "no sensor yet"
+  assert_contains "case4 synthetic: repo label (basename of /ghost)" "$RENDER_OUT" "ghost"
+  # linemap: only synthetic unknown row.
+  assert_eq "case4 linemap: 1 mapped row (synthetic)" "1" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
 }
 
-# --- 5. Dead-pid v2 file: state file DROPPED. The dropped file's intrinsic
-#         contents (actionable session id, title, reason text) MUST NOT
-#         appear in the output as actionable rows. Spec step 8 keeps a
-#         synthetic `⚪ unknown` row as the fallback for the live pane. ---
-test_dead_pid_v2_file_dropped() {
+# --- 5. Suppression: viewed terminal sessions filtered out. Working never suppresses. ---
+test_suppresses_viewed_terminal_never_working() {
   local sandbox="$ROOT/case5"
   mkdir -p "$sandbox"
-  local pso="$ROOT/ps5.tsv"
-  printf 'DEAD\t999991\n' > "$pso"
-  local key; key=$(key_for "/dead_cwd")
-  cat > "$sandbox/${key}-999991.json" <<EOF
-{"repo":"dead","cwd":"/dead_cwd","session":"sx","pid":999991,
- "sessions":{"ses_dropped":{"state":"needs-attention","reason":"perm","ts":900,"task":null,"title":"phantom"}}}
-EOF
-  run_render "$sandbox" "$pso" $'/dead_cwd\tsx\tterminal_0\t0'
-  # Dropped file's session id and title MUST NOT appear — those belong to
-  # the dropped v2 file's CONTENT, not the live pane. (cwd basename can
-  # match the dropped file's repo; that's fine because synthetic's repo is
-  # derived from cwd independently.)
-  assert_not_contains "case5 dead pid: dropped file's session id NOT shown" \
-    "$RENDER_OUT" "ses_dropped"
-  assert_not_contains "case5 dead pid: dropped file's title 'phantom' NOT shown" \
-    "$RENDER_OUT" "phantom"
-  # The actionable REASON 'perm' from the dropped file must not bleed through:
-  # (synthetic uses 'no sensor yet', not 'perm'.)
-  assert_not_contains "case5 dead pid: dropped file's reason 'perm' NOT shown" \
-    "$RENDER_OUT" "perm"
-  # Irrelevant here — just retained as documentation:
-  # === 'dead' as a SUBSTRING may appear (cwd basename = 'dead_cwd').
+  local key; key=$(key_for "/sup")
+  local pid=90100
+  # Only the unsuppressed working session is in rows[] — model already filtered
+  # viewed/needs-attention and viewed/done. Cache mirrors rows-as-emitted.
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" ses_working_forever /sup sx working "" $((NOW_MS - 100000)) "forever" "forever" false "" r $pid terminal_0 0)"
+  run_render "$sandbox"
+  assert_contains "case5 suppression: working title 'forever' shown" "$RENDER_OUT" "forever"
+  assert_contains "case5 suppression: yellow icon for working session" "$RENDER_OUT" "🟡"
+  assert_not_contains "case5 suppression: no red icon (viewed needs-attention removed)" "$RENDER_OUT" "🔴"
+  assert_not_contains "case5 suppression: no green icon (viewed done removed)" "$RENDER_OUT" "🟢"
 }
 
-# --- 6. Reused-pid (alive but comm != opencode): file DROPPED. Use real
-#         `sleep` subprocess to exercise the REAL ps path (no override line). ---
-test_reused_pid_alive_not_opencode_dropped() {
+# --- 6. v1-only legacy row: no v2, v1 file alone produces one collapse row. ---
+test_v1_only_legacy_row() {
   local sandbox="$ROOT/case6"
   mkdir -p "$sandbox"
-  sleep 30 &
-  local reused_pid=$!
-  local key; key=$(key_for "/reused_cwd")
-  cat > "$sandbox/${key}-${reused_pid}.json" <<EOF
-{"repo":"reused","cwd":"/reused_cwd","session":"sx","pid":${reused_pid},
- "sessions":{"ses_reused":{"state":"needs-attention","reason":"perm","ts":50,"task":null,"title":"phantom"}}}
-EOF
-  # valid candidate on a different cwd so we have something to render
-  local key2; key2=$(key_for "/valid_cwd")
-  local pso="$ROOT/ps6.tsv"
-  printf 'OPENCODE\t60100\n' > "$pso"
-  cat > "$sandbox/${key2}-60100.json" <<EOF
-{"repo":"valid","cwd":"/valid_cwd","session":"sx2","pid":60100,
- "sessions":{"s":{"state":"needs-attention","reason":"perm","ts":100,"task":null,"title":"real"}}}
-EOF
-  run_render "$sandbox" "$pso" \
-    $'/reused_cwd\tsx\tterminal_0\t0\n/valid_cwd\tsx2\tterminal_1\t0'
-  # Dropped file's session id/title MUST NOT appear:
-  assert_not_contains "case6 reused-pid: dropped session id NOT shown" \
-    "$RENDER_OUT" "ses_reused"
-  assert_not_contains "case6 reused-pid: dropped title 'phantom' NOT shown" \
-    "$RENDER_OUT" "phantom"
-  # The valid candidate (per-session title 'real' on /valid_cwd) IS shown:
-  assert_contains "case6 reused-pid: 'real' title from valid v2 file IS shown" \
-    "$RENDER_OUT" "real"
-  kill "$reused_pid" 2>/dev/null || true
-  wait "$reused_pid" 2>/dev/null || true
+  local key; key=$(key_for "/legacy")
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v1 "$key" "" /legacy sx done "" $((NOW_MS - 800000)) "" "legacy" false 0 legacy "" terminal_0 0)"
+  AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
+  assert_contains "case6 v1: green icon for done" "$RENDER_OUT" "🟢"
+  assert_contains "case6 v1: legacy label shown" "$RENDER_OUT" "legacy"
+  assert_not_contains "case6 v1: no pid= header (single cwd under session)" "$RENDER_OUT" "pid="
+  # linemap: 1 mapped row; key set, sid empty. Use read -ra for field
+  # positions 2 and 3 to stay correct against bash empty-field collapse.
+  assert_eq "case6 v1 linemap: 1 mapped row" "1" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
+  assert_eq "case6 v1 linemap: key set"       "$key"    "$(linemap_field "$LINEMAP_OUT" 2)"
+  assert_eq "case6 v1 linemap: sid empty"     ""        "$(linemap_field "$LINEMAP_OUT" 3)"
+  assert_eq "case6 v1 linemap: cwd"           "/legacy" "$(linemap_field "$LINEMAP_OUT" 4)"
 }
 
-# --- 7. v1/v2 supersession (a): a USABLE v2 file suppresses v1 for the
-#         same cwd. v1 produces zero rows. Migration supersession rule. ---
+# --- 7. v1/v2 supersession (only v2 row remains; v1 was superseded by usable v2). ---
 test_v1_v2_super_a_usable_v2_suppresses_v1() {
   local sandbox="$ROOT/case7"
   mkdir -p "$sandbox"
-  local pso="$ROOT/ps7.tsv"
-  printf 'OPENCODE\t70100\n' > "$pso"
   local key; key=$(key_for "/legacy_super_a")
-  # v1 legacy: bare cwd-hash, top-level state.
-  cat > "$sandbox/${key}.json" <<EOF
-{"repo":"v1_only_repo","cwd":"/legacy_super_a","session":"sx","state":"needs-attention","reason":"perm","ts":50,"task":null}
-EOF
-  # v2 covers /legacy_super_a with a usable pid.
-  cat > "$sandbox/${key}-70100.json" <<EOF
-{"repo":"two","cwd":"/legacy_super_a","session":"sx","pid":70100,
- "sessions":{"s2":{"state":"needs-attention","reason":"perm","ts":100,"task":null,"title":"v2 n"}}}
-EOF
-  run_render "$sandbox" "$pso" $'/legacy_super_a\tsx\tterminal_0\t0'
-  # v2 wins. Its TITLE 'v2 n' is shown (collapse path: single visible session ⇒ single line).
-  assert_contains "case7 usable v2 supersedes v1: v2 TITLE 'v2 n' shown as label" \
-    "$RENDER_OUT" "v2 n"
-  # The v1's repo 'v1_only_repo' MUST NOT appear (v1 is superseded by v2
-  # ⇒ no v1 collapse_row ⇒ 'v1_only_repo' is not emitted as label):
+  local pid=70100
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" s2 /legacy_super_a sx needs-attention perm $((NOW_MS - 900000)) "v2 n" "v2 n" false 1 two $pid terminal_0 0)"
+  run_render "$sandbox"
+  assert_contains "case7 usable v2 supersedes v1: v2 title 'v2 n' shown" "$RENDER_OUT" "v2 n"
   assert_not_contains "case7 usable v2 supersedes v1: v1's repo 'v1_only_repo' NOT shown" \
     "$RENDER_OUT" "v1_only_repo"
-  # Exactly ONE 🔴 (not 2 from v1+v2):
   local attn_count; attn_count=$(grep -c -F "🔴" <<<"$RENDER_OUT" || true)
   if [ "${attn_count:-0}" -eq 1 ]; then
-    pass "case7 usable v2 supersedes v1: exactly one 🔴 (v2 only, v1 superseded)"
+    pass "case7 usable v2 supersedes v1: exactly one 🔴"
   else
-    fail "case7 usable v2 supersedes v1: exactly one 🔴 (v2 only, v1 superseded)" \
-      "got" "${attn_count:-0}"
+    fail "case7 usable v2 supersedes v1: exactly one 🔴" "got:" "${attn_count:-0}"
   fi
 }
 
-# --- 8. v1/v2 supersession (b): a DEAD v2 file does NOT suppress v1. Spec:
-#         "Assert stale-pid drops run BEFORE supersession." v1 still
-#         produces its own row. ---
+# --- 8. v1/v2 supersession (v2 dead, didn't suppress v1). Cache shows only v1 row. ---
 test_v1_v2_super_b_dead_v2_does_not_suppress_v1() {
   local sandbox="$ROOT/case8"
   mkdir -p "$sandbox"
-  local pso="$ROOT/ps8.tsv"
-  printf 'DEAD\t80100\n' > "$pso"
   local key; key=$(key_for "/legacy_super_b")
-  # v1 legacy state file, fresh-ish ts.
-  cat > "$sandbox/${key}.json" <<EOF
-{"repo":"v1_only","cwd":"/legacy_super_b","session":"sx","state":"needs-attention","reason":"perm","ts":500,"task":null}
-EOF
-  # dead v2 covering /legacy_super_b — must be DROPPED by stale-pid filter.
-  # If supersession ran BEFORE stale-pid drop, this file would silently
-  # suppress v1 and the cwd would render empty.
-  cat > "$sandbox/${key}-80100.json" <<EOF
-{"repo":"v2","cwd":"/legacy_super_b","session":"sx","pid":80100,
- "sessions":{"s2":{"state":"done","reason":null,"ts":10000,"task":null,"title":"v2 d"}}}
-EOF
-  run_render "$sandbox" "$pso" $'/legacy_super_b\tsx\tterminal_0\t0'
-  # v1 still alive → state=needs-attention; v1's repo 'v1_only' is the
-  # row's label (chosen because dead v2 was dropped, NOT a v1-supersedes-v2
-  # call at all — dead v2 was ineligible).
-  assert_contains "case8 dead v2 does NOT suppress v1: v1's repo 'v1_only' shown as label" \
-    "$RENDER_OUT" "v1_only"
-  assert_contains "case8 dead v2 does NOT suppress v1: needs-attention state + reason" \
-    "$RENDER_OUT" "needs-attention: perm"
-  # Exactly ONE actionable row emission (no warning row since the cwd is
-  # not ambiguous; v2 is dead so it's not in v2_count despite the file being
-  # on disk).
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v1 "$key" "" /legacy_super_b sx needs-attention perm $((NOW_MS - 500000)) "" "v1_only" false 1 v1_only "" terminal_0 0)"
+  run_render "$sandbox"
+  assert_contains "case8 dead v2: v1's repo 'v1_only' shown as label" "$RENDER_OUT" "v1_only"
+  assert_contains "case8 dead v2: needs-attention state + reason" "$RENDER_OUT" "needs-attention: perm"
   local attn_count; attn_count=$(grep -c -F "🔴" <<<"$RENDER_OUT" || true)
   if [ "${attn_count:-0}" -eq 1 ]; then
-    pass "case8 dead v2 does NOT suppress v1: exactly one 🔴 from v1 only"
+    pass "case8 dead v2: exactly one 🔴 from v1 only"
   else
-    fail "case8 dead v2 does NOT suppress v1: exactly one 🔴 from v1 only" \
-      "got" "${attn_count:-0}"
+    fail "case8 dead v2: exactly one 🔴 from v1 only" "got:" "${attn_count:-0}"
   fi
-  # The dead v2's session id 's2' and title 'v2 d' MUST NOT appear:
-  assert_not_contains "case8 dead v2 does NOT suppress v1: dead v2 session id s2 NOT shown" \
-    "$RENDER_OUT" "s2"
-  assert_not_contains "case8 dead v2 does NOT suppress v1: dead v2 title 'v2 d' NOT shown" \
-    "$RENDER_OUT" "v2 d"
 }
 
-# --- 9. Per-session suppression via `.viewed.json`. Suppresses viewed
-#         `done` and viewed `needs-attention`; never suppresses `working`. ---
-test_suppresses_viewed_terminal_never_working() {
+# --- 9. Idle row: all chats viewed+done, one idle row keeps live pane visible. ---
+test_viewed_done_sessions_show_idle_process() {
   local sandbox="$ROOT/case9"
   mkdir -p "$sandbox"
-  local pid=90100
-  local pso="$ROOT/ps9.tsv"
-  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
-  local key; key=$(key_for "/sup")
-  # 3 sessions: viewed-done (suppress), viewed-needs-attention (suppress),
-  # working-forever (NEVER suppress).
-  cat > "$sandbox/${key}-${pid}.json" <<EOF
-{"repo":"r","cwd":"/sup","session":"sx","pid":${pid},
- "sessions":{
-   "ses_done_viewed":{"state":"done","reason":null,"ts":100,"task":null,"title":"d done"},
-   "ses_attn_viewed":{"state":"needs-attention","reason":"perm","ts":200,"task":null,"title":"n perm"},
-   "ses_working_forever":{"state":"working","reason":null,"ts":300,"task":null,"title":"forever"}
- }}
-EOF
-  # viewed.json marks the terminal-session ids as viewed with ts >= entry.
-  cat > "$sandbox/${key}-${pid}.viewed.json" <<'EOF'
-{"ses_done_viewed": 150, "ses_attn_viewed": 250, "ses_working_forever": 99999}
-EOF
-  run_render "$sandbox" "$pso" $'/sup\tsx\tterminal_0\t0'
-  # The two terminal sessions are SUPPRESSED. Their TITLES must NOT appear
-  # (titles "d done" / "n perm" only belonged to the suppressed sessions).
-  assert_not_contains "case9 suppression: viewed done TITLE 'd done' NOT shown" \
-    "$RENDER_OUT" "d done"
-  assert_not_contains "case9 suppression: viewed needs-attention TITLE 'n perm' NOT shown" \
-    "$RENDER_OUT" "n perm"
-  # working NEVER suppressed — its title 'forever' MUST appear (priority
-  # over session id per spec).
-  assert_contains "case9 suppression: working title 'forever' shown" \
-    "$RENDER_OUT" "forever"
-  # Yellow icon for working present.
-  assert_contains "case9 suppression: yellow icon for working session" \
-    "$RENDER_OUT" "🟡"
-  # Crucially no red/green actionable icons (only yellow).
-  assert_not_contains "case9 suppression: no red icon (needs-attention was suppressed)" \
-    "$RENDER_OUT" "🔴"
-  assert_not_contains "case9 suppression: no green icon (done was suppressed)" \
-    "$RENDER_OUT" "🟢"
+  local key; key=$(key_for "/zero")
+  local pid=110100
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row idle "$key" "" /zero sx idle "all chats viewed" $((NOW_MS - 200000)) "" "zero" false "" zero $pid terminal_0 0)"
+  AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
+  assert_contains "case9 idle: repo label shown" "$RENDER_OUT" "zero"
+  assert_contains "case9 idle: idle state shown" "$RENDER_OUT" "idle"
+  assert_not_contains "case9 idle: no red icon"     "$RENDER_OUT" "🔴"
+  assert_not_contains "case9 idle: no green icon"   "$RENDER_OUT" "🟢"
+  # linemap: 1 mapped row; sid empty.
+  assert_eq "case9 idle linemap: 1 mapped row" "1" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
+  IFS=$'\t' read -ra f <<<"$LINEMAP_OUT"
+  assert_eq "case9 idle linemap: key set"   "$key" "$(linemap_field "$LINEMAP_OUT" 2)"
+  assert_eq "case9 idle linemap: sid empty" ""     "$(linemap_field "$LINEMAP_OUT" 3)"
+  assert_eq "case9 idle linemap: cwd"       "/zero" "$(linemap_field "$LINEMAP_OUT" 4)"
 }
-# note: assertions above reference backticks-free labels so they survive
-# bash's command substitution inside double-quoted strings.
 
-# --- 10. Synthetic row: live opencode pane, no state file. Renders the
-#         `unknown / no sensor yet` fallback so the board is never blind.
-test_no_state_file_synthetic_unknown_row() {
+# --- 10. Multi-cwd interaction: cleanup, scope, no bleed. Five cwds, every row is scoped. ---
+test_multi_cwd_independent_render() {
   local sandbox="$ROOT/case10"
   mkdir -p "$sandbox"
-  local pso="$ROOT/ps10.tsv"; : > "$pso"
-  run_render "$sandbox" "$pso" $'/ghost\tsx\tterminal_0\t0'
-  assert_contains "case10 synthetic: 'unknown' state text present" "$RENDER_OUT" "unknown"
-  assert_contains "case10 synthetic: 'no sensor yet' hint present" "$RENDER_OUT" "no sensor yet"
-  assert_contains "case10 synthetic: repo label (basename of /ghost)" "$RENDER_OUT" "ghost"
-}
-
-# --- 11. ZERO visible sessions for a process because all chats are viewed+done:
-#         keep one idle row so live opencode panes stay visible. ---
-test_viewed_done_sessions_show_idle_process() {
-  local sandbox="$ROOT/case11"
-  mkdir -p "$sandbox"
-  local pid=110100
-  local pso="$ROOT/ps11.tsv"
-  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
-  local key; key=$(key_for "/zero")
-  cat > "$sandbox/${key}-${pid}.json" <<EOF
-{"repo":"zero","cwd":"/zero","session":"sx","pid":${pid},
- "sessions":{
-    "ses_done_viewed":{"state":"done","reason":null,"ts":100,"task":null,"title":"done old"},
-    "ses_done_viewed_2":{"state":"done","reason":null,"ts":200,"task":null,"title":"done new"}
-  }}
-EOF
-  cat > "$sandbox/${key}-${pid}.viewed.json" <<'EOF'
-{"ses_done_viewed": 150, "ses_done_viewed_2": 250}
-EOF
-  run_render "$sandbox" "$pso" $'/zero\tsx\tterminal_0\t0'
-  # Done sessions are still suppressed, but the live opencode process remains visible.
-  assert_contains "case11 idle: repo label shown" "$RENDER_OUT" "zero"
-  assert_contains "case11 idle: idle state shown" "$RENDER_OUT" "idle"
-  # The viewed terminal sessions themselves MUST NOT appear:
-  assert_not_contains "case11 zero visible: session id ses_done_viewed NOT shown" \
-    "$RENDER_OUT" "ses_done_viewed"
-  assert_not_contains "case11 zero visible: session id ses_done_viewed_2 NOT shown" \
-    "$RENDER_OUT" "ses_done_viewed_2"
-  assert_not_contains "case11 idle: viewed done title NOT shown" "$RENDER_OUT" "done old"
-  assert_not_contains "case11 idle: viewed done title 2 NOT shown" "$RENDER_OUT" "done new"
-  assert_not_contains "case11 idle: no red icon"     "$RENDER_OUT" "🔴"
-  assert_not_contains "case11 idle: no green icon"   "$RENDER_OUT" "🟢"
-}
-
-# --- 12. The multi-cwd scenario. Multiple simultaneously-live cwds, mixing
-#         clean (v2 + single session), clean (v1 only, no usable v2),
-#         ambiguous (2 v2 files share a cwd), partially-suppressed (working
-#         visible, two terminals viewed), synthetic (no state file). Five
-#         cwds; every row is scoped to ITS OWN cwd — no cross-bleed. ---
-#         This is the test that catches cross-cwd scoping bugs (Task 5
-#         lesson — a global-vs-scoped mistake). ---
-test_multi_cwd_independent_render() {
-  local sandbox="$ROOT/case12"
-  mkdir -p "$sandbox"
-  # bash `local p=1, q=2` syntax assigns ONE var `p` to "1, q=2"
-  # (verified: `declare -p` shows `local p="1, q=2"`). Use separate locals.
-  local pidA=120001
-  local pidC1=120002
-  local pidC2=120003
-  local pidD=120004
-  local pso="$ROOT/ps12.tsv"
-  printf 'OPENCODE\t%s\n' "$pidA"  > "$pso"
-  printf 'OPENCODE\t%s\n' "$pidC1" >> "$pso"
-  printf 'OPENCODE\t%s\n' "$pidC2" >> "$pso"
-  printf 'OPENCODE\t%s\n' "$pidD"  >> "$pso"
   local keyA; keyA=$(key_for "/projA")
   local keyB; keyB=$(key_for "/projB")
-  local keyC; keyC=$(key_for "/projC")   # AMBIGUOUS cwd via file-count arm
-  local keyD; keyD=$(key_for "/projD")   # partially-suppressed cwd
-  # /projA: clean v2, single visible session ⇒ collapse to single legacy-format line.
-  cat > "$sandbox/${keyA}-${pidA}.json" <<EOF
-{"repo":"a","cwd":"/projA","session":"sx","pid":${pidA},
- "sessions":{"sess_A":{"state":"needs-attention","reason":"permission","ts":1000,"task":null,"title":"A needs"}}}
-EOF
-  # /projB: only v1 (no v2 file present) ⇒ v1 produces one legacy row.
-  cat > "$sandbox/${keyB}.json" <<EOF
-{"repo":"b","cwd":"/projB","session":"sx","state":"done","reason":null,"ts":200,"task":null}
-EOF
-  # /projC: AMBIGUOUS — two usable v2 files share the cwd (file-count arm).
-  cat > "$sandbox/${keyC}-${pidC1}.json" <<EOF
-{"repo":"c1","cwd":"/projC","session":"sx","pid":${pidC1},
- "sessions":{"sess_C1":{"state":"needs-attention","reason":"perm","ts":900,"task":null,"title":"C1 needs"}}}
-EOF
-  cat > "$sandbox/${keyC}-${pidC2}.json" <<EOF
-{"repo":"c2","cwd":"/projC","session":"sx","pid":${pidC2},
- "sessions":{"sess_C2":{"state":"done","reason":null,"ts":1100,"task":null,"title":"C2 done"}}}
-EOF
-  # /projD: working or partial-suppress; both terminals viewed, working stays.
-  cat > "$sandbox/${keyD}-${pidD}.json" <<EOF
-{"repo":"d","cwd":"/projD","session":"sx","pid":${pidD},
- "sessions":{
-   "sess_D_done":{"state":"done","reason":null,"ts":100,"task":null,"title":"D d"},
-   "sess_D_attn":{"state":"needs-attention","reason":"perm","ts":200,"task":null,"title":"D n"},
-   "sess_D_work":{"state":"working","reason":null,"ts":300,"task":null,"title":"D w"}
- }}
-EOF
-  cat > "$sandbox/${keyD}-${pidD}.viewed.json" <<'EOF'
-{"sess_D_done": 150, "sess_D_attn": 250}
-EOF
-  # /projE: live pane, no state file ⇒ synthetic unknown row.
-  run_render "$sandbox" "$pso" \
-    $'/projA\tsx\tterminal_0\t0\n/projB\tsx\tterminal_1\t0\n/projC\tsx\tterminal_2\t0\n/projC\tsx\tterminal_3\t1\n/projD\tsx\tterminal_4\t0\n/projE\tsx\tterminal_5\t0'
-  # --- /projA: clean v2 single session, collapse ⇒ icon + label + state:reason + age ---
-  # Use the unique TITLE 'A needs' (the v2 file's title for sess_A) as the
-  # disambiguator — repo names 'a', 'b', 'd' might collide in substring
-  # searches.
-  assert_contains      "case12 /projA: title 'A needs' shown as label"       "$RENDER_OUT" "A needs"
-  assert_contains      "case12 /projA: 'needs-attention: permission' text"   "$RENDER_OUT" "needs-attention: permission"
-  # No pid= header (single-session collapse):
-  assert_not_contains  "case12 /projA: NO pid= header (single-session path)"  "$RENDER_OUT" "pid=${pidA}"
-  # --- /projB: v1 only ⇒ single legacy-form row with state=done ---
-  # v1's actual reason was null ⇒ output should say just 'done' (no ':perm' suffix):
-  assert_contains      "case12 /projB: v1 produces row (state done shown)"   "$RENDER_OUT" "🟢 b"
-  # --- /projC: AMBIGUOUS via file-count arm ⇒ ONE warning row, scope /projC,
-  #     NOT contaminate /projA or others ---
-  assert_count         "case12 /projC: exactly ONE warning row for /projC"    "$RENDER_OUT" "/projC" 1
-  assert_contains      "case12 /projC: warning phrase for /projC"             "$RENDER_OUT" "duplicate opencode instance"
-  # /projC's underlying session titles must NOT bleed through as actionable rows:
-  assert_not_contains  "case12 /projC: 'C1 needs' title NOT shown as actionable" "$RENDER_OUT" "C1 needs"
-  assert_not_contains  "case12 /projC: 'C2 done' title NOT shown as actionable"  "$RENDER_OUT" "C2 done"
-  # Cross-cwd isolation:
-  assert_count         "case12 cross-cwd: ONE warning total (no bleed onto other cwds)" "$RENDER_OUT" "⚠️" 1
-  # --- /projD: working visible; terminals suppressed. Only ONE visible
-  #     session left after suppression ⇒ collapse path ⇒ NO pid= header,
-  #     just `🟡 D w working <age>` (label = title 'D w' priority). ---
-  assert_contains      "case12 /projD: title 'D w' shown as label"            "$RENDER_OUT" "D w"
-  assert_not_contains  "case12 /projD: NO pid= header (single visible after suppress)" \
-    "$RENDER_OUT" "pid=${pidD}"
-  assert_contains      "case12 /projD: yellow icon for working"               "$RENDER_OUT" "🟡"
-  assert_not_contains  "case12 /projD: suppressed 'D d' title NOT shown"       "$RENDER_OUT" "D d"
-  assert_not_contains  "case12 /projD: suppressed 'D n' title NOT shown"       "$RENDER_OUT" "D n"
-  # --- /projE: synthetic unknown row (NO state file for /projE) ---
-  assert_contains      "case12 /projE: 'no sensor yet' hint present"          "$RENDER_OUT" "no sensor yet"
-  assert_contains      "case12 /projE: 'projE' cwd basename / repo"           "$RENDER_OUT" "projE"
-  # ----- cross-cwd scoping/counting integrity -----
-  # /projA warning row? NO — /projA has 1 v2 file + 1 pane ⇒ NOT ambiguous.
-  # Total ⚠️ count must be EXACTLY 1 (only /projC).
-  assert_count         "case12 cross-cwd: ONE warning for /projC (no cross-bleed)" "$RENDER_OUT" "/projC" 1
-  assert_count         "case12 cross-cwd: total ⚠️ count = 1 (only /projC, no other cwd)" "$RENDER_OUT" "⚠️" 1
-  # Total session with -ATTENTION (🔴): must scope to ONE cwd only —
-  # /projA is the lone 🔴 since /projC's needs-attention got suppressed by
-  # the warning row, /projD's attn is viewed-suppressed.
+  local keyD; keyD=$(key_for "/projD")
+  local pidA=120001
+  local pidD=120004
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$keyA" sess_A /projA sx needs-attention permission $((NOW_MS - 1000)) "A needs" "A needs" false 1 a $pidA terminal_0 0)" \
+    "$(mk_row v1 "$keyB" "" /projB sx done "" $((NOW_MS - 800000)) "" "b" false -1 b "" terminal_1 0)" \
+    "$(mk_row warning "" "" /projC sx duplicate "duplicate opencode instance" 0 "" "/projC" false "" "/projC" "" terminal_2 0)" \
+    "$(mk_row v2 "$keyD" sess_D_work /projD sx working "" $((NOW_MS - 700000)) "D w" "D w" false "" d $pidD terminal_4 0)" \
+    "$(mk_row synthetic "" "" /projE sx unknown "no sensor yet" $NOW_MS "" "projE" false "" projE "" terminal_5 0)"
+  run_render "$sandbox"
+  assert_contains     "case10 /projA: title 'A needs' shown"         "$RENDER_OUT" "A needs"
+  assert_contains     "case10 /projA: 'needs-attention: permission'" "$RENDER_OUT" "needs-attention: permission"
+  assert_not_contains "case10 /projA: NO pid= header (single-session)" "$RENDER_OUT" "pid=${pidA}"
+  assert_contains     "case10 /projB: v1 row (🟢 b done)"             "$RENDER_OUT" "🟢 b"
+  assert_count        "case10 /projC: ONE warning row for /projC"     "$RENDER_OUT" "/projC" 1
+  assert_contains     "case10 /projC: warning phrase"                  "$RENDER_OUT" "duplicate opencode instance"
+  assert_not_contains "case10 /projC: 'C1 needs' NOT shown"             "$RENDER_OUT" "C1 needs"
+  assert_not_contains "case10 /projC: 'C2 done' NOT shown"              "$RENDER_OUT" "C2 done"
+  assert_count        "case10 cross-cwd: ONE warning total"            "$RENDER_OUT" "⚠️" 1
+  assert_contains     "case10 /projD: title 'D w' shown"               "$RENDER_OUT" "D w"
+  assert_not_contains "case10 /projD: NO pid= header (single visible)"  "$RENDER_OUT" "pid=${pidD}"
+  assert_contains     "case10 /projE: 'no sensor yet' hint"            "$RENDER_OUT" "no sensor yet"
+  assert_contains     "case10 /projE: 'projE' cwd basename"            "$RENDER_OUT" "projE"
   local red_count; red_count=$(grep -c -F "🔴" <<<"$RENDER_OUT" || true)
   if [ "${red_count:-0}" -eq 1 ]; then
-    pass "case12 cross-cwd: exactly 1 🔴 across all cwds (no double-count)"
+    pass "case10 cross-cwd: exactly 1 🔴 (only /projA)"
   else
-    fail "case12 cross-cwd: exactly 1 🔴 across all cwds (no double-count)" \
-      "got:" "${red_count:-0}"
+    fail "case10 cross-cwd: exactly 1 🔴" "got:" "${red_count:-0}"
+  fi
+  # linemap: 5 navigable rows (A, B, C warning, D, E synthetic); session header NOT in map.
+  assert_eq "case10 linemap: 5 mapped rows" "5" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
+  # session header text must NOT appear in linemap.
+  local hdr_marker="──"
+  if [[ "$LINEMAP_OUT" != *"$hdr_marker"* ]]; then
+    pass "case10 linemap: NO session header text"
+  else
+    fail "case10 linemap: session header leaked into linemap" "found: $hdr_marker"
   fi
 }
 
-# --- 13. Long labels are capped to their column width so age stays aligned. ---
+# --- 11. Long labels capped; age column aligned across collapse and nested rows. ---
 test_long_labels_do_not_shift_age_column() {
-  local sandbox="$ROOT/case13"
+  local sandbox="$ROOT/case11"
   mkdir -p "$sandbox"
-  local pidA=130001
-  local pidB=130002
-  local pso="$ROOT/ps13.tsv"
-  printf 'OPENCODE\t%s\n' "$pidA" > "$pso"
-  printf 'OPENCODE\t%s\n' "$pidB" >> "$pso"
   local keyA; keyA=$(key_for "/wideA")
   local keyB; keyB=$(key_for "/wideB")
-  cat > "$sandbox/${keyA}-${pidA}.json" <<EOF
-{"repo":"wideA","cwd":"/wideA","session":"sx","pid":${pidA},
- "sessions":{"sA":{"state":"done","reason":null,"ts":100,"task":null,"title":"short-title"}}}
-EOF
-  cat > "$sandbox/${keyB}-${pidB}.json" <<EOF
-{"repo":"wideB","cwd":"/wideB","session":"sx","pid":${pidB},
- "sessions":{"sB":{"state":"done","reason":null,"ts":100,"task":null,"title":"this-title-is-long-enough-to-overflow-the-label-column"}}}
-EOF
-  run_render "$sandbox" "$pso" \
-    $'/wideA\tsx\tterminal_0\t0\n/wideB\tsx\tterminal_1\t0'
-
+  local pidA=130001
+  local pidB=130002
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$keyA" sA /wideA sx done "" $((NOW_MS - 900000)) "short-title" "short-title" false "" wideA $pidA terminal_0 0)" \
+    "$(mk_row v2 "$keyB" sB /wideB sx done "" $((NOW_MS - 900000)) "this-title-is-long-enough-to-overflow-the-label-column" "this-title-is-long-enough-to-overflow-the-label-column" false "" wideB $pidB terminal_1 0)"
+  run_render "$sandbox"
   local short_line long_line short_col long_col
-  short_line=$(line_containing "short-title") || { fail "case13 wide labels: short row found"; return; }
-  long_line=$(line_containing "this-title-is-long") || { fail "case13 wide labels: long row found"; return; }
-  assert_contains "case13 wide labels: context column wider than 22 chars" "$long_line" "this-title-is-long-enough"
+  short_line=$(line_containing "short-title") || { fail "case11 wide labels: short row found"; return; }
+  long_line=$(line_containing "this-title-is-long") || { fail "case11 wide labels: long row found"; return; }
+  assert_contains "case11 wide labels: context column wider than 22 chars" "$long_line" "this-title-is-long-enough"
   short_col=$(time_column_for_line "$short_line")
   long_col=$(time_column_for_line "$long_line")
-  assert_eq "case13 wide labels: age column aligned" "$short_col" "$long_col"
+  assert_eq "case11 wide labels: age column aligned" "$short_col" "$long_col"
 }
 
-# --- 14. Nested rows keep shared columns aligned with non-nested rows. ---
+# --- 12. Nested rows keep shared columns aligned with non-nested rows. ---
 test_nested_rows_keep_columns_aligned() {
-  local sandbox="$ROOT/case14"
+  local sandbox="$ROOT/case12"
   mkdir -p "$sandbox"
-  local pidA=140001
-  local pidB=140002
-  local pso="$ROOT/ps14.tsv"
-  printf 'OPENCODE\t%s\n' "$pidA" > "$pso"
-  printf 'OPENCODE\t%s\n' "$pidB" >> "$pso"
   local keyA; keyA=$(key_for "/single")
   local keyB; keyB=$(key_for "/multi")
-  cat > "$sandbox/${keyA}-${pidA}.json" <<EOF
-{"repo":"single","cwd":"/single","session":"sx","pid":${pidA},
- "sessions":{"sA":{"state":"working","reason":null,"ts":100,"task":null,"title":"single-row"}}}
-EOF
-  cat > "$sandbox/${keyB}-${pidB}.json" <<EOF
-{"repo":"multi","cwd":"/multi","session":"sx","pid":${pidB},
- "sessions":{
-   "sB1":{"state":"working","reason":null,"ts":100,"task":null,"title":"multi-row-1"},
-   "sB2":{"state":"done","reason":null,"ts":100,"task":null,"title":"multi-row-2"}
- }}
-EOF
-  run_render "$sandbox" "$pso" \
-    $'/single\tsx\tterminal_0\t0\n/multi\tsx\tterminal_1\t0'
-
+  local pidA=140001
+  local pidB=140002
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$keyA" sA /single sx working "" $((NOW_MS - 900000)) "single-row" "single-row" false "" single $pidA terminal_0 0)" \
+    "$(mk_row v2 "$keyB" sB1 /multi sx working "" $((NOW_MS - 900000)) "multi-row-1" "multi-row-1" false "" multi $pidB terminal_1 0)" \
+    "$(mk_row v2 "$keyB" sB2 /multi sx done "" $((NOW_MS - 900000)) "multi-row-2" "multi-row-2" false "" multi $pidB terminal_1 0)"
+  run_render "$sandbox"
   local single_line nested_line single_col nested_col
-  single_line=$(line_containing "single-row") || { fail "case14 alignment: single row found"; return; }
-  nested_line=$(line_containing "multi-row-1") || { fail "case14 alignment: nested row found"; return; }
+  single_line=$(line_containing "single-row") || { fail "case12 alignment: single row found"; return; }
+  nested_line=$(line_containing "multi-row-1") || { fail "case12 alignment: nested row found"; return; }
   single_col=$(time_column_for_line "$single_line")
   nested_col=$(time_column_for_line "$nested_line")
-  assert_eq "case14 alignment: nested age column matches single row" "$single_col" "$nested_col"
+  assert_eq "case12 alignment: nested age column matches single row" "$single_col" "$nested_col"
+}
+
+# === CACHE-INPUT ISOLATION TESTS (Task 7's new behavior surface) ===
+
+# --- 13. Missing cache file: empty frame, exits 0, atomic empty linemap. ---
+test_missing_cache_prints_empty_frame() {
+  local sandbox="$ROOT/case_missing"
+  mkdir -p "$sandbox"
+  # No .board-cache.json written.
+  run_render "$sandbox"
+  assert_eq "case13 missing cache: rc=0" "0" "$RC"
+  assert_eq "case13 missing cache: empty stdout" "" "$RENDER_OUT"
+  assert_eq "case13 missing cache: linemap exists" "yes" \
+    "$([ -f "$LINEMAP_PATH" ] && [ ! -s "$LINEMAP_PATH" ] && echo yes || echo no)"
+}
+
+# --- 14. Invalid cache JSON: same as missing — empty frame, empty linemap, exit 0. ---
+test_invalid_cache_prints_empty_frame() {
+  local sandbox="$ROOT/case_invalid"
+  mkdir -p "$sandbox"
+  printf 'this is not json at all {' > "$sandbox/.board-cache.json"
+  run_render "$sandbox"
+  assert_eq "case14 invalid cache: rc=0" "0" "$RC"
+  assert_eq "case14 invalid cache: empty stdout" "" "$RENDER_OUT"
+  assert_eq "case14 invalid cache: linemap empty" "yes" \
+    "$([ -f "$LINEMAP_PATH" ] && [ ! -s "$LINEMAP_PATH" ] && echo yes || echo no)"
+}
+
+# --- 15. Renderer never invokes the model (cache-input contract). ---
+test_renderer_never_invokes_model() {
+  local sandbox="$ROOT/case_nomodel"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/solo")
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" ses_n /solo sx needs-attention permission $((NOW_MS - 300000)) "need perm" "need perm" false 3 solo 10101 terminal_0 0)"
+  # Sentinel model that touches a file if invoked. If the renderer ever
+  # executes it, the sentinel lands and the assertion fails.
+  local sentinel="$ROOT/never_called.sh"
+  cat > "$sentinel" <<EOF
+#!/usr/bin/env bash
+touch "$sandbox/AGENT_FLEET_MODEL_WAS_CALLED"
+exit 0
+EOF
+  chmod +x "$sentinel"
+  RC="$(env AGENT_FLEET_STATE_DIR="$sandbox" AGENT_FLEET_MODEL="$sentinel" bash "$RENDER" 2>/dev/null)"
+  if [ ! -e "$sandbox/AGENT_FLEET_MODEL_WAS_CALLED" ]; then
+    pass "case15 renderer never invokes model (sentinel not touched)"
+  else
+    fail "case15 renderer never invokes model" "sentinel touched; child ran node \$MODEL"
+  fi
+  # Source-level: no `node` invocations in the script body.
+  if grep -E '\bnode\b' "$RENDER" >/dev/null 2>&1; then
+    fail "case15 renderer source has node invocation" "matched: $(grep -nE '\bnode\b' "$RENDER")"
+  else
+    pass "case15 renderer source has no node invocation"
+  fi
+}
+
+# --- 16. Linemap excludes session/group headers and blank separators. ---
+test_linemap_excludes_headers_and_blanks() {
+  local sandbox="$ROOT/case_linemap_filter"
+  mkdir -p "$sandbox"
+  local keyA; keyA=$(key_for "/solo")
+  local keyB; keyB=$(key_for "/multi")
+  local pidB=999
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$keyA" ses_n /solo sxA needs-attention permission $((NOW_MS - 300000)) "need perm" "need perm" false 1 solo 100 terminal_0 0)" \
+    "$(mk_row v2 "$keyB" ses1 /multi sxB working "" $((NOW_MS - 100000)) "m1" "m1" false "" multi $pidB terminal_0 0)" \
+    "$(mk_row v2 "$keyB" ses2 /multi sxB done "" $((NOW_MS - 100000)) "m2" "m2" false "" multi $pidB terminal_0 0)"
+  run_render "$sandbox"
+  # Output should contain TWO session headers, process_header, blank separator, 3 navigable rows.
+  local header_count; header_count=$(grep -c -F $'──' <<<"$RENDER_OUT" || true)
+  if [ "${header_count:-0}" -ge 2 ]; then
+    pass "case16: 2 session headers painted"
+  else
+    fail "case16: 2 session headers painted" "got" "${header_count:-0}"
+  fi
+  # linemap contains exactly 3 navigable rows (keyA collapse, keyB process=NOT, keyB x2 children).
+  assert_eq "case16 linemap: 3 mapped rows" "3" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
+  # No session header text in linemap.
+  if [[ "$LINEMAP_OUT" != *"──"* ]]; then
+    pass "case16 linemap: NO session header text"
+  else
+    fail "case16 linemap: NO session header text" "found ──"
+  fi
+  # No `pid=NNN · repo` row content in linemap.
+  if [[ "$LINEMAP_OUT" != *"pid="* ]]; then
+    pass "case16 linemap: NO process header content"
+  else
+    fail "case16 linemap: NO process header content" "found pid="
+  fi
+}
+
+# --- 17. Linemap rows carry line number + key + sid + cwd fields. ---
+test_linemap_carries_required_fields() {
+  local sandbox="$ROOT/case_linemap_fields"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/solo")
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" ses_n /solo sx needs-attention permission $((NOW_MS - 300000)) "need perm" "need perm" false 1 solo 100 terminal_0 0)"
+  AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
+  # Exactly one mapped row.
+  local mapped_line; mapped_line="$(printf '%s\n' "$LINEMAP_OUT")"
+  # Columns: 4 (line<TAB>key<TAB>sid<TAB>cwd). Assert 4 field count.
+  local field_count; field_count="$(awk -F $'\t' 'NF==4 {n++} END{print n+0}' <<<"$mapped_line")"
+  assert_eq "case17 linemap: 4-column field shape" "1" "$field_count"
+  # Decode the 4 fields and assert contents. Use read -ra: positional read
+  # collapses consecutive empty cells in bash, while array indices mirror
+  # field positions even when cells are empty.
+assert_eq "case17 linemap: line number" "1" "$(linemap_field "$mapped_line" 1)"
+  assert_eq "case17 linemap: key"        "$key" "$(linemap_field "$mapped_line" 2)"
+  assert_eq "case17 linemap: sid"        "ses_n" "$(linemap_field "$mapped_line" 3)"
+  assert_eq "case17 linemap: cwd"        "/solo" "$(linemap_field "$mapped_line" 4)"
+}
+
+# --- 18. Linemap nulls use empty fields (v1 row, warning row). ---
+test_linemap_nulls_use_empty_fields() {
+  local sandbox="$ROOT/case_linemap_nulls"
+  mkdir -p "$sandbox"
+  local keyV; keyV=$(key_for "/legacy")
+  local keyW; keyW=$(key_for "/warn")
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v1 "$keyV" "" /legacy sx done "" $((NOW_MS - 50000)) "" "legacy" false "" legacy "" terminal_0 0)" \
+    "$(mk_row warning "$keyW" "" /warn sx duplicate "duplicate opencode instance" 0 "" "/warn" false "" "/warn" "" terminal_0 0)"
+  AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
+  local mapped_line; mapped_line="$(printf '%s\n' "$LINEMAP_OUT")"
+  assert_eq "case18 linemap: 2 mapped rows" "2" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
+  # Sort puts warnings first (group=0 vs collapse group=2) within a single
+  # session, so warning is line 1 and the v1 collapse row is line 2.
+  local w_line; w_line="$(grep -F -e $'\t/warn' <<<"$mapped_line" | head -n1)"
+  # bash `read w_num w_key w_sid w_cwd` collapses consecutive empty fields
+  # before positional vars; use array read so empty cells stay where they
+  # belong (the array's indices mirror field positions).
+  assert_eq "case18 warning linemap: line=1"    "1" "$(linemap_field "$w_line" 1)"
+  assert_eq "case18 warning linemap: key EMPTY" "" "$(linemap_field "$w_line" 2)"
+  assert_eq "case18 warning linemap: sid EMPTY" "" "$(linemap_field "$w_line" 3)"
+  assert_eq "case18 warning linemap: cwd"       "/warn" "$(linemap_field "$w_line" 4)"
+  # v1 row (line=2, cwd=/legacy, key=$keyV, sid="").
+  local v1_line
+  v1_line="$(grep -F -e $'\t/legacy' <<<"$mapped_line" | head -n1)"
+  assert_eq "case18 v1 linemap: line=2"        "2" "$(linemap_field "$v1_line" 1)"
+  assert_eq "case18 v1 linemap: key set"       "$keyV" "$(linemap_field "$v1_line" 2)"
+  assert_eq "case18 v1 linemap: sid EMPTY"     "" "$(linemap_field "$v1_line" 3)"
+  assert_eq "case18 v1 linemap: cwd"           "/legacy" "$(linemap_field "$v1_line" 4)"
+}
+
+# --- 19. AGENT_FLEET_HIGHLIGHT_LINE wraps only mapped target row in reverse video. ---
+test_highlight_wraps_mapped_target_row() {
+  local sandbox="$ROOT/case_highlight"
+  mkdir -p "$sandbox"
+  local k1; k1=$(key_for "/solo")
+  local k2; k2=$(key_for "/dual")
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$k1" ses_a /solo sxA done "" $((NOW_MS - 5000)) "rowA" "rowA" false 0 solo 100 terminal_0 0)" \
+    "$(mk_row v2 "$k2" ses_b /dual sxB done "" $((NOW_MS - 5000)) "rowB" "rowB" false 0 dual 200 terminal_0 0)"
+  AGENT_FLEET_HIGHLIGHT_LINE="2" run_render "$sandbox"
+  # The second mapped row (line 2) must contain \e[7m ... \e[27m.
+  if [[ "$RENDER_OUT" == *$'\e[7m'* ]] && [[ "$RENDER_OUT" == *$'\e[27m'* ]]; then
+    pass "case19 highlight: reverse-video escapes present"
+  else
+    fail "case19 highlight: reverse-video escapes present" \
+      "want: \\e[7m and \\e[27m" "got escapes not both in output"
+  fi
+  # Assert wrap+reset count is exactly 1 (not 2). Reverse video is a toggle,
+  # so wrap and reset must appear in pairs.
+  local rev_count; rev_count=$(grep -c -F $'\e[7m' <<<"$RENDER_OUT" || true)
+  assert_eq "case19 highlight: exactly 1 reverse-video wrap" "1" "$rev_count"
+  local off_count; off_count=$(grep -c -F $'\e[27m' <<<"$RENDER_OUT" || true)
+  assert_eq "case19 highlight: exactly 1 reverse-video reset" "1" "$off_count"
+}
+
+# --- 20. Unmapped highlight line is no-op (output identical to no-highlight run). ---
+test_unmapped_highlight_line_no_change() {
+  local sandbox="$ROOT/case_highlight_unmapped"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/solo")
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" ses_a /solo sx done "" $((NOW_MS - 5000)) "rowA" "rowA" false 0 solo 100 terminal_0 0)"
+  AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
+  local out_plain="$RENDER_OUT"
+  # HIGHLIGHT_LINE=99 (way past mapped rows) must produce identical output.
+  AGENT_FLEET_NOW_MS="$NOW_MS" AGENT_FLEET_HIGHLIGHT_LINE="99" run_render "$sandbox"
+  assert_eq "case20 unmapped highlight: stdout identical" "$out_plain" "$RENDER_OUT"
+  # HIGHLIGHT_LINE=0 must NOT highlight either (lines start at 1).
+  AGENT_FLEET_NOW_MS="$NOW_MS" AGENT_FLEET_HIGHLIGHT_LINE="0" run_render "$sandbox"
+  assert_eq "case20 zero highlight: stdout identical" "$out_plain" "$RENDER_OUT"
+  # HIGHLIGHT_LINE="abc" (non-numeric) must NOT highlight either.
+  AGENT_FLEET_NOW_MS="$NOW_MS" AGENT_FLEET_HIGHLIGHT_LINE="abc" run_render "$sandbox"
+  assert_eq "case20 non-numeric highlight: stdout identical" "$out_plain" "$RENDER_OUT"
+}
+
+# --- 21. Linemap write is atomic — pre-existing stale map is replaced, not appended. ---
+test_linemap_atomic_replaces_stale() {
+  local sandbox="$ROOT/case_linemap_atomic"
+  mkdir -p "$sandbox"
+  # Pre-write stale garbage to the linemap path so we can verify a fully
+  # replaced file (no leftover bytes from the stale content).
+  printf 'stale-line-1\nstale-line-2\n' > "$sandbox/.board-linemap.tsv"
+  local key; key=$(key_for "/solo")
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" ses_a /solo sx done "" $((NOW_MS - 5000)) "rowA" "rowA" false "" solo 100 terminal_0 0)"
+  run_render "$sandbox"
+  # Stale content must NOT survive.
+  assert_not_contains "case21 linemap: stale 'stale-line-1' purged" "$LINEMAP_OUT" "stale-line-1"
+  assert_not_contains "case21 linemap: stale 'stale-line-2' purged" "$LINEMAP_OUT" "stale-line-2"
+  # Fresh content must ITS fresh row.
+  assert_contains "case21 linemap: fresh row visible" "$LINEMAP_OUT" "/solo"
+  # Length consistency: 1 mapped row.
+  assert_eq "case21 linemap: exactly 1 mapped row" "1" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
 }
 
 # === run all ===
@@ -651,18 +684,25 @@ run_test() {
 
 run_test test_v2_single_session_collapses_one_line
 run_test test_v2_multi_session_nests_under_process
-run_test test_headless_share_live_cwd_renders_warning
-run_test test_pane_count_ambiguity_alone_warns
-run_test test_dead_pid_v2_file_dropped
-run_test test_reused_pid_alive_not_opencode_dropped
+run_test test_duplicate_cwd_renders_warning
+run_test test_no_state_file_synthetic_unknown_row
+run_test test_suppresses_viewed_terminal_never_working
+run_test test_v1_only_legacy_row
 run_test test_v1_v2_super_a_usable_v2_suppresses_v1
 run_test test_v1_v2_super_b_dead_v2_does_not_suppress_v1
-run_test test_suppresses_viewed_terminal_never_working
-run_test test_no_state_file_synthetic_unknown_row
 run_test test_viewed_done_sessions_show_idle_process
 run_test test_multi_cwd_independent_render
 run_test test_long_labels_do_not_shift_age_column
 run_test test_nested_rows_keep_columns_aligned
+run_test test_missing_cache_prints_empty_frame
+run_test test_invalid_cache_prints_empty_frame
+run_test test_renderer_never_invokes_model
+run_test test_linemap_excludes_headers_and_blanks
+run_test test_linemap_carries_required_fields
+run_test test_linemap_nulls_use_empty_fields
+run_test test_highlight_wraps_mapped_target_row
+run_test test_unmapped_highlight_line_no_change
+run_test test_linemap_atomic_replaces_stale
 
 echo
 echo "---"
