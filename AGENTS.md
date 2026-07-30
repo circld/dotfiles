@@ -22,3 +22,8 @@ Nix + Home Manager dotfiles for macOS (no flake, no CI). Cloned at `~/dotfiles`.
 - **Do not add info about secret provisioning here**
 - `OPENCODE_DISABLE_CHANNEL_DB=1` is set by HM to force a single opencode DB regardless of install method.
 - Git work account is activated by a `gitdir:~/work/` conditional include; credential helper uses `gh auth token`, not the system keychain.
+
+## agent-fleet debugging
+
+- `AGENT_FLEET_TRACE_DIR=<dir>` gates per-press tracing: jump/traverse write `<dir>/<AF_REQUEST_ID>/` (model.json, model-trace.json, oracle.json|action.json, stack-pre/post.json, decision.txt, landing.log, landing-windows.json, landing-verify.json); the sensor appends `<dir>/consume.jsonl`. `AF_REQUEST_ID` (`<now_ms>-<script-pid>`) is stamped in the DECISION line, `.select` mailbox, and stack `writer` field. Scripts inherit env from the zellij server, not your shell — to trace in prod, set the var via `modules/packages/zellij.nix` session env (needs `home-manager switch`) or wrap the keybind command.
+- A fixed `AF_REQUEST_ID` reuses ONE directory: per-press files (model.json, decision.txt, …) overwrite on every press; only `consume.jsonl` appends. Let it auto-generate unless you are correlating a single replayed press.
