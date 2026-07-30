@@ -361,7 +361,7 @@ af_landing_verify() {
   sleep 0.2   # ponytail: settle so is_focused reflects the post-switch state
               # (same 0.2s as act_focus_window); trace-only, best-effort anyway.
   local out
-  out="$(zellij --session "$sess" action list-panes --json --all)"
+  out="$(zellij --session "$sess" action list-panes --json --all)" || true
   printf '%s' "$out" | jq -c --arg pane "$pane" '
     (if type == "array" then . else [] end)
     | map(select(("terminal_\(.id)") == $pane))
