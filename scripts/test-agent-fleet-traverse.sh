@@ -152,7 +152,7 @@ write_v2() {
   # before being concatenated into the pairs array — state and reason strings are
   # passed through jq so any punctuation (including backslash and double quote) is
   # JSON-quoted automatically.
-local pairs="[" first=1
+  local pairs="[" first=1
   while [ $# -ge 4 ]; do
     local sid="$1" state="$2" ts="$3" reason="$4"; shift 4
     [ "$first" = "1" ] && first=0 || pairs+=","
@@ -804,7 +804,16 @@ EOF
   if [ "${TRAV_RC:-0}" -ne 0 ]; then pass "model-failure: rc nonzero (script aborted pre-mutation)"
   else fail "model-failure: rc zero (model failure should abort)" "rc=$TRAV_RC"; fi
   assert_file_absent "model-failure: no traverse-stack.json written" "$sandbox/traverse-stack.json"
-  assert_file_absent "model-failure: no .select mailbox written" "$sandbox/*.select"
+  # Enumerate glob BEFORE asserting: a quoted glob in assert_file_absent would
+  # match a literal `*.select` filename and pass vacuously.
+  local -a mailboxes_found
+  mapfile -t mailboxes_found < <(compgen -G "$sandbox/*.select" 2>/dev/null)
+  if [ "${#mailboxes_found[@]}" -eq 0 ]; then
+    pass "model-failure: no .select mailbox written"
+  else
+    fail "model-failure: .select mailbox leaked despite model abort" \
+      "found: ${mailboxes_found[*]}"
+  fi
 }
 
 # === Stack-write failure: chflags uchg the stack file, but the press still
