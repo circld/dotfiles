@@ -22,9 +22,12 @@ function sha1(s) {
 
 function psTree() {
   const ov = process.env.AGENT_FLEET_PS_TREE_OVERRIDE;
-  const out = ov
-    ? readFileSync(ov, 'utf8')
-    : spawnSync('ps', ['-axo', 'pid=,ppid=,comm='], { encoding: 'utf8' }).stdout ?? '';
+  let out = '';
+  if (ov) {
+    try { out = readFileSync(ov, 'utf8'); } catch {}
+  } else {
+    out = spawnSync('ps', ['-axo', 'pid=,ppid=,comm='], { encoding: 'utf8' }).stdout ?? '';
+  }
   const byPid = new Map();
   for (const line of out.split('\n')) {
     const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
@@ -47,9 +50,12 @@ function zellijDescendant(pid, tree) {
 
 function cwdMatches(pid, cwd) {
   const ov = process.env.AGENT_FLEET_LSOF_OVERRIDE;
-  const out = ov
-    ? readFileSync(ov, 'utf8')
-    : spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout ?? '';
+  let out = '';
+  if (ov) {
+    try { out = readFileSync(ov, 'utf8'); } catch {}
+  } else {
+    out = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout ?? '';
+  }
   const n = out.split('\n').find((line) => line.startsWith('n'));
   return n != null && n.slice(1) === cwd;
 }
@@ -147,8 +153,10 @@ function readUsableState(live) {
     let raw = null;
     try { raw = readFileSync(file, 'utf8'); } catch {}
     const rec = { name, mtimeMs: null, size: null, sha1: null, pid: null, verdict: 'rejected', reason: null };
-    try { const st = statSync(file); rec.mtimeMs = st.mtimeMs; rec.size = st.size; } catch {}
-    if (raw != null) rec.sha1 = sha1(raw);
+    if (TRACING) {
+      try { const st = statSync(file); rec.mtimeMs = st.mtimeMs; rec.size = st.size; } catch {}
+      if (raw != null) rec.sha1 = sha1(raw);
+    }
     let obj = null;
     try { obj = JSON.parse(raw ?? ''); } catch { rec.reason = 'parse-fail'; }
     if (rec.reason == null) {

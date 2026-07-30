@@ -580,6 +580,31 @@ EOF
   assert_eq "mt: cwd match" "true" "$(jq -r '.identity[] | select(.pid == 1001) | .cwdMatch' "$side")"
 }
 
+# --- broken trace overrides degrade without breaking model ---
+test_model_trace_broken_overrides() {
+  local sandbox="$ROOT/state-mt-broken"; mkdir -p "$sandbox"
+  local pso="$ROOT/pso-mt-broken"; printf 'OPENCODE\t1001\n' > "$pso"
+  local key; key=$(key_for "/repoA")
+  cat > "$sandbox/${key}-1001.json" <<'EOF'
+{"repo":"a","cwd":"/repoA","session":"sx","pid":1001,"sessions":{"s1":{"state":"done","reason":null,"ts":100,"task":null,"title":"A1"}}}
+EOF
+  local trace="$ROOT/trace-mt-broken"
+  local pane_file="$ROOT/panes-mt-broken.tsv"; printf '/repoA\tsx\tterminal_1\t0\n' > "$pane_file"
+  set +e
+  env AGENT_FLEET_STATE_DIR="$sandbox" \
+    AGENT_FLEET_LIVE_PANES_OVERRIDE="$pane_file" AGENT_FLEET_PS_OVERRIDE="$pso" \
+    AGENT_FLEET_PS_TREE_OVERRIDE="$ROOT/missing-pstree" AGENT_FLEET_LSOF_OVERRIDE="$ROOT/missing-lsof" \
+    AGENT_FLEET_TRACE_DIR="$trace" AF_REQUEST_ID="mt-broken" node "$MODEL" >/dev/null
+  local rc=$?
+  set -e
+  assert_eq "mt broken: model exits 0" "0" "$rc"
+  local side="$trace/mt-broken/model-trace.json"
+  assert_eq "mt broken: sidecar exists" "yes" "$([ -f "$side" ] && echo yes || echo no)"
+  assert_eq "mt broken: identity recorded" "1" "$(jq '[.identity[] | select(.pid == 1001)] | length' "$side")"
+  assert_eq "mt broken: zellij false" "false" "$(jq -r '.identity[] | select(.pid == 1001) | .zellijDescendant' "$side")"
+  assert_eq "mt broken: cwd false" "false" "$(jq -r '.identity[] | select(.pid == 1001) | .cwdMatch' "$side")"
+}
+
 test_model_classifies_once
 test_instances_shape
 test_seeded_unknown_rows_hidden_from_board
@@ -596,6 +621,7 @@ test_timeline_viewed_missing_file_handles
 test_timeline_inherits_dead_pid_sibling
 test_timeline_ignores_meta_files
 test_model_trace_sidecar
+test_model_trace_broken_overrides
 
 echo "---"
 echo "PASS: $PASS  FAIL: $FAIL"
