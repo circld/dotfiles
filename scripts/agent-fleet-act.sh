@@ -58,6 +58,14 @@ stack_write() {
   if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" = "1" ]; then
     return 0
   fi
+  if [ -n "${AF_REQUEST_ID:-}" ]; then
+    local stamped
+    if stamped="$(jq -c --arg w "$AF_REQUEST_ID" '.writer=$w' <<<"$stack_json" 2>/dev/null)"; then
+      stack_json="$stamped"
+    else
+      echo "agent-fleet-act: stack_write: writer stamp failed; continuing unstamped" >&2
+    fi
+  fi
   if [ -n "${AGENT_FLEET_TRACE_DIR:-}" ] && [ -n "${AF_REQUEST_ID:-}" ]; then
     printf '%s\n' "$stack_json" | af_trace stack-post.json
   fi
@@ -164,7 +172,7 @@ atomic_write_select() {
   if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" = "1" ]; then
     return 0
   fi
-  local target="$1" sid="$2" mark_only="${3:-false}"
+  local target="$1" sid="$2" mark_only="${3:-false}" request_id="${4:-${AF_REQUEST_ID:-}}"
   local mo_flag=0
   if [ "$mark_only" = "true" ] || [ "$mark_only" = "1" ]; then
     mo_flag=1
@@ -174,8 +182,10 @@ atomic_write_select() {
     echo "agent-fleet-act: atomic_write_select: tmpfile creation failed for $target" >&2
     return 0
   fi
-  if ! jq -n --arg sid "$sid" --argjson mo "$mo_flag" \
-       'if $mo == 1 then {sessionID: $sid, markOnly: true} else {sessionID: $sid} end' \
+  if ! jq -n --arg sid "$sid" --argjson mo "$mo_flag" --arg rid "$request_id" \
+       '({sessionID: $sid}
+         + (if $mo == 1 then {markOnly: true} else {} end)
+         + (if $rid != "" then {requestId: $rid} else {} end))' \
        > "$tmp" 2>/dev/null; then
     echo "agent-fleet-act: atomic_write_select: failed to build body for $target" >&2
     rm -f "$tmp" 2>/dev/null || true

@@ -94,6 +94,7 @@ run_trav() {
   local mode="$1" sandbox="$2" pso="$3" live="$4" cmd="$5" now_ms="$6"
   local pre_stack="${7:-}"
   local source_session="${8:-}"
+  local request_id="${9:-}"
   local pane_file="$ROOT/pane-${RANDOM}.tsv"
   printf '%s\n' "$live" > "$pane_file"
   # If pre_stack explicitly passed (non-empty), write it. Otherwise, leave the
@@ -112,6 +113,7 @@ run_trav() {
   )
   [ -n "$pso" ] && env_args+=( "AGENT_FLEET_PS_OVERRIDE=$pso" )
   [ -n "$now_ms" ] && env_args+=( "AGENT_FLEET_NOW_MS=$now_ms" )
+  [ -n "$request_id" ] && env_args+=( "AF_REQUEST_ID=$request_id" )
   case "$mode" in
     decide-only) env_args+=( "AGENT_FLEET_DECIDE_ONLY=1" ) ;;
     decide-act)  env_args+=( "AGENT_FLEET_DECIDE_ACT=1" ) ;;
@@ -1030,6 +1032,25 @@ test_reconcile_prefers_physical_source_session() {
   assert_stack_eq "physrc next#2: current=A, back=[B], forward=[]" \
     "{\"v\":1,\"current\":{\"sid\":\"A\",\"ts\":${now_ms}},\"back\":[\"B\"],\"forward\":[]}" \
     "$sandbox/traverse-stack.json"
+}
+
+# --- request correlation: mailbox + stack carry requestId ---
+{
+  sandbox="$ROOT/state-trace2"; mkdir -p "$sandbox"
+  pso="$ROOT/pso-trace2"; printf 'OPENCODE\t1001\n' > "$pso"
+  keyA="$(key_for /projA)"
+  cat > "$sandbox/${keyA}-1001.json" <<'EOF'
+{"repo":"a","cwd":"/projA","session":"sx","pid":1001,"sessions":{"s1":{"state":"done","reason":null,"ts":100,"task":null,"title":"A1"}}}
+EOF
+  pane_file="$ROOT/pane-trace2.tsv"
+  printf '/projA\tsx\tterminal_1\t0\n' > "$pane_file"
+  pre_stack='{"v":1,"current":{"sid":"old","ts":100},"back":["s1"],"forward":[]}'
+  run_trav "decide-act" "$sandbox" "$pso" \
+    $'/projA\tsx\tterminal_1\t0' "prev" "2000000000500" "$pre_stack" "" "t2-req"
+  assert_eq "trace2: mailbox requestId" "t2-req" \
+    "$(jq -r '.requestId // "MISSING"' "$sandbox/${keyA}-1001.select" 2>/dev/null)"
+  assert_eq "trace2: stack writer" "t2-req" \
+    "$(jq -r '.writer // "MISSING"' "$sandbox/traverse-stack.json" 2>/dev/null)"
 }
 
 # === run all tests ===

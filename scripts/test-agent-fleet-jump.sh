@@ -1627,6 +1627,29 @@ EOF
   assert_contains "trace1: decision carries req" "$(cat "$trace/t1-req/decision.txt" 2>/dev/null)" "req=t1-req"
 }
 
+# --- request correlation: mailbox + stack carry requestId ---
+{
+  sandbox="$ROOT/state-trace2"; mkdir -p "$sandbox"
+  pso="$ROOT/pso-trace2"; printf 'OPENCODE\t1001\n' > "$pso"
+  keyA="$(printf '%s' /projA | shasum -a 256 | cut -c1-16)"
+  cat > "$sandbox/${keyA}-1001.json" <<'EOF'
+{"repo":"a","cwd":"/projA","session":"sx","pid":1001,"sessions":{"s1":{"state":"done","reason":null,"ts":100,"task":null,"title":"A1"}}}
+EOF
+  pane_file="$ROOT/pane-trace2.tsv"
+  printf '/projA\tsx\tterminal_1\t0\n' > "$pane_file"
+  env \
+    AGENT_FLEET_LIVE_PANES_OVERRIDE="$pane_file" \
+    AGENT_FLEET_STATE_DIR="$sandbox" \
+    AGENT_FLEET_PS_OVERRIDE="$pso" \
+    AGENT_FLEET_DECIDE_SELECT=1 \
+    AF_REQUEST_ID="t2-req" \
+    bash "$JUMP" "" >/dev/null 2>&1
+  assert_eq "trace2: mailbox requestId" "t2-req" \
+    "$(jq -r '.requestId // "MISSING"' "$sandbox/${keyA}-1001.select" 2>/dev/null)"
+  assert_eq "trace2: stack writer" "t2-req" \
+    "$(jq -r '.writer // "MISSING"' "$sandbox/traverse-stack.json" 2>/dev/null)"
+}
+
 # === run all tests ===
 run_test() {
   local fn="$1"
