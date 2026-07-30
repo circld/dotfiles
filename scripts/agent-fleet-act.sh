@@ -191,6 +191,16 @@ atomic_write_select() {
 # Usage: act_land <key> <sid> <session> <pane> <tab>
 # Writes mailbox <STATE_DIR>/<key>.select when BOTH key and sid are non-empty
 # (focus-only / fallback-pane callers pass empty key, so no mailbox).
+# Focus-tail routing by presser session ($ZELLIJ_SESSION_NAME):
+#   1. presser == target            → in-context go-to-tab + focus-pane (Alt-y same-session)
+#   2. presser == notes (board path) — never move the notes client (workspace 5):
+#      a. target has a client       → zellij --session <target> go-to-tab + focus-pane
+#      b. target clientless         → first non-notes session with a client ("home")
+#                                     runs switch-session --pane-id <pane> <target>
+#      c. no home client at all     → plain switch-session from notes (last resort)
+#   3. otherwise                    → in-context switch-session (Alt-y cross-session)
+# Client probe: client rows start with a numeric CLIENT_ID; exited/missing
+# sessions dump "not found" text (never digit-leading) on stdout with rc=0.
 act_land() {
   local key="$1" sid="$2" sess="$3" pane="$4" tab="$5"
   if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" = "1" ]; then
@@ -205,9 +215,30 @@ act_land() {
   fi
   aerospace workspace 1 || true
   if [ -n "$sess" ] && [ -n "$pane" ]; then
-    if [ "$sess" = "${ZELLIJ_SESSION_NAME:-}" ]; then
+    local presser="${ZELLIJ_SESSION_NAME:-}"
+    if [ "$sess" = "$presser" ]; then
       zellij action go-to-tab-by-id "$tab" || true
       zellij action focus-pane-id "$pane" || true
+    elif [ "$presser" = "notes" ]; then
+      if zellij --session "$sess" action list-clients 2>/dev/null | grep -qE '^[0-9]+[[:space:]]'; then
+        zellij --session "$sess" action go-to-tab-by-id "$tab" || true
+        zellij --session "$sess" action focus-pane-id "$pane" || true
+      else
+        # ponytail: first-match home heuristic; refine if 2 agent windows ever run
+        local home="" s
+        while IFS= read -r s; do
+          [ -n "$home" ] && break
+          [ "$s" = "notes" ] && continue
+          if zellij --session "$s" action list-clients 2>/dev/null | grep -qE '^[0-9]+[[:space:]]'; then
+            home="$s"
+          fi
+        done < <(zellij list-sessions -s -n 2>/dev/null)
+        if [ -n "$home" ]; then
+          zellij --session "$home" action switch-session --pane-id "$pane" "$sess" || true
+        else
+          zellij action switch-session --pane-id "$pane" "$sess" || true
+        fi
+      fi
     else
       zellij action switch-session --pane-id "$pane" "$sess" || true
     fi

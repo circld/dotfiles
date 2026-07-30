@@ -120,9 +120,14 @@ run_jump() {
   JUMP_STDERR="$(cat "$tmp_err")"
 }
 
-test_notes_session_switches_to_remote_agent() {
-  local sandbox="$ROOT/notes-session"
-  local fake_bin="$sandbox/bin"
+# === act_land focus-tail routing (board Enter / Alt-y) ===
+# Fake zellij: logs every invocation (one line, "$*"), answers list-clients
+# from $AGENT_FLEET_TEST_FAKE_DIR/clients-<session>.txt (absent = no clients,
+# header only — mirrors an active-but-unattended session; the real binary's
+# not-found dump never produces digit-leading rows either) and list-sessions
+# from sessions.txt. Routing assertions then read the log.
+write_zellij_fake() {
+  local fake_bin="$1"
   mkdir -p "$fake_bin"
   cat > "$fake_bin/aerospace" <<'EOF'
 #!/usr/bin/env bash
@@ -131,22 +136,81 @@ EOF
   cat > "$fake_bin/zellij" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$AGENT_FLEET_TEST_ZELLIJ_LOG"
+session=""
+if [ "${1:-}" = "--session" ]; then session="$2"; shift 2; fi
+case "${1:-}" in
+  list-sessions)
+    cat "$AGENT_FLEET_TEST_FAKE_DIR/sessions.txt" ;;
+  action)
+    if [ "${2:-}" = "list-clients" ]; then
+      printf 'CLIENT_ID ZELLIJ_PANE_ID RUNNING_COMMAND\n'
+      cat "$AGENT_FLEET_TEST_FAKE_DIR/clients-$session.txt" 2>/dev/null || true
+    fi ;;
+esac
+exit 0
 EOF
   chmod +x "$fake_bin/aerospace" "$fake_bin/zellij"
+}
+
+# $1 = sandbox (also fake dir), $2 = presser session, $3..$7 = act_land args
+run_act_land() {
+  local sandbox="$1" presser="$2"; shift 2
   STATE_DIR="$sandbox" \
     AGENT_FLEET_STATE_DIR="$sandbox" \
     AGENT_FLEET_TEST_ZELLIJ_LOG="$sandbox/zellij.log" \
-    PATH="$fake_bin:$PATH" \
-    ZELLIJ_SESSION_NAME=notes \
-    bash -c '. "$1"; act_land key sid agent-session terminal_1 3' _ \
-    "$REPO_ROOT/scripts/agent-fleet-act.sh"
-  assert_file_exists "notes session: mailbox still written" "$sandbox/key.select"
-  # Board Enter runs from the notes session; the landing must switch the
-  # client to the target session+pane (regression: a "home base" guard
-  # early-returned before the switch, so board jumps went nowhere).
+    AGENT_FLEET_TEST_FAKE_DIR="$sandbox" \
+    PATH="$sandbox/bin:$PATH" \
+    ZELLIJ_SESSION_NAME="$presser" \
+    bash -c '. "$1"; shift; act_land "$@"' _ \
+    "$REPO_ROOT/scripts/agent-fleet-act.sh" "$@"
+}
+
+# 2a: notes presser, target has a client → drive target client by --session.
+test_board_notes_presser_target_with_client() {
+  local sandbox="$ROOT/notes-2a"
+  write_zellij_fake "$sandbox/bin"
+  printf 'notes\nagent-session\n' > "$sandbox/sessions.txt"
+  printf '1\tterminal_0\topencode\n' > "$sandbox/clients-agent-session.txt"
+  run_act_land "$sandbox" notes key sid agent-session terminal_1 3
+  assert_file_exists "2a: mailbox still written" "$sandbox/key.select"
   local zlog; zlog="$(cat "$sandbox/zellij.log" 2>/dev/null || true)"
-  assert_eq "notes session: switches to remote session+pane" \
-    "action switch-session --pane-id terminal_1 agent-session" "$zlog"
+  assert_contains "2a: tab routed to target session's client" \
+    "$zlog" "--session agent-session action go-to-tab-by-id 3"
+  assert_contains "2a: pane routed to target session's client" \
+    "$zlog" "--session agent-session action focus-pane-id terminal_1"
+  assert_not_contains "2a: notes client never switch-sessions" \
+    "$zlog" "switch-session"
+}
+
+# 2b: notes presser, target clientless → first non-notes session with a
+# client (home) switches to the target.
+test_board_notes_presser_target_without_client_borrows_home() {
+  local sandbox="$ROOT/notes-2b"
+  write_zellij_fake "$sandbox/bin"
+  printf 'agent-session\nnotes\nhomebase\n' > "$sandbox/sessions.txt"
+  printf '1\tterminal_0\topencode\n' > "$sandbox/clients-homebase.txt"
+  run_act_land "$sandbox" notes key sid agent-session terminal_1 3
+  assert_file_exists "2b: mailbox still written" "$sandbox/key.select"
+  local zlog; zlog="$(cat "$sandbox/zellij.log" 2>/dev/null || true)"
+  assert_contains "2b: home client switches to target session+pane" \
+    "$zlog" "--session homebase action switch-session --pane-id terminal_1 agent-session"
+  assert_not_contains "2b: clientless target never driven directly" \
+    "$zlog" "--session agent-session action go-to-tab-by-id"
+}
+
+# 2c: notes presser, no home client anywhere → last resort moves the notes
+# client (pre-guard behavior).
+test_board_notes_presser_no_home_falls_back_to_notes() {
+  local sandbox="$ROOT/notes-2c"
+  write_zellij_fake "$sandbox/bin"
+  printf 'notes\nagent-session\n' > "$sandbox/sessions.txt"
+  run_act_land "$sandbox" notes key sid agent-session terminal_1 3
+  assert_file_exists "2c: mailbox still written" "$sandbox/key.select"
+  local n
+  n="$(grep -cFx 'action switch-session --pane-id terminal_1 agent-session' \
+    "$sandbox/zellij.log" 2>/dev/null || true)"
+  assert_eq "2c: in-context switch-session from notes (no --session routing)" \
+    "1" "$n"
 }
 
 # === test cases ===
@@ -1515,7 +1579,9 @@ run_test test_71_bad_ts_type_canonical_empty
 run_test test_72_nonstring_back_entry_canonical_empty
 run_test test_73_mailbox_write_failure_continues
 run_test test_74_mktemp_failure_continues
-run_test test_notes_session_switches_to_remote_agent
+run_test test_board_notes_presser_target_with_client
+run_test test_board_notes_presser_target_without_client_borrows_home
+run_test test_board_notes_presser_no_home_falls_back_to_notes
 
 # Print accumulated log
 cat "$ROOT/log"
