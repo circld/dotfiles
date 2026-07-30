@@ -54,7 +54,7 @@ stack_read() {
 # === stack_write: atomic tmp+rename; DECIDE_ONLY no-op; warn-and-return-0 on failure. ===
 # Caller passes JSON. Failure is non-fatal: caller continues to landing.
 stack_write() {
-  local stack_json="$1"
+  local stack_json="${1:-}"
   if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" = "1" ]; then
     return 0
   fi
