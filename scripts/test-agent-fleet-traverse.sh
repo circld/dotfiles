@@ -139,34 +139,45 @@ write_viewed() {
   printf '%s\n' "$body" > "$sandbox/${key}-${pid}.viewed.json"
 }
 
-# write_v2: emit a v2 state file with sessions map + optional selectedSid/ts
-# + optional viewed marks via write_viewed per call.
+# write_v2: emit a v2 state file (sandboxed). Built with jq -n --arg / --argjson so
+# sids containing "/" or "\" or """ round-trip safely through JSON quoting (heredoc
+# string-interpolation cannot represent those characters without breaking the JSON).
+# Args: sandbox key pid cwd session selectedSid|"null" selectedTs|"null"  then
+# pairs of (sid state ts reason|"null").
 write_v2() {
-  local sandbox="$1" key="$2" pid="$3" cwd="$4" session="$5" selectedSid="$6" selectedTs="$7"; shift 7
-  # remaining args: pairs of (sid state ts reason)
-  local sid state ts reason entry_json sessions_json="{"
-  local first=1
+  local sandbox="$1" key="$2" pid="$3" cwd="$4" session="$5"
+  local selectedSid="$6" selectedTs="$7"; shift 7
+  local repo="$cwd"; repo="${repo##*/}"
+  # Build sessions map via a single jq -n invocation. Each row is JSON-encoded
+  # before being concatenated into the pairs array — state and reason strings are
+  # passed through jq so any punctuation (including backslash and double quote) is
+  # JSON-quoted automatically.
+local pairs="[" first=1
   while [ $# -ge 4 ]; do
-    sid="$1"; state="$2"; ts="$3"; reason="$4"; shift 4
-    [ "$first" = "1" ] && first=0 || sessions_json+=","
-    sessions_json+="\"${sid}\":{\"state\":\"${state}\",\"reason\":"
-    case "$reason" in
-      null) sessions_json+="null" ;;
-      *)    sessions_json+="\"${reason}\"" ;;
-    esac
-    sessions_json+=",\"ts\":${ts},\"task\":null,\"title\":\"${sid}_t\"}"
+    local sid="$1" state="$2" ts="$3" reason="$4"; shift 4
+    [ "$first" = "1" ] && first=0 || pairs+=","
+    local entry_json
+    entry_json="$(jq -n \
+        --arg sid "$sid" \
+        --arg state "$state" \
+        --argjson ts "$ts" \
+        --argjson reason "$(jq -n --arg r "$reason" 'if $r == "null" then null else $r end')" \
+        '{sid:$sid,state:$state,ts:$ts,reason:$reason,title:($sid + "_t"),task:null}')"
+    pairs+="$entry_json"
   done
-  sessions_json+="}"
-  local sel_sid="null" sel_ts="null"
-  if [ "$selectedSid" != "null" ]; then
-    sel_sid="\"${selectedSid}\""
-    sel_ts="${selectedTs}"
+  pairs+="]"
+  if [ "$selectedSid" = "null" ]; then
+    jq -n --arg cwd "$cwd" --arg session "$session" --argjson pid "$pid" \
+          --arg repo "$repo" --argjson sessions "$pairs" \
+          '{repo:$repo,cwd:$cwd,session:$session,pid:$pid,selectedSid:null,selectedTs:null,sessions:([$sessions[] | . as $e | {($e.sid): ($e | del(.sid, .title, .task))}] | add // {})}' \
+      > "$sandbox/${key}-${pid}.json"
+  else
+    jq -n --arg cwd "$cwd" --arg session "$session" --argjson pid "$pid" \
+          --arg repo "$repo" --arg selectedSid "$selectedSid" --argjson selectedTs "$selectedTs" \
+          --argjson sessions "$pairs" \
+          '{repo:$repo,cwd:$cwd,session:$session,pid:$pid,selectedSid:$selectedSid,selectedTs:$selectedTs,sessions:([$sessions[] | . as $e | {($e.sid): ($e | del(.sid, .title, .task))}] | add // {})}' \
+      > "$sandbox/${key}-${pid}.json"
   fi
-  cat > "${sandbox}/${key}-${pid}.json" <<EOF
-{"repo":"${cwd##*/}","cwd":"${cwd}","session":"${session}","pid":${pid},
- "selectedSid":${sel_sid},"selectedTs":${sel_ts},
- "sessions":${sessions_json}}
-EOF
 }
 
 # === DESIGN ACCEPTANCE: Scenario 1 ===
@@ -640,6 +651,73 @@ test_decide_only_no_side_effects() {
     "$pre_stack" "$sandbox/traverse-stack.json"
 }
 
+# === DECIDE_ONLY against a NONEXISTENT state dir ===
+# Prove: no mkdir, no file write. Pre-run rm -rf removes any prior dir. The
+# harness's `run_trav` sets env vars but the script must NOT create the dir
+# under DECIDE_ONLY. Pre-existing traverse-stack.json is also absent so we can
+# assert the script did not synthesize one (it would need stack_write).
+test_decide_only_no_state_dir_no_side_effects() {
+  local sandbox="$ROOT/decideonly_absent"
+  rm -rf "$sandbox"
+  # $sandbox must NOT exist on entry — script under DECIDE_ONLY must not create it.
+  # Build stack target + live-pane fixture + ps override in TMP_DIR (NOT state dir).
+  local pso="$ROOT/ps_dabsent.tsv"
+  printf 'OPENCODE\t23001\n' > "$pso"
+  # Build a state file via env that the script could read — but since we want
+  # zero side-effects under DECIDE_ONLY, run a script-internal sandbox via
+  # AGENT_FLEET_STATE_DIR but ONLY on a tmpfs path we know to be absent.
+  # Empty-live guard fires first (no live pane), exits 1 BEFORE any stack read →
+  # also exercises the empty-live guard under DECIDE_ONLY (it should also be
+  # suppressed).
+  TRAV_RC=0
+  TRAV_STDOUT="$(
+    env \
+      AGENT_FLEET_DECIDE_ONLY=1 \
+      AGENT_FLEET_STATE_DIR="$sandbox" \
+      AGENT_FLEET_LIVE_PANES_OVERRIDE="$ROOT/pane-${RANDOM}.tsv" \
+      AGENT_FLEET_PS_OVERRIDE="$pso" \
+      AGENT_FLEET_MESSAGE_DELAY=0 \
+      AGENT_FLEET_NOW_MS=2000000000500 \
+      AGENT_FLEET_MODEL="$SCRIPT_DIR/agent-fleet-model.mjs" \
+      bash "$TRAVERSE" "next" 2>"$ROOT/err_dabsent.txt")" || TRAV_RC=$?
+  TRAV_STDERR="$(cat "$ROOT/err_dabsent.txt")"
+  assert_eq "decide-only no-state-dir exits 1 (empty-live guard)" "1" "$TRAV_RC"
+  # The state-dir dir must not have been created by the script.
+  assert_eq "decide-only: state dir NOT created (mkdir guarded)" "" \
+    "$(test -d "$sandbox" && echo 'exists' || echo '')"
+}
+
+# === DECIDE_ONLY at-end case: no landable target, no stack mutation ===
+test_decide_only_at_end_no_side_effects() {
+  local sandbox="$ROOT/decideonly_atend"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/decideonly_atend")
+  local pid=24001
+  local pso="$ROOT/ps_dt_atend.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  # current=Z (matches P=Z ⇒ reconcile no-op); back all dead ⇒ at-end.
+  write_v2 "$sandbox" "$key" "$pid" "/decideonly_atend" "sxS" "Z" 2000000000000 \
+    "Z" "done" 100 null
+  local now_ms=2000000000500
+  local pre_stack='{"v":1,"current":{"sid":"Z","ts":1990000000000},"back":["dead1","dead2"],"forward":[]}'
+  # Snapshot mtime pre-press so we can assert no rewrite.
+  local pre_mtime
+  printf '%s\n' "$pre_stack" > "$sandbox/traverse-stack.json"
+  # Use date -r (portable BSD/GNU) for mtime in epoch seconds.
+  pre_mtime="$(date -r "$sandbox/traverse-stack.json" +%s 2>/dev/null || echo 0)"
+  run_trav "decide-only" "$sandbox" "$pso" \
+    $'/decideonly_atend\tsxS\tterminal_0\t0' "prev" "$now_ms" "" # don't overwrite pre_stack
+  assert_eq "decide-only at-end: at-end decision emitted" \
+    "DECISION:kind=at-end" "$TRAV_STDOUT"
+  assert_file_absent "decide-only at-end: NO .select written" "$sandbox/${key}-${pid}.select"
+  # Stack file unchanged (no mtime reset, no content rewrite).
+  local post_mtime
+  post_mtime="$(date -r "$sandbox/traverse-stack.json" +%s 2>/dev/null || echo 0)"
+  assert_eq "decide-only at-end: stack file mtime unchanged" "$pre_mtime" "$post_mtime"
+  assert_stack_eq "decide-only at-end: stack file content unchanged" \
+    "$pre_stack" "$sandbox/traverse-stack.json"
+}
+
 # === DECIDE_ACT writes stack + mailbox but does NOT call focus tools ===
 # (we cannot directly observe aerospace/zellij absence without side-effects;
 # but the parent's DECIDE_ACT guard skips the tail — we trust the inherited
@@ -666,6 +744,178 @@ test_decide_act_writes_stack_and_mailbox() {
   assert_stack_eq "decide-act: stack matches reconcile+new-nav shape (reconcile no-op: P=Z == current=Z; alt- lands T with new-nav push of Z onto back)" \
     "{\"v\":1,\"current\":{\"sid\":\"T\",\"ts\":${now_ms}},\"back\":[\"old\",\"Z\"],\"forward\":[]}" \
     "$sandbox/traverse-stack.json"
+}
+
+# === All-dead forward stack + clean pending[0] → land via pending (new nav) ===
+# Pending[0]=A (rank=1, oldest ts after dead-prune consumed forward entries).
+# Forward has [dead1, dead2]; alt-] prunes both, falls to pending → land A.
+test_forward_all_dead_falls_to_pending() {
+  local sandbox="$ROOT/fw_dead"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/fw_dead")
+  local pid=25001
+  local pso="$ROOT/ps_fw_dead.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  write_v2 "$sandbox" "$key" "$pid" "/fw_dead" "sxS" "Z" 2000000000000 \
+    "Z" "done"            500 null \
+    "A" "needs-attention"  10 null
+  local now_ms=2000000000500
+  # current=Z (matches P=Z ⇒ reconcile no-op). Forward has only dead sids.
+  local pre_stack='{"v":1,"current":{"sid":"Z","ts":1990000000000},"back":[],"forward":["dead1","dead2"]}'
+  run_trav "decide-act" "$sandbox" "$pso" \
+    $'/fw_dead\tsxS\tterminal_0\t0' "next" "$now_ms" "$pre_stack"
+  assert_eq "forward-all-dead next: lands pending[0]=A (forward dry, dead pruned, fall to pending)" \
+    "DECISION:kind=select cwd=/fw_dead session=sxS pane=terminal_0 tab_id=0 key=${key}-${pid} sid=A" \
+    "$TRAV_STDOUT"
+  # Forward cleared (new-nav), Z (old current) pushed MRU onto back.
+  assert_stack_eq "forward-all-dead: stack matches forward-empty + new-nav shape" \
+    "{\"v\":1,\"current\":{\"sid\":\"A\",\"ts\":${now_ms}},\"back\":[\"Z\"],\"forward\":[]}" \
+    "$sandbox/traverse-stack.json"
+}
+
+# === Model failure: AGENT_FLEET_MODEL points at a failing stub. The script
+# should `set -euo pipefail` abort before stack mutation, exit nonzero. ===
+# Jump's test_60 follows the same chflags-uchg pattern for stack_write —
+# mirror it here for traverse. Both files share the act layer. ===
+test_model_failure_propagates() {
+  local sandbox="$ROOT/modelfail"
+  mkdir -p "$sandbox"
+  # Failing model: a JSON module that throws on require. node exits nonzero,
+  # set -euo pipefail aborts the traverse script BEFORE stack read/write.
+  local stub="$ROOT/fail-model.cjs"
+  cat > "$stub" <<'EOF'
+throw new Error("stub-model: failing on purpose");
+EOF
+  TRAV_RC=0
+  TRAV_STDOUT="$(
+    env \
+      AGENT_FLEET_DECIDE_ACT=1 \
+      AGENT_FLEET_STATE_DIR="$sandbox" \
+      AGENT_FLEET_LIVE_PANES_OVERRIDE="$ROOT/pane-${RANDOM}.tsv" \
+      AGENT_FLEET_PS_OVERRIDE="$sandbox/ps.tsv" \
+      AGENT_FLEET_NOW_MS=2000000000500 \
+      AGENT_FLEET_MESSAGE_DELAY=0 \
+      AGENT_FLEET_MODEL="$stub" \
+      bash "$TRAVERSE" "prev" 2>"$ROOT/err_modelfail.txt")" || TRAV_RC=$?
+  TRAV_STDERR="$(cat "$ROOT/err_modelfail.txt")"
+  # Spec: RC != 0 (model failure aborts the press). We don't pin a specific
+  # nonzero code — node may exit 1 from syntax error or 7-ish for uncaught.
+  # Critically: no traverse-stack.json should appear (script aborted pre-read).
+  if [ "${TRAV_RC:-0}" -ne 0 ]; then pass "model-failure: rc nonzero (script aborted pre-mutation)"
+  else fail "model-failure: rc zero (model failure should abort)" "rc=$TRAV_RC"; fi
+  assert_file_absent "model-failure: no traverse-stack.json written" "$sandbox/traverse-stack.json"
+  assert_file_absent "model-failure: no .select mailbox written" "$sandbox/*.select"
+}
+
+# === Stack-write failure: chflags uchg the stack file, but the press still
+# lands: the .select mailbox must be written (stack_write warns-and-returns-0,
+# just like jump's case60). ===
+test_stack_write_failure_landing_still_happens() {
+  local sandbox="$ROOT/swfail"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/swfail")
+  local pid=26001
+  local pso="$ROOT/ps_swfail.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  write_v2 "$sandbox" "$key" "$pid" "/swfail" "sxS" "Z" 2000000000000 \
+    "Z" "done"          100 null \
+    "T" "needs-attention" 500 null
+  local now_ms=2000000000500
+  printf '%s\n' '{"v":1,"current":{"sid":"Z","ts":1990000000000},"back":[],"forward":[]}' \
+    > "$sandbox/traverse-stack.json"
+  # Pre-create the SAME immutable target so the atomic rename fails.
+  chflags uchg "$sandbox/traverse-stack.json"
+  run_trav "decide-act" "$sandbox" "$pso" \
+    $'/swfail\tsxS\tterminal_0\t0' "next" "$now_ms" "" # don't overwrite pre_stack
+  assert_file_exists "stack-write-failure: .select mailbox STILL lands despite stack_write failure" \
+    "$sandbox/${key}-${pid}.select"
+  # stderr MUST carry a stack_write warning (jump case60 pattern).
+  assert_contains "stack-write-failure: stderr stack_write warning emitted" \
+    "$TRAV_STDERR" "stack_write"
+  # Drop uchg so the EXIT trap can rm -rf cleanly.
+  chflags nouchg "$sandbox/traverse-stack.json" 2>/dev/null || true
+}
+
+# === Escaped sid round-trip: sid containing both " and \\ must (a) parse as
+# valid v2 JSON to the model and (b) round-trip through the .select mailbox
+# without quoting injection. Mirrors jump's test_70 for traverse.sh. ===
+# Use a sid whose bash single-quoted form is unambiguous about contents
+# (no double-escaping inside the shell variable). The literal characters
+# `weird"quote\slash` are exactly 17 bytes — quote is literal in single-quoted
+# bash strings, and a single `\` is exactly one character.
+test_escaped_sid_traversal_round_trip() {
+  local sandbox="$ROOT/escsid"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/escsid")
+  local pid=27001
+  local pso="$ROOT/ps_escsid.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  # Sid containing a double-quote AND a backslash — single-quoted bash literal
+  # gives 17 chars (no shell-escape ambiguity inside `''`).
+  local sid_lit='weird"quote\slash'
+  [[ ${#sid_lit} -eq 17 ]] || {
+    fail "escaped-sid sid_lit fixture not exactly 17 chars" "char count: ${#sid_lit}"
+    return
+  }
+  # Build v2 directly (write_v2 operates on pairs after selectedSid/selectedTs).
+  # We want selectedSid = "T" (so reconcile no-op with pre_stack current=T)
+  # but the escaped-sid MUST be in sessions so the model surfaces it as
+  # pending. pending[0] = escaped-sid when sorted ts asc (escaped ts=500, T ts=10
+  # ⇒ escaped is NEWER, T is oldest... actually we want T oldest so escaped lands).
+  # Reverse: escaping won't be pending[0] oldest, but current=T ≠ escaped ⇒
+  # pending guard keeps escaped ⇒ land escaped.
+  jq -n \
+    --arg sid "$sid_lit" \
+    --arg repo "escsid" \
+    --arg cwd "/escsid" \
+    --arg session "sxS" \
+    --argjson pid "$pid" \
+    --arg selectedSid "T" \
+    --argjson selectedTs 2000000000000 \
+    '{
+      repo:$repo, cwd:$cwd, session:$session, pid:$pid,
+      selectedSid:$selectedSid, selectedTs:$selectedTs,
+      sessions: {
+        ($sid): { state:"needs-attention", reason:null, ts:500,   task:null, title:"e_t" },
+        "T":     { state:"needs-attention", reason:null, ts:10,    task:null, title:"t_t" }
+      }
+    }' \
+    > "$sandbox/${key}-${pid}.json"
+  # Sanity: the v2 file parses as valid JSON.
+  if jq -e . "$sandbox/${key}-${pid}.json" >/dev/null 2>&1; then
+    pass "escaped-sid v2 parses as valid JSON"
+  else
+    fail "escaped-sid v2 fails to parse" "file=$sandbox/${key}-${pid}.json"
+  fi
+  local decoded_sid
+  decoded_sid="$(jq -r '.sessions | keys[] | select(. != "T")' "$sandbox/${key}-${pid}.json")"
+  assert_eq "escaped-sid: v2 sid round-trips through JSON" "$sid_lit" "$decoded_sid"
+  local now_ms=2000000000500
+  # pre_stack: current=T (reconcile no-op). After alt-, pending[0]=escaped-sid
+  # (because T is current and filtered out). New nav: clear forward, push T MRU.
+  local pre_stack
+  pre_stack='{"v":1,"current":{"sid":"T","ts":1990000000000},"back":[],"forward":[]}'
+  run_trav "decide-act" "$sandbox" "$pso" \
+    $'/escsid\tsxS\tterminal_0\t0' "next" "$now_ms" "$pre_stack"
+  assert_eq "escaped-sid next: select decision emits escaped sid verbatim" \
+    "DECISION:kind=select cwd=/escsid session=sxS pane=terminal_0 tab_id=0 key=${key}-${pid} sid=${sid_lit}" \
+    "$TRAV_STDOUT"
+  assert_file_exists "escaped-sid: .select mailbox written" "$sandbox/${key}-${pid}.select"
+  # Mailbox JSON parses cleanly AND sessionID round-trips.
+  if jq -e . "$sandbox/${key}-${pid}.select" >/dev/null 2>&1; then
+    pass "escaped-sid: mailbox parses as valid JSON"
+  else
+    fail "escaped-sid: mailbox fails to parse"
+  fi
+  local got_sid
+  got_sid="$(jq -r .sessionID "$sandbox/${key}-${pid}.select")"
+  assert_eq "escaped-sid: .select sessionID round-trips the escaped bytes" \
+    "$sid_lit" "$got_sid"
+  # Mailbox keyset = exactly {sessionID} — escape injection must not have
+  # introduced siblings (markOnly, sessionID2, etc).
+  local keys
+  keys="$(jq -c 'keys_unsorted' "$sandbox/${key}-${pid}.select")"
+  assert_eq "escaped-sid: .select mailbox keyset = {sessionID} only" '["sessionID"]' "$keys"
 }
 
 # === Argument validation: invalid arg exits 2 ===
@@ -709,9 +959,15 @@ run_test test_pending_guard_skips_equal_to_current
 run_test test_dead_entries_pruned_AND_at_end_persists
 run_test test_ambiguous_entries_skipped_but_retained
 run_test test_corrupt_stack_resets_to_empty
+run_test test_forward_all_dead_falls_to_pending
+run_test test_model_failure_propagates
+run_test test_stack_write_failure_landing_still_happens
+run_test test_escaped_sid_traversal_round_trip
 run_test test_empty_live_list_exits_nonzero
 run_test test_no_landable_target_at_end_no_mailbox
 run_test test_decide_only_no_side_effects
+run_test test_decide_only_no_state_dir_no_side_effects
+run_test test_decide_only_at_end_no_side_effects
 run_test test_decide_act_writes_stack_and_mailbox
 run_test test_argument_validation
 

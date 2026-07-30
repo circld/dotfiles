@@ -29,7 +29,11 @@ if (( BASH_VERSINFO[0] < 4 )); then
   exit 1
 fi
 
-mkdir -p "$STATE_DIR"
+# DECIDE_ONLY is a "see what would happen" seam — must be free of filesystem
+# side effects (no mkdir, no writes). Writers in act.sh self-guard the same way.
+if [ "${AGENT_FLEET_DECIDE_ONLY:-0}" != "1" ]; then
+  mkdir -p "$STATE_DIR"
+fi
 
 cmd="${1:-}"
 case "$cmd" in
@@ -92,6 +96,12 @@ action_json="$(
         | select(([.cwd] | inside($amb_cwds)))
         | .sessions[]] | unique)                                        as $amb
     | if $direction == "prev" then
+        # === Walk back[] end→start: dead-prune, skip-retain unlandable, stop on landable.
+        # (Same shape used in the next branch below for forward[] walking — duplicated
+        # deliberately because the per-branch new_state updates diverge after the walk
+        # finishes: back-pop drops backward entries from $s.back AND mutates $s.forward,
+        # forward-pop drops backward entries from $s.forward AND uses back-push-mru on $s.back.
+        # Not enough call sites yet to factor out a walk helper.)
         reduce range(($s.back | length) - 1; -1; -1) as $i (
           {target: null, retained_unlandable: [], dropped: []};
           if .target != null then .
@@ -156,6 +166,7 @@ action_json="$(
               end
           end
     else
+      # === Walk forward[] end→start. See prev branch above for duplication rationale.
       reduce range(($s.forward | length) - 1; -1; -1) as $i (
         {target: null, retained_unlandable: [], dropped: []};
         if .target != null then .
