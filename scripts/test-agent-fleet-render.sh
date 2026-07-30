@@ -126,10 +126,15 @@ run_render() {
   if [ -n "${AGENT_FLEET_NOW_MS:-}" ]; then
     env_args+=( "AGENT_FLEET_NOW_MS=$AGENT_FLEET_NOW_MS" )
   fi
+  # Save & restore errexit around the call so a non-zero RC from the
+  # renderer (mid-paint failure tests) doesn't abort the harness suite;
+  # callers (and the run_test wrapper) expect run_render to ALWAYS return.
+  local _was_errexit=0
+  case "$-" in *e*) _was_errexit=1 ;; esac
   set +e
   RENDER_OUT="$(env "${env_args[@]}" bash "$RENDER" 2>"$tmp_err")"
   RC=$?
-  set -e
+  [ "$_was_errexit" -eq 1 ] && set -e
   if [ -f "$linemap_path" ]; then
     LINEMAP_OUT="$(cat "$linemap_path")"
   fi
@@ -641,15 +646,21 @@ test_linemap_carries_required_fields() {
   write_cache "$sandbox/.board-cache.json" \
     "$(mk_row v2 "$key" ses_n /solo sx needs-attention permission $((NOW_MS - 300000)) "need perm" "need perm" false 1 solo 100 terminal_0 0)"
   AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
-  # Exactly one mapped row.
+  # Every non-empty linemap line must have exactly 4 fields
+  # (line<TAB>key<TAB>sid<TAB>cwd). Previously this assertion only counted
+  # consecutive 4-field rows on one fixture; it now audits the whole file
+  # so an accidental extra-column row cannot slip past.
+  local bad_rows
+  bad_rows="$(awk -F $'\t' 'NF != 4 && NF > 0 {print NR": ["$0"]"}' <<<"$LINEMAP_OUT")"
+  if [ -z "$bad_rows" ]; then
+    pass "case17 linemap: EVERY non-empty line is 4-column-shape"
+  else
+    fail "case17 linemap: rows missing or extra columns" "$bad_rows"
+  fi
+  # Pick the mapped row and decode its 4 fields with awk (positional read
+  # collapses consecutive empty cells in bash, while awk preserves them).
   local mapped_line; mapped_line="$(printf '%s\n' "$LINEMAP_OUT")"
-  # Columns: 4 (line<TAB>key<TAB>sid<TAB>cwd). Assert 4 field count.
-  local field_count; field_count="$(awk -F $'\t' 'NF==4 {n++} END{print n+0}' <<<"$mapped_line")"
-  assert_eq "case17 linemap: 4-column field shape" "1" "$field_count"
-  # Decode the 4 fields and assert contents. Use read -ra: positional read
-  # collapses consecutive empty cells in bash, while array indices mirror
-  # field positions even when cells are empty.
-assert_eq "case17 linemap: line number" "1" "$(linemap_field "$mapped_line" 1)"
+  assert_eq "case17 linemap: line number" "1" "$(linemap_field "$mapped_line" 1)"
   assert_eq "case17 linemap: key"        "$key" "$(linemap_field "$mapped_line" 2)"
   assert_eq "case17 linemap: sid"        "ses_n" "$(linemap_field "$mapped_line" 3)"
   assert_eq "case17 linemap: cwd"        "/solo" "$(linemap_field "$mapped_line" 4)"
@@ -730,6 +741,141 @@ test_unmapped_highlight_line_no_change() {
   # HIGHLIGHT_LINE="abc" (non-numeric) must NOT highlight either.
   AGENT_FLEET_NOW_MS="$NOW_MS" AGENT_FLEET_HIGHLIGHT_LINE="abc" run_render "$sandbox"
   assert_eq "case20 non-numeric highlight: stdout identical" "$out_plain" "$RENDER_OUT"
+  # HIGHLIGHT_LINE="01" (leading zero — fails ^[1-9][0-9]*$) must be no-op too.
+  AGENT_FLEET_NOW_MS="$NOW_MS" AGENT_FLEET_HIGHLIGHT_LINE="01" run_render "$sandbox"
+  assert_eq "case20 leading-zero highlight: stdout identical" "$out_plain" "$RENDER_OUT"
+}
+
+# --- 22. Sentinel-`-` collision: literal `-` key and sid survive identity. ---
+# jq `@json` encodes `"-"` as the literal 4-byte token `"-".` (the string with
+# its quotes), null as `null`, and every key/sid byte from the prior render
+# path. A row whose identities ARE `-` must not be aliased onto the
+# `null`/absent cell, nor onto any other NULLable-field sentinel/`-`.
+test_legitimate_dash_identity_survives() {
+  local sandbox="$ROOT/case_dash_identity"
+  mkdir -p "$sandbox"
+  # Row with key="-" and sid="-", legitimately produced (in this fixture).
+  # The linemap must preserve those literal `-` bytes — not collapse them
+  # to empty / null.
+  printf '{"rows":[{"source":"v2","key":"-","sid":"-","cwd":"/dash_cwd","session":"sx","state":"done","reason":null,"ts":1000,"title":"dashy","label":"dashy","suppressed":false,"rank":0,"pid":0,"pane":"x","tabId":"0","repo":"dash"}]}' > "$sandbox/.board-cache.json"
+  AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
+  # Linemap entry: line=1, key="-", sid="-", cwd=/dash_cwd.
+  assert_eq "case22 dash: linemap key field is literal '-'" "-" "$(linemap_field "$LINEMAP_OUT" 2)"
+  assert_eq "case22 dash: linemap sid field is literal '-'" "-" "$(linemap_field "$LINEMAP_OUT" 3)"
+  assert_eq "case22 dash: linemap cwd is /dash_cwd" "/dash_cwd" "$(linemap_field "$LINEMAP_OUT" 4)"
+  # Painted frame shows the row title ("dashy" — derived from title field,
+  # not from the `-`-key fallback).
+  assert_contains "case22 dash: 'dashy' title paints" "$RENDER_OUT" "dashy"
+}
+
+# --- 23. Partial-frame failure leaves an EMPTY linemap (NOT the stale one). ---
+# Renderer pre-installs an empty `.board-linemap.tsv` BEFORE painting. A
+# mid-paint failure (jq or `printf %d` choking on a non-numeric ts) leaves
+# that empty map in place — keyboard nav then sees no identity matches
+# against the new (partial) frame, never stale rows from the previous
+# frame that no longer correspond to anything on screen.
+test_partial_frame_failure_leaves_empty_linemap() {
+  local sandbox="$ROOT/case_partial_failure"
+  mkdir -p "$sandbox"
+  # Pre-populate a stale linemap (e.g. from a previous frame) so we can
+  # assert it gets replaced after a failure.
+  printf 'STALE-LINE-1\tkey_a\tsid_a\t/x\nSTALE-LINE-2\tkey_b\tsid_b\t/y\n' > "$sandbox/.board-linemap.tsv"
+  # Cache fixture with rows whose `ts` is a STRING, not a number. The
+  # renderer's `age_for` does `printf '%d:%02d'` which fails on non-numeric
+  # inputs, tripping `set -e` mid-paint.
+  printf '{"rows":[{"source":"v2","key":"abc","sid":"ses_x","cwd":"/cwd_x","session":"sx","state":"done","reason":null,"ts":"not_a_number","title":"t","label":"t","suppressed":false,"rank":0,"pid":0,"pane":"x","tabId":"0","repo":"x"}]}' > "$sandbox/.board-cache.json"
+  run_render "$sandbox"
+  # 1) renderer exits non-zero on mid-paint failure.
+  if [ "$RC" -ne 0 ]; then
+    pass "case_partial: renderer exits non-zero on mid-paint failure"
+  else
+    fail "case_partial: renderer exits non-zero on mid-paint failure" "rc=$RC"
+  fi
+  # 2) The stale linemap content must NOT survive.
+  if [[ "$LINEMAP_OUT" == *"STALE-LINE-1"* ]]; then
+    fail "case_partial: stale linemap kept after failure" "STALE content visible"
+  else
+    pass "case_partial: stale linemap replaced by empty after failure"
+  fi
+  if [[ "$LINEMAP_OUT" == *"STALE-LINE-2"* ]]; then
+    fail "case_partial: stale linemap kept after failure" "STALE content visible"
+  else
+    pass "case_partial: stale linemap entirely gone"
+  fi
+  # 3) The linemap file exists AND is empty (pre-install survived the
+  # abort; nothing partial was mis-installed by the painter's tmp).
+  if [ -f "$LINEMAP_PATH" ] && [ ! -s "$LINEMAP_PATH" ]; then
+    pass "case_partial: empty linemap present after failure"
+  else
+    fail "case_partial: empty linemap present after failure" "size=$(wc -c <"$LINEMAP_PATH")"
+  fi
+  # 4) The painter's tmp file must NOT have mis-installed partial content.
+  if ! ls "$sandbox"/.board-linemap.tsv.tmp.* >/dev/null 2>&1; then
+    pass "case_partial: no leftover painter tmp from partial frame"
+  else
+    fail "case_partial: leftover painter tmp(s)" "$(ls "$sandbox"/.board-linemap.tsv.tmp.* 2>/dev/null)"
+  fi
+}
+
+# --- 24. Control character in identity field: skipped with stderr warning. ---
+# Linux bash's `while read -r` and jq `@tsv` both treat TAB/LF/CR as field
+# separators and would alias distinct identities after round-trip. The
+# renderer rejects offending rows in jq (.rows[].key/sid/cwd test($bad)),
+# prints a `skipping row with control char in …` warning per row to
+# stderr, and keeps the LINEMAP clean. Clean (non-offending) rows still
+# map byte-exact.
+test_control_chars_in_identity_skip_and_warn() {
+  local sandbox="$ROOT/case_ctrl_char"
+  mkdir -p "$sandbox"
+  # Build the cache fixture with python (bypasses shell-level TAB escaping
+  # — jq refuses raw TAB bytes in JSON input).
+  python3 -c '
+import json, sys
+rows = [
+  {"source":"v2","key":"abc","sid":"ses1","cwd":"/good","session":"sxA",
+   "state":"done","reason":None,"ts":1000,"title":"good","label":"good",
+   "suppressed":False,"rank":0,"pid":0,"pane":"x","tabId":"0","repo":"good"},
+  # bad row: literal TAB inside the cwd string.
+  {"source":"v2","key":"abc","sid":"ses2","cwd":"/has\ttab","session":"sxB",
+   "state":"done","reason":None,"ts":2000,"title":"badtitle","label":"badlabel",
+   "suppressed":False,"rank":0,"pid":0,"pane":"x","tabId":"0","repo":"bad"},
+]
+print(json.dumps({"rows": rows}))
+' > "$sandbox/.board-cache.json"
+  local tmp_err="$ROOT/err-ctrl.txt"
+  set +e
+  AGENT_FLEET_STATE_DIR="$sandbox" AGENT_FLEET_NOW_MS="$NOW_MS" \
+    bash "$RENDER" > "$sandbox/stdout.txt" 2> "$tmp_err"
+  set -e
+  # Refresh linemap path to this sandbox's actual file: test 24's run_render
+  # was bypassed, so we read the sandbox's linemap directly.
+  local sandbox_linemap="$sandbox/.board-linemap.tsv"
+  # 1) stderr warning names the offending field.
+  if grep -F "control char" "$tmp_err" >/dev/null && grep -F "[bad=cwd]" "$tmp_err" >/dev/null; then
+    pass "case_ctrl: stderr names control char + field=cwd"
+  else
+    fail "case_ctrl: stderr names control char + field=cwd" "stderr=$(cat $tmp_err)"
+  fi
+  # 2) stderr warning mentions the BAD row's identity, not the good one.
+  if grep -F "key=abc sid=ses2" "$tmp_err" >/dev/null; then
+    pass "case_ctrl: stderr names the bad row"
+  else
+    fail "case_ctrl: stderr names the bad row" "stderr=$(cat $tmp_err)"
+  fi
+  # 3) stdout does NOT include the bad row's identity.
+  local stdout; stdout="$(cat "$sandbox/stdout.txt")"
+  if [[ "$stdout" != *"badtitle"* ]] && [[ "$stdout" != *"badlabel"* ]] && [[ "$stdout" != *"/has"* ]]; then
+    pass "case_ctrl: bad row filtered from painted frame"
+  else
+    fail "case_ctrl: bad row filtered from painted frame" "stdout=$stdout"
+  fi
+  # 4) The good row still maps by exact byte identity in the linemap.
+  local linemap; linemap="$(cat "$sandbox_linemap")"
+  if grep -qF "/good" <<<"$linemap"; then
+    pass "case_ctrl: clean row mapped byte-exact"
+  else
+    fail "case_ctrl: clean row mapped byte-exact" "linemap=$linemap"
+  fi
 }
 
 # --- 21. Linemap write is atomic — pre-existing stale map is replaced, not appended. ---
@@ -782,6 +928,9 @@ run_test test_linemap_nulls_use_empty_fields
 run_test test_highlight_wraps_mapped_target_row
 run_test test_unmapped_highlight_line_no_change
 run_test test_linemap_atomic_replaces_stale
+run_test test_legitimate_dash_identity_survives
+run_test test_partial_frame_failure_leaves_empty_linemap
+run_test test_control_chars_in_identity_skip_and_warn
 
 echo
 echo "---"
