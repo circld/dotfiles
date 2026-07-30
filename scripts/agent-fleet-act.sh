@@ -367,6 +367,6 @@ af_landing_verify() {
     | map(select(("terminal_\(.id)") == $pane))
     | first // {}
     | {is_focused, tab_id, tab_name, title, pane_command, pane_cwd}
-  ' 2>/dev/null | af_trace landing-verify.json
+  ' 2>/dev/null | af_trace landing-verify.json || true
   return 0
 }
