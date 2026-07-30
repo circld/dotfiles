@@ -285,57 +285,6 @@ test_board_notes_presser_empty_title_falls_back_to_workspace() {
     "$alog" "workspace 1"
 }
 
-# --- landing ledger: rc logged; post-landing is_focused verification ---
-test_landing_ledger_logs_rc_and_verifies_focus() {
-  local sandbox="$ROOT/state-land1"
-  mkdir -p "$sandbox"
-  write_zellij_fake "$sandbox/bin"
-  printf '[{"id":7,"is_focused":true,"tab_id":0,"tab_name":"t","title":"x","pane_command":"opencode","pane_cwd":"/projA"}]\n' \
-    > "$sandbox/panes-sx.json"
-  local trace="$ROOT/trace-6"
-  STATE_DIR="$sandbox" \
-    AGENT_FLEET_STATE_DIR="$sandbox" \
-    AGENT_FLEET_TEST_ZELLIJ_LOG="$sandbox/zellij.log" \
-    AGENT_FLEET_TEST_AEROSPACE_LOG="$sandbox/aerospace.log" \
-    AGENT_FLEET_TEST_FAKE_DIR="$sandbox" \
-    AGENT_FLEET_TRACE_DIR="$trace" \
-    AF_REQUEST_ID="t6-req" \
-    PATH="$sandbox/bin:$PATH" \
-    ZELLIJ_SESSION_NAME="sx" \
-    bash -c '. "$1"; shift; act_land "$@"' _ \
-    "$REPO_ROOT/scripts/agent-fleet-act.sh" "" "" "sx" "terminal_7" "0"
-  assert_file_exists "land1: landing.log" "$trace/t6-req/landing.log"
-  assert_contains "land1: go-to-tab logged rc" "$(cat "$trace/t6-req/landing.log" 2>/dev/null)" "go-to-tab rc=0"
-  assert_contains "land1: focus-pane logged rc" "$(cat "$trace/t6-req/landing.log" 2>/dev/null)" "focus-pane rc=0"
-  assert_contains "land1: verify is_focused" "$(cat "$trace/t6-req/landing-verify.json" 2>/dev/null)" '"is_focused":true'
-}
-
-# --- landing ledger: failed focus logged rc=1 AND landing continues (nonfatal contract) ---
-test_landing_ledger_logs_failure_and_continues() {
-  local sandbox="$ROOT/state-land2"
-  mkdir -p "$sandbox"
-  write_zellij_fake "$sandbox/bin"
-  printf '[{"id":7,"is_focused":true,"tab_id":0,"tab_name":"t","title":"x","pane_command":"opencode","pane_cwd":"/projA"}]\n' \
-    > "$sandbox/panes-sx.json"
-  local trace="$ROOT/trace-6b"
-  STATE_DIR="$sandbox" \
-    AGENT_FLEET_STATE_DIR="$sandbox" \
-    AGENT_FLEET_TEST_ZELLIJ_LOG="$sandbox/zellij.log" \
-    AGENT_FLEET_TEST_AEROSPACE_LOG="$sandbox/aerospace.log" \
-    AGENT_FLEET_TEST_FAKE_DIR="$sandbox" \
-    AGENT_FLEET_TEST_FAIL_FOCUS=1 \
-    AGENT_FLEET_TRACE_DIR="$trace" \
-    AF_REQUEST_ID="t6b-req" \
-    PATH="$sandbox/bin:$PATH" \
-    ZELLIJ_SESSION_NAME="sx" \
-    bash -c '. "$1"; shift; act_land "$@"' _ \
-    "$REPO_ROOT/scripts/agent-fleet-act.sh" "" "" "sx" "terminal_7" "0"
-  assert_contains "land2: focus-pane failure logged rc=1" \
-    "$(cat "$trace/t6b-req/landing.log" 2>/dev/null)" "focus-pane rc=1"
-  assert_file_exists "land2: verify still ran after rc=1 (af_act_log stayed nonfatal)" \
-    "$trace/t6b-req/landing-verify.json"
-}
-
 # === test cases ===
 
 # --- 1. one opencode cwd, two chat sessions (one v2 file) ---
@@ -1814,8 +1763,55 @@ run_test test_board_notes_presser_target_without_client_borrows_home
 run_test test_board_notes_presser_no_home_falls_back_to_notes
 run_test test_board_notes_presser_title_miss_falls_back_to_workspace
 run_test test_board_notes_presser_empty_title_falls_back_to_workspace
-run_test test_landing_ledger_logs_rc_and_verifies_focus
-run_test test_landing_ledger_logs_failure_and_continues
+
+# --- landing ledger: rc logged; post-landing is_focused verification ---
+{
+  sandbox="$ROOT/state-land1"; mkdir -p "$sandbox"
+  write_zellij_fake "$sandbox/bin"
+  printf '[{"id":7,"is_focused":true,"tab_id":0,"tab_name":"t","title":"x","pane_command":"opencode","pane_cwd":"/projA"}]\n' \
+    > "$sandbox/panes-sx.json"
+  trace="$ROOT/trace-6"
+  STATE_DIR="$sandbox" \
+    AGENT_FLEET_STATE_DIR="$sandbox" \
+    AGENT_FLEET_TEST_ZELLIJ_LOG="$sandbox/zellij.log" \
+    AGENT_FLEET_TEST_AEROSPACE_LOG="$sandbox/aerospace.log" \
+    AGENT_FLEET_TEST_FAKE_DIR="$sandbox" \
+    AGENT_FLEET_TRACE_DIR="$trace" \
+    AF_REQUEST_ID="t6-req" \
+    PATH="$sandbox/bin:$PATH" \
+    ZELLIJ_SESSION_NAME="sx" \
+    bash -c '. "$1"; shift; act_land "$@"' _ \
+    "$REPO_ROOT/scripts/agent-fleet-act.sh" "" "" "sx" "terminal_7" "0" "Chat alpha"
+  assert_file_exists "land1: landing.log" "$trace/t6-req/landing.log"
+  assert_contains "land1: go-to-tab logged rc" "$(cat "$trace/t6-req/landing.log" 2>/dev/null)" "go-to-tab rc=0"
+  assert_contains "land1: focus-pane logged rc" "$(cat "$trace/t6-req/landing.log" 2>/dev/null)" "focus-pane rc=0"
+  assert_contains "land1: verify is_focused" "$(cat "$trace/t6-req/landing-verify.json" 2>/dev/null)" '"is_focused":true'
+}
+
+# --- landing ledger: failed focus logged rc=1 AND landing continues (nonfatal contract) ---
+{
+  sandbox="$ROOT/state-land2"; mkdir -p "$sandbox"
+  write_zellij_fake "$sandbox/bin"
+  printf '[{"id":7,"is_focused":true,"tab_id":0,"tab_name":"t","title":"x","pane_command":"opencode","pane_cwd":"/projA"}]\n' \
+    > "$sandbox/panes-sx.json"
+  trace="$ROOT/trace-6b"
+  STATE_DIR="$sandbox" \
+    AGENT_FLEET_STATE_DIR="$sandbox" \
+    AGENT_FLEET_TEST_ZELLIJ_LOG="$sandbox/zellij.log" \
+    AGENT_FLEET_TEST_AEROSPACE_LOG="$sandbox/aerospace.log" \
+    AGENT_FLEET_TEST_FAKE_DIR="$sandbox" \
+    AGENT_FLEET_TEST_FAIL_FOCUS=1 \
+    AGENT_FLEET_TRACE_DIR="$trace" \
+    AF_REQUEST_ID="t6b-req" \
+    PATH="$sandbox/bin:$PATH" \
+    ZELLIJ_SESSION_NAME="sx" \
+    bash -c '. "$1"; shift; act_land "$@"' _ \
+    "$REPO_ROOT/scripts/agent-fleet-act.sh" "" "" "sx" "terminal_7" "0" "Chat alpha"
+  assert_contains "land2: focus-pane failure logged rc=1" \
+    "$(cat "$trace/t6b-req/landing.log" 2>/dev/null)" "focus-pane rc=1"
+  assert_file_exists "land2: verify still ran after rc=1 (af_act_log stayed nonfatal)" \
+    "$trace/t6b-req/landing-verify.json"
+}
 
 # Print accumulated log
 cat "$ROOT/log"

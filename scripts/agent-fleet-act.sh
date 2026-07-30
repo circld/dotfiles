@@ -358,9 +358,10 @@ af_landing_verify() {
   [ -n "${AGENT_FLEET_TRACE_DIR:-}" ] && [ -n "${AF_REQUEST_ID:-}" ] || return 0
   local sess="$1" pane="$2"
   [ -n "$sess" ] && [ -n "$pane" ] || return 0
-  sleep 0.2
+  sleep 0.2   # ponytail: settle so is_focused reflects the post-switch state
+              # (same 0.2s as act_focus_window); trace-only, best-effort anyway.
   local out
-  out="$(zellij --session "$sess" action list-panes --json --all 2>&1)"
+  out="$(zellij --session "$sess" action list-panes --json --all)"
   printf '%s' "$out" | jq -c --arg pane "$pane" '
     (if type == "array" then . else [] end)
     | map(select(("terminal_\(.id)") == $pane))
