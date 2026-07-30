@@ -277,21 +277,99 @@ test_no_state_file_synthetic_unknown_row() {
     "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
 }
 
-# --- 5. Suppression: viewed terminal sessions filtered out. Working never suppresses. ---
+# --- 5. Suppression: viewed terminal sessions filtered by `suppressed` flag. ---
+# The renderer reads cache rows and only emits those with `suppressed == false`
+# (no model-side filter needed; cache already carries the flag's verdict).
+# This case proves the filter discriminates on the FLAG, not on state, by
+# mixing suppressed and unsuppressed rows of the same state kind.
 test_suppresses_viewed_terminal_never_working() {
   local sandbox="$ROOT/case5"
   mkdir -p "$sandbox"
   local key; key=$(key_for "/sup")
   local pid=90100
-  # Only the unsuppressed working session is in rows[] — model already filtered
-  # viewed/needs-attention and viewed/done. Cache mirrors rows-as-emitted.
+  # Four rows for one cwd:
+  #   ses_done_viewed     done          suppressed=true  → MUST NOT paint or map
+  #   ses_attn_viewed     needs-attention suppressed=true  → MUST NOT paint or map
+  #   ses_done_kept       done          suppressed=false → control: proves flag
+  #                                                     (not state) drives filter
+  #   ses_working         working       suppressed=false → working is never
+  #                                                     suppressed regardless of flag
   write_cache "$sandbox/.board-cache.json" \
-    "$(mk_row v2 "$key" ses_working_forever /sup sx working "" $((NOW_MS - 100000)) "forever" "forever" false "" r $pid terminal_0 0)"
-  run_render "$sandbox"
+    "$(mk_row v2 "$key" ses_done_viewed /sup sx done "" $((NOW_MS - 800000)) "viewed d" "viewed d" true 0 r $pid terminal_0 0)" \
+    "$(mk_row v2 "$key" ses_attn_viewed /sup sx needs-attention perm $((NOW_MS - 700000)) "viewed n" "viewed n" true 1 r $pid terminal_0 0)" \
+    "$(mk_row v2 "$key" ses_done_kept /sup sx done "" $((NOW_MS - 600000)) "kept d" "kept d" false 0 r $pid terminal_0 0)" \
+    "$(mk_row v2 "$key" ses_working /sup sx working "" $((NOW_MS - 100000)) "forever" "forever" false "" r $pid terminal_0 0)"
+  AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
+  # Suppressed entries never reach the painted frame.
+  assert_not_contains "case5 suppression: viewed done TITLE 'viewed d' NOT painted" \
+    "$RENDER_OUT" "viewed d"
+  assert_not_contains "case5 suppression: viewed needs-attention TITLE 'viewed n' NOT painted" \
+    "$RENDER_OUT" "viewed n"
+  assert_not_contains "case5 suppression: viewed done sid 'ses_done_viewed' NOT painted" \
+    "$RENDER_OUT" "ses_done_viewed"
+  assert_not_contains "case5 suppression: viewed needs-attention sid 'ses_attn_viewed' NOT painted" \
+    "$RENDER_OUT" "ses_attn_viewed"
+  # Same-state unsuppressed row paints (control proves the filter reads flag, not state).
+  assert_contains "case5 suppression: kept done (same state, NOT suppressed) paints" \
+    "$RENDER_OUT" "kept d"
+  assert_contains "case5 suppression: kept done green icon paints" "$RENDER_OUT" "🟢"
+  # Working paints regardless of suppressed flag (working is never suppressed).
   assert_contains "case5 suppression: working title 'forever' shown" "$RENDER_OUT" "forever"
-  assert_contains "case5 suppression: yellow icon for working session" "$RENDER_OUT" "🟡"
-  assert_not_contains "case5 suppression: no red icon (viewed needs-attention removed)" "$RENDER_OUT" "🔴"
-  assert_not_contains "case5 suppression: no green icon (viewed done removed)" "$RENDER_OUT" "🟢"
+  assert_contains "case5 suppression: yellow icon for working" "$RENDER_OUT" "🟡"
+  assert_not_contains "case5 suppression: NO red icon (viewed needs-attention was suppressed)" \
+    "$RENDER_OUT" "🔴"
+  # Suppressed rows never reach the linemap either.
+  assert_not_contains "case5 linemap: viewed-done sid NOT mapped" \
+    "$LINEMAP_OUT" "ses_done_viewed"
+  assert_not_contains "case5 linemap: viewed-needs-attention sid NOT mapped" \
+    "$LINEMAP_OUT" "ses_attn_viewed"
+  # Only the two unsuppressed rows map (count == 2).
+  assert_eq "case5 linemap: 2 mapped rows (kept-done + working)" "2" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
+  assert_contains "case5 linemap: kept done sid mapped" "$LINEMAP_OUT" "ses_done_kept"
+  assert_contains "case5 linemap: working sid mapped" "$LINEMAP_OUT" "ses_working"
+}
+
+# --- 5b. All-suppressed siblings + model-issued idle summary: idle surrogate paints. ---
+# The model issues an `idle` row (state="idle", reason="all chats viewed")
+# when every session in a usable v2 file has been viewed past its entry ts.
+# This case verifies the renderer doesn't drop that surrogate just because its
+# siblings are suppressed — the row's own `suppressed: false` flag is what
+# matters, not "all peers were suppressed".
+test_idle_paints_with_suppressed_done_siblings() {
+  local sandbox="$ROOT/case_idle_with_suppressed_siblings"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/idle_sup")
+  local pid=110100
+  # Two view-marked done rows (suppressed=true) plus the model-issued idle
+  # surrogate (suppressed=false). Only the idle row should reach the frame.
+  write_cache "$sandbox/.board-cache.json" \
+    "$(mk_row v2 "$key" ses_d_a /idle_sup sx done "" $((NOW_MS - 700000)) "viewed a" "viewed a" true 0 idle_sup $pid terminal_0 0)" \
+    "$(mk_row v2 "$key" ses_d_b /idle_sup sx done "" $((NOW_MS - 600000)) "viewed b" "viewed b" true 0 idle_sup $pid terminal_0 0)" \
+    "$(mk_row idle "$key" "" /idle_sup sx idle "all chats viewed" $((NOW_MS - 500000)) "" "idle_sup" false "" idle_sup $pid terminal_0 0)"
+  AGENT_FLEET_NOW_MS="$NOW_MS" run_render "$sandbox"
+  # Idle summary paints: label, state, hint.
+  assert_contains "case_idle_sups: idle repo label 'idle_sup' paints" \
+    "$RENDER_OUT" "idle_sup"
+  assert_contains "case_idle_sups: 'idle' state surfaces" "$RENDER_OUT" "idle"
+  assert_contains "case_idle_sups: 'all chats viewed' hint paints" \
+    "$RENDER_OUT" "all chats viewed"
+  # Suppressed siblings stay absent from both painted frame and the linemap.
+  assert_not_contains "case_idle_sups: viewed done A title 'viewed a' NOT painted" \
+    "$RENDER_OUT" "viewed a"
+  assert_not_contains "case_idle_sups: viewed done B title 'viewed b' NOT painted" \
+    "$RENDER_OUT" "viewed b"
+  local combined
+  combined="$(printf '%s\n%s' "$RENDER_OUT" "$LINEMAP_OUT")"
+  assert_not_contains "case_idle_sups: viewed done A sid 'ses_d_a' absent from frame+linemap" \
+    "$combined" "ses_d_a"
+  assert_not_contains "case_idle_sups: viewed done B sid 'ses_d_b' absent from frame+linemap" \
+    "$combined" "ses_d_b"
+  # Idle row is navigable per the spec (sid-less but in rows[]); 1 mapped entry.
+  assert_eq "case_idle_sups: linemap count (only idle row)" "1" \
+    "$(printf '%s\n' "$LINEMAP_OUT" | grep -c .)"
+  # Linemap row carries the cwd; sid field is empty (null → empty per spec).
+  assert_contains "case_idle_sups: linemap carries idle cwd" "$LINEMAP_OUT" "/idle_sup"
 }
 
 # --- 6. v1-only legacy row: no v2, v1 file alone produces one collapse row. ---
@@ -687,6 +765,7 @@ run_test test_v2_multi_session_nests_under_process
 run_test test_duplicate_cwd_renders_warning
 run_test test_no_state_file_synthetic_unknown_row
 run_test test_suppresses_viewed_terminal_never_working
+run_test test_idle_paints_with_suppressed_done_siblings
 run_test test_v1_only_legacy_row
 run_test test_v1_v2_super_a_usable_v2_suppresses_v1
 run_test test_v1_v2_super_b_dead_v2_does_not_suppress_v1
