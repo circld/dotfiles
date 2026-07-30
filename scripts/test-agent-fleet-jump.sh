@@ -1396,6 +1396,50 @@ EOF
   chflags nouchg "$sandbox/${key}-${pid}.select" 2>/dev/null || true
 }
 
+# --- 74. mktemp-failure tolerance: both stack_write AND atomic_write_select
+#         self-guard so a missing/unwritable STATE_DIR doesn't abort the
+#         press under set -e. We make STATE_DIR readable (model still loads
+#         the v2 file from it) but NOT writable — mktemp then deterministically
+#         fails on both tmpfile paths, both writers warn-and-return-0, the
+#         press completes with rc=0, and the DECISION line is still emitted. ---
+test_74_mktemp_failure_continues() {
+  local sandbox="$ROOT/case74"
+  mkdir -p "$sandbox"
+  local pid=74001
+  local pso="$ROOT/ps74.tsv"
+  printf 'OPENCODE\t%s\n' "$pid" > "$pso"
+  local key; key=$(printf '%s' "/tt" | shasum -a 256 | cut -c1-16)
+  # v2 file readable so the model can populate actionable[].
+  cat > "$sandbox/${key}-${pid}.json" <<EOF
+{"repo":"r","cwd":"/tt","session":"sx","pid":${pid},
+ "selectedSid":"ses_past","selectedTs":1700000000000,
+ "sessions":{
+   "ses_past":{"state":"done","reason":null,"ts":50,"task":null,"title":"p"},
+   "ses_target":{"state":"needs-attention","reason":"permission","ts":200,"task":null,"title":"t"}
+ }}
+EOF
+  # chmod 555 on STATE_DIR: existing entries stay readable + traversable
+  # (model still loads v2 file) but the writers' mktemp calls for NEW
+  # traverse-stack.json.tmp.XXXXXX and .select.tmp.XXXXXX fail with EACCES.
+  chmod 555 "$sandbox"
+  local now_ms=1800000000000
+  run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
+    $'/tt\tsx\tterminal_0\t0' "" "$now_ms"
+  # Restore WRITE bit so the EXIT trap's rm -rf can clean the sandbox.
+  chmod 755 "$sandbox" 2>/dev/null || true
+  # Jump exits 0 — writers self-guarded, the press continued to landing.
+  assert_eq "case74 jump exits 0 despite mktemp failure" "0" "$JUMP_RC"
+  # Decision text still emitted (no side-effect abort propagated).
+  assert_eq "case74 decision still emitted when writers' tmpfile creation fails" \
+    "DECISION:kind=select cwd=/tt session=sx pane=terminal_0 tab_id=0 key=${key}-${pid} sid=ses_target" \
+    "$JUMP_STDOUT"
+  # Both writers' tmpfile-creation warnings reached stderr (one each).
+  assert_contains "case74 stderr: stack_write tmpfile creation warning" \
+    "$JUMP_STDERR" "stack_write"
+  assert_contains "case74 stderr: atomic_write_select tmpfile creation warning" \
+    "$JUMP_STDERR" "atomic_write_select"
+}
+
 # === run all tests ===
 run_test() {
   local fn="$1"
@@ -1441,6 +1485,7 @@ run_test test_70_escaped_sid_mailbox
 run_test test_71_bad_ts_type_canonical_empty
 run_test test_72_nonstring_back_entry_canonical_empty
 run_test test_73_mailbox_write_failure_continues
+run_test test_74_mktemp_failure_continues
 
 # Print accumulated log
 cat "$ROOT/log"

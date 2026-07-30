@@ -60,7 +60,10 @@ stack_write() {
   local stack_json="$1"
   local path="${2:-$STATE_DIR/traverse-stack.json}"
   local tmp
-  tmp="$(mktemp "${path}.tmp.XXXXXX")"
+  if ! tmp="$(mktemp "${path}.tmp.XXXXXX" 2>/dev/null)"; then
+    echo "agent-fleet-act: stack_write: tmpfile creation failed for $path" >&2
+    return 0
+  fi
   if ! printf '%s\n' "$stack_json" > "$tmp" 2>/dev/null; then
     echo "agent-fleet-act: stack_write: failed to write tmp $tmp" >&2
     rm -f "$tmp" 2>/dev/null || true
@@ -140,7 +143,10 @@ atomic_write_select() {
     mo_flag=1
   fi
   local tmp
-  tmp="$(mktemp "${target}.tmp.XXXXXX")"
+  if ! tmp="$(mktemp "${target}.tmp.XXXXXX" 2>/dev/null)"; then
+    echo "agent-fleet-act: atomic_write_select: tmpfile creation failed for $target" >&2
+    return 0
+  fi
   if ! jq -n --arg sid "$sid" --argjson mo "$mo_flag" \
        'if $mo == 1 then {sessionID: $sid, markOnly: true} else {sessionID: $sid} end' \
        > "$tmp" 2>/dev/null; then
