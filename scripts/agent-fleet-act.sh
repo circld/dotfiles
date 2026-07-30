@@ -291,7 +291,7 @@ act_focus_window() {
     return 0
   fi
   sleep 0.2
-  wins="$(aerospace list-windows --all --json 2>/dev/null || echo '[]')"
+  wins="$(aerospace list-windows --all --json 2>/dev/null)" || true
   wid="$(jq -r --arg t "$t" \
     '[.[] | select(."app-name" == "Ghostty" and ((."window-title" // "") | contains($t)))][0]."window-id" // empty' \
     <<<"$wins" 2>/dev/null || true)"
@@ -300,7 +300,7 @@ act_focus_window() {
       '{ prefix: $t, chosen: (if $wid == "" then null else ($wid | tonumber) end),
         candidates: [.[] | select(."app-name" == "Ghostty" and ((."window-title" // "") | contains($t)))
                      | {wid: ."window-id", title: ."window-title"}] }' \
-      <<<"$wins" 2>/dev/null | af_trace landing-windows.json
+      <<<"$wins" 2>/dev/null | af_trace landing-windows.json || true
   fi
   if [ -n "$wid" ]; then
     af_act_log aerospace-focus aerospace focus --window-id "$wid"
