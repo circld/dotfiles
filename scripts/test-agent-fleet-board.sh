@@ -60,6 +60,22 @@ fi
 EOF
 chmod +x "$FAKES/model.sh"
 
+cat > "$FAKES/model-pause-six.sh" <<'EOF'
+#!/usr/bin/env bash
+state_dir="${AGENT_FLEET_STATE_DIR:-}"
+calls_file="$state_dir/.model-calls"
+calls=0
+[ -f "$calls_file" ] && calls="$(cat "$calls_file")"
+calls=$((calls + 1))
+printf '%s\n' "$calls" > "$calls_file"
+printf 'model ok ts=%s\n' "$(date +%s%N)" >> "${AGENT_FLEET_TEST_LOG_M:-/dev/null}"
+if (( calls == 6 )); then
+  while [ ! -f "$state_dir/.release-six" ]; do sleep 0.05; done
+fi
+cat "$state_dir/.fake-model.json"
+EOF
+chmod +x "$FAKES/model-pause-six.sh"
+
 # Fake model that succeeds once, then fails on every later invocation.
 cat > "$FAKES/model-then-fail.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -112,7 +128,7 @@ while IFS= read -r row; do
   cwd="$(awk -F $'\t' '{print $3}' <<<"$row")"
   n=$((n + 1))
   printf '%d\t%s\t%s\t%s\n' "$n" "$key" "$sid" "$cwd" >> "$tmp"
-done < <(jq -r '.rows[] | [(.key // ""), (.sid // ""), (.cwd // "")] | @tsv' < "$cache" 2>/dev/null)
+done < <(jq -r '.rows[] | select(.suppressed != true) | [(.key // ""), (.sid // ""), (.cwd // "")] | @tsv' < "$cache" 2>/dev/null)
 mv -f "$tmp" "$linemap"
 printf 'FRAME\n'
 EOF
@@ -903,12 +919,76 @@ test_enter_sid_decide_act_persists_stack_and_mailbox() {
   if [ "$(jq -r '.current.sid' "$sandbox/traverse-stack.json" 2>/dev/null)" = sid-act ] && [ "$(jq -r '.sessionID' "$sandbox/${key}.select" 2>/dev/null)" = sid-act ]; then pass "case18: Enter sid row persists stack and mailbox"; else fail_msg "case18: Enter sid row persists stack and mailbox"; fi
 }
 
+test_enter_sid_decide_act_matches_navigation_mutation() {
+  local sandbox="$ROOT/case19_enter_parity" key; mkdir -p "$sandbox"; key=$(key_for "/enter-parity")
+  local row; row=$(mk_row v2 "$key" sid-target /enter-parity sess done "" $NOW_MS)
+  write_model_with_instances "$sandbox/.fake-model.json" "$row" '[{"selectedSid":"sid-p","selectedTs":200}]'
+  printf '%s\n' '{"v":1,"current":{"sid":"sid-current","ts":1},"back":["sid-target","sid-old","sid-target"],"forward":["sid-target","sid-forward"]}' > "$sandbox/traverse-stack.json"
+  CASE_DECIDE_ACT=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" $'\n' 1.2; wait_board 6; CASE_DECIDE_ACT=0
+  if jq -e --arg sid sid-target --arg old sid-current --arg p sid-p '
+      .current.sid == $sid and (.forward | length == 0) and
+      (.back | index($sid) == null) and (.back | index($old) != null) and
+      (.back | index($p) != null)' "$sandbox/traverse-stack.json" >/dev/null 2>&1 &&
+      [ "$(jq -r '.sessionID' "$sandbox/${key}.select" 2>/dev/null)" = sid-target ]; then
+    pass "case19: Enter mutation matches navigation and writes mailbox"
+  else fail_msg "case19: Enter mutation matches navigation and writes mailbox"; fi
+}
+
 test_enter_sidless_focus_only() {
   local sandbox="$ROOT/case12_enter_sidless" key; mkdir -p "$sandbox"; key=$(key_for "/idle")
   local row; row=$(mk_row v1 "$key" "" /idle sess idle "" $NOW_MS)
   write_model_with_instances "$sandbox/.fake-model.json" "$row"
   CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" $'\n' 1.2; wait_board 6; CASE_DECIDE_ONLY=0
   if grep -qF "DECISION:kind=focus-only" "$sandbox/stdout" && ! grep -qF 'DECISION:kind=select' "$sandbox/stdout"; then pass "case12: Enter sid-less row focuses only"; else fail_msg "case12: Enter sid-less row focuses only"; fi
+}
+
+test_enter_sidless_idle_focus_only() {
+  local sandbox="$ROOT/case20_enter_idle" key; mkdir -p "$sandbox"; key=$(key_for "/idle-enter")
+  local row; row=$(mk_row idle "$key" "" /idle-enter sess idle "" $NOW_MS)
+  write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ACT=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" $'\n' 1.2; wait_board 6; CASE_DECIDE_ACT=0
+  if grep -qF 'DECISION:kind=focus-only' "$sandbox/stdout" && [ ! -f "$sandbox/traverse-stack.json" ] && ! compgen -G "$sandbox/*.select" >/dev/null; then pass "case20: Enter idle sid-less row focuses only"; else fail_msg "case20: Enter idle sid-less row focuses only"; fi
+}
+
+test_enter_sidless_synthetic_focus_only() {
+  local sandbox="$ROOT/case21_enter_synthetic" key; mkdir -p "$sandbox"; key=$(key_for "/synthetic-enter")
+  local row; row=$(mk_row synthetic "$key" "" /synthetic-enter sess unknown "" $NOW_MS)
+  write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ACT=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" $'\n' 1.2; wait_board 6; CASE_DECIDE_ACT=0
+  if grep -qF 'DECISION:kind=focus-only' "$sandbox/stdout" && [ ! -f "$sandbox/traverse-stack.json" ] && ! compgen -G "$sandbox/*.select" >/dev/null; then pass "case21: Enter synthetic sid-less row focuses only"; else fail_msg "case21: Enter synthetic sid-less row focuses only"; fi
+}
+
+test_enter_vanished_row_noops_without_replacement_landing() {
+  local sandbox="$ROOT/case22_enter_vanished" key_a key_b; mkdir -p "$sandbox"; key_a=$(key_for "/vanish-a"); key_b=$(key_for "/vanish-b")
+  local row_a row_b; row_a=$(mk_row v2 "$key_a" sid-a /vanish-a sess done "" $NOW_MS); row_b=$(mk_row v2 "$key_b" sid-b /vanish-b sess done "" $NOW_MS)
+  write_model_with_instances "$sandbox/.fake-model.json" "$row_a,$row_b"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO" j
+  if ! wait_log_count "$sandbox/log-render" 'render hl=\[2\]' 1 3; then stop_feeder; wait_board 3; fail_msg "case22: highlight moved to vanished row"; CASE_DECIDE_ONLY=0; return; fi
+  write_model_with_instances "$sandbox/.fake-model.json" "$row_a"
+  printf '\n' > "$BOARD_FIFO"; sleep 0.4; stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
+  if grep -qF 'DECISION:kind=noop' "$sandbox/stdout" && ! grep -qF 'sid=sid-a' "$sandbox/stdout" && ! compgen -G "$sandbox/*.select" >/dev/null; then pass "case22: vanished Enter noops without replacement landing"; else fail_msg "case22: vanished Enter noops without replacement landing" "$(cat "$sandbox/stdout")"; fi
+}
+
+test_enter_refinds_reordered_identity() {
+  local sandbox="$ROOT/case23_enter_reorder" key_a key_b; mkdir -p "$sandbox"; key_a=$(key_for "/order-a"); key_b=$(key_for "/order-b")
+  local row_a row_b; row_a=$(mk_row v2 "$key_a" sid-a /order-a sess done "" $NOW_MS); row_b=$(mk_row v2 "$key_b" sid-b /order-b sess done "" $NOW_MS)
+  write_model_with_instances "$sandbox/.fake-model.json" "$row_a,$row_b"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO" j
+  if ! wait_log_count "$sandbox/log-render" 'render hl=\[2\]' 1 3; then stop_feeder; wait_board 3; fail_msg "case23: highlight moved before reorder"; CASE_DECIDE_ONLY=0; return; fi
+  write_model_with_instances "$sandbox/.fake-model.json" "$row_b,$row_a"
+  printf '\n' > "$BOARD_FIFO"; sleep 0.4; stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
+  if grep -qF 'DECISION:kind=select' "$sandbox/stdout" && grep -qF 'sid=sid-b' "$sandbox/stdout" && ! grep -qF 'sid=sid-a' "$sandbox/stdout"; then pass "case23: Enter refinds reordered identity"; else fail_msg "case23: Enter refinds reordered identity" "$(cat "$sandbox/stdout")"; fi
+}
+
+test_enter_reruns_model_immediately() {
+  local sandbox="$ROOT/case24_enter_refresh" key; mkdir -p "$sandbox"; key=$(key_for "/refresh-enter")
+  local row; row=$(mk_row v2 "$key" sid-refresh /refresh-enter sess done "" $NOW_MS)
+  write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"
+  if ! wait_log_count "$sandbox/log-model" '^model ok' 1 3; then stop_feeder; wait_board 3; fail_msg "case24: initial model call"; CASE_DECIDE_ONLY=0; return; fi
+  printf '\n' > "$BOARD_FIFO"
+  if wait_log_count "$sandbox/log-model" '^model ok' 2 2; then pass "case24: Enter reruns model before landing"; else fail_msg "case24: Enter reruns model before landing"; fi
+  stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
 }
 
 test_enter_duplicate_and_vanished_are_noop() {
@@ -933,6 +1013,105 @@ test_dismiss_done_writes_mark_only_and_hides() {
   write_model_with_instances "$sandbox/.fake-model.json" "$row"
   CASE_DECIDE_ACT=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" d 1.2; wait_board 6; CASE_DECIDE_ACT=0
   if [ "$(jq -c . "$sandbox/${key}.select" 2>/dev/null)" = '{"sessionID":"sid-dismiss","markOnly":true}' ]; then pass "case15: d writes mark-only mailbox"; else fail_msg "case15: d writes mark-only mailbox" "$(cat "$sandbox/stdout")"; fi
+}
+
+test_dismiss_needs_attention_writes_mark_only() {
+  local sandbox="$ROOT/case25_dismiss_attention" key; mkdir -p "$sandbox"; key=$(key_for "/attention")
+  local row; row=$(mk_row v2 "$key" sid-attention /attention sess needs-attention reason $NOW_MS)
+  write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ACT=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" d 1.2; wait_board 6; CASE_DECIDE_ACT=0
+  if [ "$(jq -c . "$sandbox/${key}.select" 2>/dev/null)" = '{"sessionID":"sid-attention","markOnly":true}' ]; then pass "case25: d needs-attention writes mark-only mailbox"; else fail_msg "case25: d needs-attention writes mark-only mailbox"; fi
+}
+
+test_dismiss_idle_is_noop() {
+  local sandbox="$ROOT/case26_dismiss_idle" key; mkdir -p "$sandbox"; key=$(key_for "/dismiss-idle")
+  local row; row=$(mk_row idle "$key" "" /dismiss-idle sess idle "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" d 1.2; wait_board 6; CASE_DECIDE_ONLY=0
+  if grep -qF 'DECISION:kind=noop' "$sandbox/stdout" && ! compgen -G "$sandbox/*.select" >/dev/null && ! grep -qF 'DECISION:hidden='"$key" "$sandbox/stdout"; then pass "case26: d idle row noops"; else fail_msg "case26: d idle row noops"; fi
+}
+
+test_dismiss_v1_sidless_is_noop() {
+  local sandbox="$ROOT/case27_dismiss_v1" key; mkdir -p "$sandbox"; key=$(key_for "/dismiss-v1")
+  local row; row=$(mk_row v1 "$key" "" /dismiss-v1 sess done "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" d 1.2; wait_board 6; CASE_DECIDE_ONLY=0
+  if grep -qF 'DECISION:kind=noop' "$sandbox/stdout" && ! compgen -G "$sandbox/*.select" >/dev/null; then pass "case27: d v1 sid-less row noops"; else fail_msg "case27: d v1 sid-less row noops"; fi
+}
+
+test_dismiss_synthetic_is_noop() {
+  local sandbox="$ROOT/case28_dismiss_synthetic" key; mkdir -p "$sandbox"; key=$(key_for "/dismiss-synthetic")
+  local row; row=$(mk_row synthetic "$key" "" /dismiss-synthetic sess unknown "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" d 1.2; wait_board 6; CASE_DECIDE_ONLY=0
+  if grep -qF 'DECISION:kind=noop' "$sandbox/stdout" && ! compgen -G "$sandbox/*.select" >/dev/null; then pass "case28: d synthetic row noops"; else fail_msg "case28: d synthetic row noops"; fi
+}
+
+test_dismiss_duplicate_is_noop() {
+  local sandbox="$ROOT/case29_dismiss_duplicate"; mkdir -p "$sandbox"
+  local row; row=$(mk_row warning "" "" /dismiss-duplicate sess duplicate duplicate $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" d 1.2; wait_board 6; CASE_DECIDE_ONLY=0
+  if grep -qF 'DECISION:kind=noop' "$sandbox/stdout" && ! compgen -G "$sandbox/*.select" >/dev/null; then pass "case29: d duplicate row noops"; else fail_msg "case29: d duplicate row noops"; fi
+}
+
+test_board_internal_keys_do_not_reconcile_with_fresh_p() {
+  local sandbox="$ROOT/case30_internal_keys" key; mkdir -p "$sandbox"; key=$(key_for "/internal")
+  local row; row=$(mk_row v2 "$key" sid-internal /internal sess done "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row" '[{"selectedSid":"sid-fresh","selectedTs":999}]'
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO" j 0.1 k 0.1 "$(printf '\e[A')" 0.1 "$(printf '\e[B')" 0.1 "$(printf '\e')" 0.1 d 0.1 q
+  wait_board 6; stop_feeder; CASE_DECIDE_ONLY=0
+  if [ ! -f "$sandbox/traverse-stack.json" ] && ! grep -qF 'DECISION:kind=select' "$sandbox/stdout"; then pass "case30: board-internal keys never reconcile"; else fail_msg "case30: board-internal keys never reconcile" "$(cat "$sandbox/stdout")"; fi
+}
+
+test_hidden_set_confirms_on_suppressed_model_row() {
+  local sandbox="$ROOT/case31_hidden_confirm" key; mkdir -p "$sandbox"; key=$(key_for "/confirm")
+  local row; row=$(mk_row v2 "$key" sid-confirm /confirm sess done "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"
+  wait_first_render "$sandbox/log-render" 3; printf d > "$BOARD_FIFO"
+  if ! wait_log_count "$sandbox/log-model" '^model ok' 2 3; then stop_feeder; wait_board 3; fail_msg "case31: model refreshed after dismiss"; CASE_DECIDE_ONLY=0; return; fi
+  jq '.rows[0].suppressed = true' "$sandbox/.fake-model.json" > "$sandbox/.next-model.json"; mv "$sandbox/.next-model.json" "$sandbox/.fake-model.json"
+  wait_log_count "$sandbox/log-model" '^model ok' 3 3
+  printf ' ' > "$BOARD_FIFO"; sleep 0.4
+  local confirmed_cache=0 confirmed_map=0
+  [ "$(jq -r '.rows[0].suppressed' "$sandbox/.board-cache.json" 2>/dev/null)" = true ] && confirmed_cache=1
+  ! grep -qF sid-confirm "$sandbox/.board-linemap.tsv" 2>/dev/null && confirmed_map=1
+  stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
+  if grep -qF 'DECISION:hidden=sid-confirm' "$sandbox/stdout" && grep -qF 'DECISION:hidden=' "$sandbox/stdout" && ! grep -qF 'DECISION:hidden=sid-confirm' <(tail -n 1 "$sandbox/stdout") &&
+       (( confirmed_cache == 1 && confirmed_map == 1 )); then
+    pass "case31: suppressed row confirms and clears hide"
+  else fail_msg "case31: suppressed row confirms and clears hide" "$(cat "$sandbox/stdout")" "cache=$(cat "$sandbox/.board-cache.json" 2>/dev/null || true)" "linemap=$(cat "$sandbox/.board-linemap.tsv" 2>/dev/null || true)" "confirmed_cache=$confirmed_cache confirmed_map=$confirmed_map"; fi
+}
+
+test_hidden_set_expires_on_exact_fifth_refresh_tick() {
+  local sandbox="$ROOT/case32_hidden_precision" key; mkdir -p "$sandbox"; key=$(key_for "/precision")
+  local row; row=$(mk_row v2 "$key" sid-precision /precision sess done "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model-pause-six.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"
+  wait_first_render "$sandbox/log-render" 3; printf d > "$BOARD_FIFO"; wait_log_count "$sandbox/log-model" '^model ok' 2 3
+  wait_log_count "$sandbox/log-model" '^model ok' 5 6
+  local absent=0 present=0
+  if ! jq -e --arg sid sid-precision '.rows[]? | select(.sid == $sid)' "$sandbox/.board-cache.json" >/dev/null 2>&1; then absent=1; fi
+  : > "$sandbox/.release-six"
+  wait_log_count "$sandbox/log-model" '^model ok' 6 3
+  wait_log_count "$sandbox/log-render" '^render hl=' 6 3
+  if jq -e --arg sid sid-precision '.rows[]? | select(.sid == $sid)' "$sandbox/.board-cache.json" >/dev/null 2>&1; then present=1; fi
+  stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
+  if (( absent == 1 && present == 1 )); then pass "case32: unconfirmed hide returns on fifth refresh tick"; else fail_msg "case32: unconfirmed hide returns on fifth refresh tick"; fi
+}
+
+test_hidden_set_expires_when_sensor_never_suppresses() {
+  local sandbox="$ROOT/case33_hidden_failure_safety" key; mkdir -p "$sandbox"; key=$(key_for "/failure-safety")
+  local row; row=$(mk_row v2 "$key" sid-safety /failure-safety sess done "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"
+  wait_first_render "$sandbox/log-render" 3; printf d > "$BOARD_FIFO"; wait_log_count "$sandbox/log-model" '^model ok' 6 8
+  wait_log_count "$sandbox/log-render" '^render hl=' 6 3
+  if jq -e --arg sid sid-safety '.rows[]? | select(.sid == $sid)' "$sandbox/.board-cache.json" >/dev/null 2>&1; then pass "case33: sensor without suppression cannot hide permanently"; else fail_msg "case33: sensor without suppression cannot hide permanently"; fi
+  stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
+}
+
+test_decision_hidden_emits_each_processed_key_and_transitions() {
+  local sandbox="$ROOT/case34_hidden_decisions" key; mkdir -p "$sandbox"; key=$(key_for "/hidden-decisions")
+  local row; row=$(mk_row v2 "$key" sid-decisions /hidden-decisions sess done "" $NOW_MS); write_model_with_instances "$sandbox/.fake-model.json" "$row"
+  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_close "$BOARD_FIFO" $' jd ' 1.2; wait_board 6; CASE_DECIDE_ONLY=0
+  local empty_count contains_count
+  empty_count=$(grep -cF 'DECISION:hidden=' "$sandbox/stdout" || true); contains_count=$(grep -cF 'DECISION:hidden=sid-decisions' "$sandbox/stdout" || true)
+  if (( empty_count >= 2 && contains_count >= 1 )); then pass "case34: DECISION:hidden tracks every processed key"; else fail_msg "case34: DECISION:hidden tracks every processed key" "$(cat "$sandbox/stdout")"; fi
 }
 
 test_dismiss_ineligible_is_noop() {
@@ -972,11 +1151,27 @@ test_exit_cleans_state_files
 test_non_tty_stty_tolerated
 test_enter_sid_emits_select_decision_without_persistence
 test_enter_sidless_focus_only
+test_enter_sid_decide_act_matches_navigation_mutation
+test_enter_sidless_idle_focus_only
+test_enter_sidless_synthetic_focus_only
+test_enter_vanished_row_noops_without_replacement_landing
+test_enter_refinds_reordered_identity
+test_enter_reruns_model_immediately
 test_enter_sid_decide_act_persists_stack_and_mailbox
 test_enter_duplicate_and_vanished_are_noop
 test_board_keys_do_not_reconcile_and_space_tab_do_not_enter
 test_dismiss_done_writes_mark_only_and_hides
+test_dismiss_needs_attention_writes_mark_only
+test_dismiss_idle_is_noop
+test_dismiss_v1_sidless_is_noop
+test_dismiss_synthetic_is_noop
+test_dismiss_duplicate_is_noop
 test_dismiss_ineligible_is_noop
+test_board_internal_keys_do_not_reconcile_with_fresh_p
+test_hidden_set_confirms_on_suppressed_model_row
+test_hidden_set_expires_on_exact_fifth_refresh_tick
+test_hidden_set_expires_when_sensor_never_suppresses
+test_decision_hidden_emits_each_processed_key_and_transitions
 test_dismiss_hide_expires_after_five_ticks
 
 echo
