@@ -108,6 +108,7 @@ refresh_model() {
 emit_decision() {
   printf '%s\n' "$1"
   printf '%s\n' "$1" >&2
+  printf '%s\n' "$1" | af_trace decision.txt
 }
 
 emit_hidden() {
@@ -132,14 +133,32 @@ apply_select_nav() {
   ' <<<"$stack"
 }
 
+# Per-press trace id for Enter, gated on AGENT_FLEET_TRACE_DIR like
+# jump/traverse. Regenerated every press (the board is multi-press per
+# process, unlike jump.sh); unset on return so dismiss()'s mailbox write
+# never inherits a stale rid. enter_press does the work.
 enter() {
+  if [ -n "${AGENT_FLEET_TRACE_DIR:-}" ]; then
+    AF_REQUEST_ID="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}-$$"
+    export AF_REQUEST_ID
+  fi
+  local rc=0
+  enter_press || rc=$?
+  unset AF_REQUEST_ID
+  return $rc
+}
+
+enter_press() {
   local row key sid cwd sess pane tab title p stack now_ms
   if ! refresh_model; then
     emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE"; return
   fi
   now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
+  af_trace model.json <"$CACHE"
   p="$(stack_derive_p "${ZELLIJ_SESSION_NAME:-}" < "$CACHE")"
-  stack="$(stack_reconcile "$p" "$now_ms" <<<"$(stack_read)")"
+  stack="$(stack_read)"
+  af_trace stack-pre.json <<<"$stack"
+  stack="$(stack_reconcile "$p" "$now_ms" <<<"$stack")"
   stack_write "$stack"
   if [ -n "$HL_SID" ]; then
     row="$(jq -c --arg key "$HL_KEY" --arg sid "$HL_SID" '.rows[]? | select(.key == $key and .sid == $sid)' "$CACHE" | head -n 1 || true)"
