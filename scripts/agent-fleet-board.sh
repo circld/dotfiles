@@ -97,27 +97,36 @@ advance_hidden() {
 
 # Run the model into a tmp file, validate JSON, atomic rename on success.
 # Failure: leave the prior cache untouched.
+# Optional $1: timing event label (default tick). model= spans the model
+# invocation only (mktemp stays outside t0); hidden= spans jq validate +
+# advance_hidden + filter_hidden_rows + mv. t1 is read unconditionally so the
+# failure branches emit a real model= delta instead of a negative number.
 refresh_model() {
-  local tmp
+  local label="${1:-tick}" tmp rc t0 t1 t2
   tmp="$(mktemp "$CACHE.tmp.XXXXXX")"
+  t0=0; ((TIMING_ON)) && t0="${EPOCHREALTIME/[.,]}" || true
+  rc=0
   if [ -x "$MODEL" ]; then
-    if ! "$MODEL" > "$tmp" 2>/dev/null; then
-      rm -f "$tmp"
-      return 1
-    fi
+    "$MODEL" > "$tmp" 2>/dev/null || rc=$?
   else
-    if ! node "$MODEL" > "$tmp" 2>/dev/null; then
-      rm -f "$tmp"
-      return 1
-    fi
+    node "$MODEL" > "$tmp" 2>/dev/null || rc=$?
+  fi
+  t1=0; ((TIMING_ON)) && t1="${EPOCHREALTIME/[.,]}" || true
+  if (( rc != 0 )); then
+    timing_log "event=$label ts=${t0%??????} tick_n=$TICK_COUNT model=$(( (t1 - t0) / 1000 )) failed=model"
+    rm -f "$tmp"
+    return 1
   fi
   if jq -e type >/dev/null 2>&1 < "$tmp"; then
     TICK_COUNT=$((TICK_COUNT + 1))
     advance_hidden
     filter_hidden_rows "$tmp"
     mv -f "$tmp" "$CACHE"
+    t2=0; ((TIMING_ON)) && t2="${EPOCHREALTIME/[.,]}" || true
+    timing_log "event=$label ts=${t0%??????} tick_n=$TICK_COUNT model=$(( (t1 - t0) / 1000 )) hidden=$(( (t2 - t1) / 1000 ))"
     return 0
   fi
+  timing_log "event=$label ts=${t0%??????} tick_n=$TICK_COUNT model=$(( (t1 - t0) / 1000 )) failed=invalid"
   rm -f "$tmp"
   return 1
 }
@@ -318,8 +327,9 @@ repaint() {
 
 # Refresh + repaint one tick. Model failure is silent (cache preserved).
 tick() {
-  if refresh_model; then
-    repaint "$HL_LINE"
+  local reason="${1:-tick}"
+  if refresh_model "$reason"; then
+    repaint "$HL_LINE" "$reason"
   fi
 }
 
@@ -394,7 +404,7 @@ PENDING_KEY=""
 # Initial tick — anchor highlight on the first mapped row, if any. We
 # pre-seed HL_LINE=1 so the first find_hl_line(1) targets row 1 (the
 # conventional top-of-list focus) when no prior identity exists.
-tick
+tick initial
 
 # Last successful tick wall-clock (nanoseconds since epoch). Pre-seeded
 # NOW so the loop's first deadline check doesn't fire spuriously.
@@ -404,7 +414,7 @@ while true; do
   # Pre-read deadline check — refresh+repaint on schedule even with no keys.
   now_ns="$(ns_now)"
   if (( now_ns - last_tick_ns >= INTERVAL * 1000000000 )); then
-    tick
+    tick deadline
     last_tick_ns="$(ns_now)"
   fi
 
@@ -429,7 +439,7 @@ while true; do
   # rc>128 includes INTERVAL timeout AND signal-interrupted reads (e.g.
   # trapped WINCH mid-`read`). Either way: refresh+repaint, reset deadline.
   if (( rc > 128 )); then
-    tick
+    tick winch
     last_tick_ns="$(ns_now)"
     continue
   fi
@@ -438,7 +448,7 @@ while true; do
   # cannot starve the model refresh.
   now_ns="$(ns_now)"
   if (( now_ns - last_tick_ns >= INTERVAL * 1000000000 )); then
-    tick
+    tick deadline
     last_tick_ns="$(ns_now)"
   fi
 
