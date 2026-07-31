@@ -176,8 +176,8 @@ enter() {
 
 enter_press() {
   local row key sid cwd sess pane tab title p stack now_ms
-  if ! refresh_model; then
-    emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE"; return
+  if ! refresh_model enter; then
+    emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE" enter; return
   fi
   now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
   af_trace model.json <"$CACHE"
@@ -191,9 +191,9 @@ enter_press() {
   else
     row="$(jq -c --arg cwd "$HL_CWD" '.rows[]? | select(.sid == null and .cwd == $cwd)' "$CACHE" | head -n 1 || true)"
   fi
-  if [ -z "$row" ]; then emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE"; return; fi
+  if [ -z "$row" ]; then emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE" enter; return; fi
   if [ "$(jq -r '(.state == "duplicate") or (.source == "warning") or (.duplicate == true) or (.ambiguous == true)' <<<"$row")" = true ]; then
-    emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE"; return
+    emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE" enter; return
   fi
   key="$(jq -r '.key // empty' <<<"$row")"; sid="$(jq -r '.sid // empty' <<<"$row")"
   cwd="$(jq -r '.cwd // empty' <<<"$row")"; sess="$(jq -r '.session // empty' <<<"$row")"
@@ -201,13 +201,13 @@ enter_press() {
   title="$(jq -r '.title // empty' <<<"$row")"
   if [ -z "$sid" ]; then
     emit_decision "DECISION:kind=focus-only cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab}"
-    act_land "" "" "$sess" "$pane" "$tab" "$title"; repaint "$HL_LINE"; return
+    act_land "" "" "$sess" "$pane" "$tab" "$title"; repaint "$HL_LINE" enter; return
   fi
   stack="$(apply_select_nav "$stack" "$sid" "$now_ms")"
   emit_decision "DECISION:kind=select cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab} key=${key} sid=${sid}"
   stack_write "$stack"
   act_land "$key" "$sid" "$sess" "$pane" "$tab" "$title"
-  repaint "$HL_LINE"
+  repaint "$HL_LINE" enter
 }
 
 dismiss() {
@@ -221,7 +221,7 @@ dismiss() {
     atomic_write_select "$STATE_DIR/${key}.select" "$sid" true
     HIDDEN_AT["$sid"]=0
     filter_hidden_rows "$CACHE"
-    repaint "$HL_LINE"
+    repaint "$HL_LINE" dismiss
   else
     emit_decision 'DECISION:kind=noop'
   fi
@@ -315,14 +315,35 @@ find_hl_line() {
 }
 
 # Repaint: invoke renderer with the highlight line, then refresh identity.
+# Optional $2: timing event label (default tick). Optional $3: caller entry
+# clock in µs (emitted as total=, nav only). Optional $4: caller-measured
+# drain ms (emitted as drain=, nav only). rows= counts navigable linemap
+# entries (last line's field 1); the [ -s ] guard plus the redirect's
+# 2>/dev/null || true are load-bearing — [ -s ] passes on a non-empty but
+# unreadable file, and a failed redirect in the if body is NOT exempt from
+# set -e; observability must never kill the board. find_hl= also spans the
+# \e[J erase printf (~µs builtin); t1 stays before it so render= — Gate 1's
+# number — measures the renderer alone.
 repaint() {
-  local hl_line="${1-}"
+  local hl_line="${1-}" label="${2:-tick}" t_start="${3:-0}" drain_ms="${4:-}"
+  local t0 t1 t2 rows last rest extra
   printf '\e[H'
+  t0=0; ((TIMING_ON)) && t0="${EPOCHREALTIME/[.,]}" || true
   AGENT_FLEET_STATE_DIR="$STATE_DIR" \
     AGENT_FLEET_HIGHLIGHT_LINE="$hl_line" \
     "$RENDER" 2>>"$STATE_DIR/.board-render.log" || true   # transient render errors must not kill the board
+  t1=0; ((TIMING_ON)) && t1="${EPOCHREALTIME/[.,]}" || true
   printf '\e[J'   # erase from render tail down: clears rows a shorter frame left behind
   find_hl_line "$HL_LINE"
+  t2=0; ((TIMING_ON)) && t2="${EPOCHREALTIME/[.,]}" || true
+  rows=0
+  if ((TIMING_ON)) && [ -s "$LINEMAP" ]; then
+    while IFS=$'\t' read -r last rest; do rows="$last"; done 2>/dev/null < "$LINEMAP" || true
+  fi
+  extra=""
+  [ -n "$drain_ms" ] && extra=" drain=$drain_ms"
+  [ "$t_start" != 0 ] && extra="$extra total=$(( (t2 - t_start) / 1000 ))"
+  timing_log "event=$label ts=${t0%??????} render=$(( (t1 - t0) / 1000 )) find_hl=$(( (t2 - t1) / 1000 )) rows=$rows$extra"
 }
 
 # Refresh + repaint one tick. Model failure is silent (cache preserved).
@@ -352,13 +373,15 @@ ns_now() {
 # the highlight, and repaint a single time. A non-nav key drained in the
 # process is stashed in PENDING_KEY so the main loop still handles it.
 navigate() {
-  local delta="$1"
+  local delta="$1" t_entry t_fork t_drain drain_ms
+  t_entry=0; ((TIMING_ON)) && t_entry="${EPOCHREALTIME/[.,]}" || true
   if [ ! -s "$LINEMAP" ]; then
     return 0
   fi
   local last
   last="$(awk -F $'\t' 'END{if(NF>0) print $1; else print ""}' "$LINEMAP")"
   [ -n "$last" ] || return 0
+  t_fork=0; ((TIMING_ON)) && t_fork="${EPOCHREALTIME/[.,]}" || true
   local k seq current
   while true; do
     current="$HL_LINE"
@@ -390,11 +413,13 @@ navigate() {
       *) PENDING_KEY="$k"; break ;;
     esac
   done
+  t_drain=0; ((TIMING_ON)) && t_drain="${EPOCHREALTIME/[.,]}" || true
+  drain_ms=$(( (t_drain - t_fork) / 1000 ))
   # Re-derive identity atoms for the new line (so reorder preserves us).
   HL_KEY="$(linemap_field_for_line "$HL_LINE" key)"
   HL_SID="$(linemap_field_for_line "$HL_LINE" sid)"
   HL_CWD="$(linemap_field_for_line "$HL_LINE" cwd)"
-  repaint "$HL_LINE"
+  repaint "$HL_LINE" nav "$t_entry" "$drain_ms"
 }
 
 # --- highlight state (globals) ---
