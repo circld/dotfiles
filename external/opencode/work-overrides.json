@@ -120,7 +120,7 @@
       "mode": "subagent"
     },
     "doc-updater": {
-      "model": "octane_llm_proxy/kimi-k3"
+      "model": "octane_llm_proxy/kimi-k3",
       "mode": "subagent"
     }
   },
