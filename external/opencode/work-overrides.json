@@ -12,24 +12,6 @@
         "chunkTimeout": 300000
       },
       "models": {
-        "minimax-m3": {
-          "name": "Minimax M3",
-          "attachment": true,
-          "modalities": {
-            "input": [
-              "text",
-              "image",
-              "video"
-            ],
-            "output": [
-              "text"
-            ]
-          },
-          "cost": {
-            "input": 0.3,
-            "output": 1.2
-          }
-        },
         "claude-opus-5": {
           "name": "Claude Opus 5",
           "reasoning": true,
@@ -107,10 +89,12 @@
   },
   "agent": {
     "explore": {
-      "model": "octane_llm_proxy/minimax-m3"
+      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "variant": "low"
     },
     "general": {
-      "model": "octane_llm_proxy/minimax-m3"
+      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "variant": "low"
     },
     "researcher": {
       "model": "octane_llm_proxy_openai/gpt-5.6-luna",
@@ -119,19 +103,25 @@
       }
     },
     "code-reviewer": {
-      "model": "octane_llm_proxy_openai/gpt-5.6-luna"
+      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "mode": "subagent"
     },
     "task-implementer": {
-      "model": "octane_llm_proxy/minimax-m3"
+      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "mode": "subagent",
+      "variant": "low"
     },
     "spec-reviewer": {
-      "model": "octane_llm_proxy_openai/gpt-5.6-luna"
+      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "mode": "subagent"
     },
     "doc-critic": {
-      "model": "octane_llm_proxy/claude-opus-5"
+      "model": "octane_llm_proxy/claude-opus-5",
+      "mode": "subagent"
     },
     "doc-updater": {
       "model": "octane_llm_proxy/kimi-k3"
+      "mode": "subagent"
     }
   },
   "mcp": {
