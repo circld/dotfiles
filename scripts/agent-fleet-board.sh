@@ -13,6 +13,15 @@ RENDER="${AGENT_FLEET_RENDER:-$SCRIPT_DIR/agent-fleet-render.sh}"
 INTERVAL="${AGENT_FLEET_REFRESH_SECS:-30}"
 CACHE="$STATE_DIR/.board-cache.json"
 LINEMAP="$STATE_DIR/.board-linemap.tsv"
+# Phase timing (Phase 0). Gate is the literal string "1"; bash >= 5 required
+# for EPOCHREALTIME. Bash 4 is supported, so compile out with a note rather
+# than die on the unbound variable under set -u. Off-mode: one ((TIMING_ON))
+# test per boundary, no clock reads, no log file.
+TIMING_ON=0
+[ "${AGENT_FLEET_TIMING:-0}" = 1 ] && (( BASH_VERSINFO[0] >= 5 )) && TIMING_ON=1
+[ "${AGENT_FLEET_TIMING:-0}" = 1 ] && (( TIMING_ON == 0 )) && \
+  echo "agent-fleet-board: AGENT_FLEET_TIMING=1 ignored — needs bash >= 5" >&2
+TIMING_LOG="$STATE_DIR/.board-timing.log"
 . "$SCRIPT_DIR/agent-fleet-act.sh"
 # ponytail: one board per state dir assumed; use flock on state dir if concurrent boards matter.
 
@@ -42,6 +51,14 @@ trap 'printf "\e[2J"' WINCH
 
 declare -A HIDDEN_AT=()
 TICK_COUNT=0
+
+# Single timing emitter. printf and >> are builtins (zero forks). pid=$$ makes
+# the append-forever log sliceable by session. The 2>/dev/null || true is
+# load-bearing: an unwritable state dir must not kill a repaint under set -e,
+# and bash's "cannot create" redirect error must not smear the alt-screen
+# dashboard (design A9) — || true alone swallows the status, not the message.
+# Redirections apply left-to-right, so 2>/dev/null must precede >> to mute it.
+timing_log() { ((TIMING_ON)) && printf 'TIMING pid=%s %s\n' "$$" "$*" 2>/dev/null >> "$TIMING_LOG" || true; }
 
 hidden_json() {
   local sid
