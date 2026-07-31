@@ -259,6 +259,7 @@ launch_board_async() {
     AGENT_FLEET_DECIDE_ONLY="${CASE_DECIDE_ONLY:-0}" \
     AGENT_FLEET_DECIDE_ACT="${CASE_DECIDE_ACT:-0}" \
     AGENT_FLEET_REFRESH_SECS="${CASE_REFRESH_SECS:-1}" \
+    AGENT_FLEET_TIMING="${CASE_TIMING:-0}" \
     bash "$BOARD" < "$BOARD_FIFO" > "$sandbox/stdout" 2> "$sandbox/stderr" &
   BOARD_PID=$!
 }
@@ -1256,6 +1257,114 @@ test_dismiss_hide_expires_after_five_ticks() {
   if grep -qF 'DECISION:hidden=sid-expiry' "$sandbox/stdout" && grep -qF 'render hl=' "$sandbox/log-render"; then pass "case17: dismiss hide expires after refresh ticks"; else fail_msg "case17: dismiss hide expires after refresh ticks" "$(cat "$sandbox/stdout")"; fi
 }
 
+# --- Timing: on-mode emits parseable per-phase lines. ---
+test_timing_on_emits_parseable_phases() {
+  # Timing compiles out on bash < 5 (board gate, Task 2) — skip rather than
+  # fail a configuration the board and harness both explicitly support.
+  if (( BASH_VERSINFO[0] < 5 )); then
+    printf 'SKIP: case41 (bash < 5 — timing compiles out)\n'
+    return 0
+  fi
+  local sandbox="$ROOT/case41_timing_on"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/timing-on")
+  write_cache "$sandbox/.fake-model.json" \
+     "$(mk_row v2 "$key" sTiming /timing-on sx "done" "" $NOW_MS)"
+  # Inline env: launch_board_async reads CASE_TIMING at call time. Default
+  # bash does not persist assignments prefixed to a function call (POSIX mode
+  # would — the harness never enables it), so nothing leaks into case42.
+  CASE_TIMING=1 launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_close "$BOARD_FIFO" "q" 1.5; wait_board 6
+  local log="$sandbox/.board-timing.log"
+  if [ -f "$log" ]; then pass "case41: timing log created"; else fail_msg "case41: timing log created" "no .board-timing.log"; fi
+  # Refresh shape: one event=initial line with numeric model= and hidden=.
+  if grep -qE '^TIMING pid=[0-9]+ event=initial ts=[0-9]+ tick_n=[0-9]+ model=[0-9]+ hidden=[0-9]+$' "$log" 2>/dev/null; then pass "case41: refresh line carries numeric model/hidden"; else fail_msg "case41: refresh line carries numeric model/hidden" "$(cat "$log" 2>/dev/null)"; fi
+  # Repaint shape: one event=initial line with numeric render/find_hl/rows.
+  if grep -qE '^TIMING pid=[0-9]+ event=initial ts=[0-9]+ render=[0-9]+ find_hl=[0-9]+ rows=[0-9]+$' "$log" 2>/dev/null; then pass "case41: repaint line carries numeric render/find_hl/rows"; else fail_msg "case41: repaint line carries numeric render/find_hl/rows" "$(cat "$log" 2>/dev/null)"; fi
+}
+
+# --- Timing: off-mode is inert (log never created, board unharmed). ---
+test_timing_off_is_inert() {
+  local sandbox="$ROOT/case42_timing_off"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/timing-off")
+  write_cache "$sandbox/.fake-model.json" \
+     "$(mk_row v2 "$key" sTimingOff /timing-off sx "done" "" $NOW_MS)"
+  launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_close "$BOARD_FIFO" "q" 1.5
+  wait_board 6
+  # [ ! -e log ] alone cannot tell "inert" from "dead in the disabled path" —
+  # a set -e death also produces no log. Assert the board lived first.
+  assert_eq "case42: board exited 0" "0" "$?"
+  if grep -q '^render complete' "$sandbox/log-render" 2>/dev/null; then pass "case42: off-mode board still renders"; else fail_msg "case42: off-mode board still renders" "no render complete in log-render"; fi
+  if [ ! -e "$sandbox/.board-timing.log" ]; then pass "case42: off-mode creates no timing log"; else fail_msg "case42: off-mode creates no timing log" "$(cat "$sandbox/.board-timing.log")"; fi
+}
+
+# --- Timing: keypress lines carry event labels; nav carries drain/total. ---
+test_timing_keypress_lines_have_labels() {
+  if (( BASH_VERSINFO[0] < 5 )); then
+    printf 'SKIP: case43 (bash < 5 — timing compiles out)\n'
+    return 0
+  fi
+  local sandbox="$ROOT/case43_timing_keypress"
+  mkdir -p "$sandbox"
+  local k1; k1=$(key_for "/timing-key1")
+  local k2; k2=$(key_for "/timing-key2")
+  write_cache "$sandbox/.fake-model.json" \
+     "$(mk_row v2 "$k1" sTimingKey1 /timing-key1 sx "done" "" $NOW_MS)" \
+     "$(mk_row v2 "$k2" sTimingKey2 /timing-key2 sx "done" "" $NOW_MS)"
+  # DECIDE_ONLY: the Enter press below reaches act_land — it must no-op.
+  # REFRESH_SECS=3600 pins the deadline off: at the 1s default a deadline
+  # tick's `render complete` can satisfy wait_log_count (a >= check) before
+  # the keypress's own repaint lands, letting the next key fall inside
+  # navigate()'s drain — and a drained `\n` is dropped, not replayed as Enter
+  # (empty PENDING_KEY, board.sh:363,399).
+  CASE_TIMING=1 CASE_DECIDE_ONLY=1 CASE_REFRESH_SECS=3600 \
+    launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO"
+  local log="$sandbox/.board-timing.log"
+  if ! wait_first_render "$sandbox/log-render" 3; then
+    fail_msg "case43: initial render" "no first render"
+    stop_feeder; wait_board 3; return 0
+  fi
+  # Each keypress waits for its repaint before the next is sent, so keys stay
+  # outside navigate()'s 30ms drain window and produce one line each.
+  printf 'j' > "$BOARD_FIFO"; wait_log_count "$sandbox/log-render" '^render complete' 2 3
+  printf '\n' > "$BOARD_FIFO"; wait_log_count "$sandbox/log-render" '^render complete' 3 3
+  printf 'd' > "$BOARD_FIFO"; wait_log_count "$sandbox/log-render" '^render complete' 4 3
+  stop_feeder; wait_board 6
+  if grep -qE '^TIMING pid=[0-9]+ event=nav ts=[0-9]+ render=[0-9]+ find_hl=[0-9]+ rows=[0-9]+ drain=[0-9]+ total=[0-9]+$' "$log" 2>/dev/null; then pass "case43: nav line carries drain/total"; else fail_msg "case43: nav line carries drain/total" "$(cat "$log" 2>/dev/null)"; fi
+  if grep -qE '^TIMING pid=[0-9]+ event=enter ts=[0-9]+ render=[0-9]+ find_hl=[0-9]+ rows=[0-9]+$' "$log" 2>/dev/null; then pass "case43: enter repaint line labelled enter"; else fail_msg "case43: enter repaint line labelled enter" "$(cat "$log" 2>/dev/null)"; fi
+  if grep -qE '^TIMING pid=[0-9]+ event=dismiss ts=[0-9]+ render=[0-9]+ find_hl=[0-9]+ rows=[0-9]+$' "$log" 2>/dev/null; then pass "case43: dismiss repaint line labelled dismiss"; else fail_msg "case43: dismiss repaint line labelled dismiss" "$(cat "$log" 2>/dev/null)"; fi
+}
+
+# --- Timing: failure refresh lines carry failed=model / failed=invalid. ---
+test_timing_failure_lines() {
+  if (( BASH_VERSINFO[0] < 5 )); then
+    printf 'SKIP: case44 (bash < 5 — timing compiles out)\n'
+    return 0
+  fi
+  local key; key=$(key_for "/timing-fail")
+  # failed=model: model-then-fail exits 7 on every call after the first, so
+  # the 1s deadline ticks fail. Default REFRESH_SECS=1 is WANTED here.
+  local sandbox="$ROOT/case44a_timing_model_fail"
+  mkdir -p "$sandbox"
+  write_cache "$sandbox/.fake-model.json" \
+     "$(mk_row v2 "$key" sTimingFail /timing-fail sx "done" "" $NOW_MS)"
+  CASE_TIMING=1 launch_board_async "$sandbox" "$FAKES/model-then-fail.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO"
+  if wait_log_count "$sandbox/.board-timing.log" 'failed=model' 1 5; then pass "case44: failed=model line on model rc!=0"; else fail_msg "case44: failed=model line on model rc!=0" "$(cat "$sandbox/.board-timing.log" 2>/dev/null)"; fi
+  stop_feeder; wait_board 6
+  # failed=invalid needs rc==0 with broken JSON — plain model.sh, not then-fail.
+  sandbox="$ROOT/case44b_timing_invalid"
+  mkdir -p "$sandbox"
+  printf '{broken' > "$sandbox/.fake-model.json"
+  CASE_TIMING=1 launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"
+  feed_forever "$BOARD_FIFO"
+  if wait_log_count "$sandbox/.board-timing.log" 'failed=invalid' 1 5; then pass "case44: failed=invalid line on non-JSON model output"; else fail_msg "case44: failed=invalid line on non-JSON model output" "$(cat "$sandbox/.board-timing.log" 2>/dev/null)"; fi
+  stop_feeder; wait_board 6
+}
+
 # === run all ===
 test_initial_tick_writes_cache_and_renders
 test_non_executable_node_model_refreshes_cache
@@ -1305,6 +1414,10 @@ test_hidden_set_expires_when_sensor_never_suppresses
 test_hidden_set_survives_model_failures_and_expires_after_recovery
 test_decision_hidden_emits_each_processed_key_and_transitions
 test_dismiss_hide_expires_after_five_ticks
+test_timing_on_emits_parseable_phases
+test_timing_off_is_inert
+test_timing_keypress_lines_have_labels
+test_timing_failure_lines
 
 echo
 echo "---"
