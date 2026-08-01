@@ -2,30 +2,30 @@
 # agent-fleet-render.sh — paint-only.
 #
 # Reads `$AGENT_FLEET_STATE_DIR/.board-cache.json` (written by the board from
-# the model output) and paints a frame to stdout. NEVER invokes the model —
-# that lives one rung up in the board (Task 8's loop). Writes a line map to
-# `.board-linemap.tsv` so the board can translate painted screen lines into
-# row identities for keyboard navigation (Task 8/9).
+# the model output) and paints a frame to stdout. NEVER invokes the model.
+# Writes a line map to `.board-linemap.tsv` so the board can translate
+# painted screen lines into row identities for keyboard navigation.
 #
-# Failure modes:
+# Cost design (Phase 1 render collapse): exactly 2 jq forks per frame —
+# one validate, one transform that owns filtering/grouping/sorting/labels/
+# icons/state columns. Bash keeps only a zero-fork paint loop (builtins:
+# printf, printf -v, arithmetic) plus the mv pair the atomic linemap
+# contract requires (PID-named tmps — one renderer per state dir). The
+# old pipeline paid ~5.2 jq forks per row (34 forks at 4 rows,
+# ~41ms/row); this pays ~2 per frame.
+#
+# Transport: the transform emits one record per line, fields joined by
+# U+001F (unit separator). U+001F is not IFS whitespace, so empty fields
+# survive `read -ra` (TAB is IFS whitespace and would collapse them),
+# and key/sid/cwd bytes need no encoding round-trip: control chars
+# (TAB/LF/CR, plus U+001F itself) are rejected before transport, so no
+# field can contain the separator.
+#
+# Failure modes (contract, pinned by tests):
 #   - cache missing or invalid JSON: empty linemap, no frame, exit 0.
-#   - mid-frame failure (jq error, paint bug, …): the EMPTY linemap was
-#     installed BEFORE painting, so the board sees no navigable rows
-#     instead of stale rows from the previous frame that don't match the
-#     new (partial) paint.
-#
-# Identity encoding (`key`/`sid` columns carried through the sort pipeline):
-#   - jq `@json` produces a literal `null` for absent rows, and a quoted
-#     `"<value>"` for present ones. The encoding is unambiguous by
-#     construction — `"-"` and `null` are byte-distinct, so a row whose
-#     identity happens to BE `-` round-trips as identity (no `-` collision
-#     that any value would alias).
-#
-# Driver suppression: rows whose `key`, `sid`, or `cwd` contains ASCII
-# control bytes (TAB / LF / CR) are skipped with a stderr warning. Those
-# bytes would shred `while read -r` grouping and `@tsv` round-tripping,
-# aliasing distinct identities and producing phantom rows after the
-# board's reverse-mapping read-back.
+#   - mid-frame failure (jq error, non-numeric ts, …): the EMPTY linemap
+#     was installed BEFORE painting, so the board sees no navigable rows
+#     instead of stale rows from the previous frame.
 set -euo pipefail
 
 if (( BASH_VERSINFO[0] < 4 )); then
@@ -38,10 +38,8 @@ mkdir -p "$STATE_DIR"
 CACHE="$STATE_DIR/.board-cache.json"
 LINEMAP="$STATE_DIR/.board-linemap.tsv"
 
-# Cleanup the painter's tmp on any abnormal exit so we don't leave stale
-# files behind if an error stops the linemap write mid-frame. The
-# pre-installed empty linemap is the recovery path the partial-frame
-# failure test asserts.
+# Cleanup the painter's tmp on any abnormal exit. The pre-installed empty
+# linemap is the recovery path the partial-frame failure test asserts.
 _paint_tmp=""
 trap '[ -n "$_paint_tmp" ] && [ -e "$_paint_tmp" ] && rm -f "$_paint_tmp" || true' EXIT
 
@@ -53,341 +51,156 @@ if [ -n "$_HIGHLIGHT_RAW" ] && ! [[ "$_HIGHLIGHT_RAW" =~ ^[1-9][0-9]*$ ]]; then
 fi
 HIGHLIGHT_LINE="$_HIGHLIGHT_RAW"
 
-icon_for() {
-  case "$1" in
-    needs-attention) echo "🔴" ;;
-    working)         echo "🟡" ;;
-    done)            echo "🟢" ;;
-    unknown|done-synthetic) echo "⚪" ;;
-    idle)            echo "⚪" ;;
-    *)               echo "⚪" ;;
-  esac
-}
+# One clock per frame. Ages are minute-granularity, so the old per-row
+# `date` fork bought nothing; NOW_MS stays pinnable by tests.
+NOW_MS="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
 
-session_label_for() {
-  local title="$1" sid="$2"
-  if [ -n "$title" ] && [ "$title" != "null" ]; then
-    printf '%s' "$title"
-    return
-  fi
-  if [ -z "$sid" ]]; then return; fi
-  local short="${sid:0:8}"
-  if [ "${#sid}" -gt 8 ]; then
-    printf '%s…' "$short"
-  else
-    printf '%s' "$sid"
-  fi
-}
+US=$'\x1f'
 
-# Decode a JSON-encoded pipe cell: undo @tsv's backslash escaping, then parse
-# the @json value so quotes and backslashes return as their original bytes.
-decode_json_cell() {
-  local v="$1"
-  case "$v" in
-    null) printf '' ;;
-    *) jq -rn --arg v "$v" '$v | gsub("\\\\\\\\"; "\\") | fromjson' ;;
-  esac
-}
-
+# Sets AGE. Returns 1 on non-numeric ts (cache-corruption defense): under
+# set -e that aborts the paint mid-frame, leaving the pre-installed empty
+# linemap in place — the partial-frame failure contract.
 age_for() {
-  local ts_ms=$1
-  # Model rows always carry a numeric `ts`; defend against cache corruption
-  # by refusing to fractionally paint against a non-numeric timestamp. Quiet
-  # in well-formed input; loud + abort in cache-corruption so the pre-installed
-  # empty linemap is what the board reads instead of a stale one.
+  local ts_ms=$1 delta_s delta_m
   case "$ts_ms" in
     ''|*[!0-9]*) echo "agent-fleet-render: non-numeric ts: $ts_ms" >&2; return 1 ;;
   esac
-  local now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
-  local delta_s=$(((now_ms - ts_ms) / 1000))
+  delta_s=$(((NOW_MS - ts_ms) / 1000))
   if [ "$delta_s" -lt 0 ]; then delta_s=0; fi
-  # Minutes granularity: the user only needs a general sense of wait duration,
-  # and second-ticking ages force a 1s repaint cadence. Coarser display = the
-  # board can poll far less often (see board INTERVAL default).
-  local delta_m=$((delta_s / 60))
-  if [ "$delta_m" -lt 1 ]; then printf '<1m';
-  elif [ "$delta_m" -lt 60 ]; then printf '%dm' "$delta_m";
-  else printf '%dh' $((delta_m / 60)); fi
+  delta_m=$((delta_s / 60))
+  if [ "$delta_m" -lt 1 ]; then AGE='<1m';
+  elif [ "$delta_m" -lt 60 ]; then AGE="${delta_m}m";
+  else AGE="$((delta_m / 60))h"; fi
 }
 
-# -- read cache --
-json=""
-if [ -f "$CACHE" ]; then
-  json="$(cat "$CACHE" 2>/dev/null || true)"
-fi
-
 # -- pre-install ATOMIC empty linemap BEFORE any work that could fail. --
-# If anything below dies (jq error, paint abort, …), the empty map is what
-# the board sees for this tick. Keyboard nav then has no identity matches
-# against the new (partial) frame — clean failure mode.
-_empty_tmp="$(mktemp "$LINEMAP.tmp.XXXXXX")"
+# ponytail: PID-named tmp, not mktemp — one renderer per state dir is
+# already the board's assumption, and this saves ~7ms/frame in forks.
+# `: >` truncates any stale same-PID leftover, so contents can't leak.
+_empty_tmp="$LINEMAP.tmp.empty.$$"
 : > "$_empty_tmp"
 mv -f "$_empty_tmp" "$LINEMAP"
 
-# -- cache-absent / invalid ⇒ exit 0 (empty linemap already installed) --
-if [ -z "$json" ] || ! jq -e . >/dev/null 2>&1 <<<"$json"; then
+# -- fork 1: cache-absent / invalid ⇒ exit 0 (empty linemap installed) --
+if [ ! -s "$CACHE" ] || ! jq -e . >/dev/null 2>&1 < "$CACHE"; then
   exit 0
 fi
 
-# Helper: jq filter expression that excludes rows whose key/sid/cwd has TAB,
-# LF, or CR. Used in every jq filter below.
-_bad_re=$'[\t\n\r]'
-_clean_filter='select(
-  ((((.key // "") | test($bad_re) | not)) and true)
-  and ((((.sid // "") | test($bad_re) | not)) and true)
-  and ((((.cwd // "") | test($bad_re) | not)) and true)
-)'
+# -- fork 2: the whole frame as one transform. --
+# Record kinds: E (stderr warning), H (session header), P (process
+# header), W (warning row), R (navigable row: collapse `c` / child `n`).
+# A jq failure here aborts under set -e before _paint_tmp exists; the
+# empty linemap stays. jq's sort is stable, so .rows order survives
+# inside a cwd group; the payload tiebreak makes equal-key order
+# deterministic (GNU sort's whole-line fallback was locale-sensitive).
+frame="$(jq -r --arg bad_re $'[\t\n\r\u001f]' '
+  def clean: ((.key // "") | test($bad_re) | not)
+             and ((.sid // "") | test($bad_re) | not)
+             and ((.cwd // "") | test($bad_re) | not);
+  def flat: gsub("[\n\r\u001f]"; " ");
+  def icon: if . == "needs-attention" then "🔴"
+            elif . == "working" then "🟡"
+            elif . == "done" then "🟢"
+            else "⚪" end;
+  def rowlabel($v2):
+    . as $row
+    | (if $v2 then
+       (if (.title != null and .title != "" and .title != "null") then .title
+        elif (.sid != null and .sid != "") then
+          (.sid | if (length > 8) then .[0:8] + "…" else . end)
+        else "" end)
+     else (.label // "") end)
+    # `.` is the label string here, not the row — cwd comes from $row.
+    | if . == "" then ($row.cwd | sub("/$"; "") | sub(".*/"; "")) else . end;
+  def statecol:
+    # Literal "null" reason renders bare state, matching the old decoder
+    # (JSON null and the string "null" both collapsed to no reason).
+    if (.reason // "") == "" or .reason == "-" or .reason == "null" then .state
+    else .state + ": " + .reason end;
 
-# -- reject rows whose key/sid/cwd contains TAB / LF / CR --
-while IFS= read -r bad_msg; do
-  [ -n "$bad_msg" ] || continue
-  echo "agent-fleet-render: skipping row with control char in ${bad_msg}" >&2
-done < <(jq -r --arg bad_re "$_bad_re" '
-  .rows[]
-  | . as $r
-  | select(
-      (((.key // "") | test($bad_re)))
-      or (((.sid // "") | test($bad_re)))
-      or (((.cwd // "") | test($bad_re)))
-    )
-  | "key=\(($r.key // "<null>")) sid=\(($r.sid // "<null>")) cwd=\(($r.cwd // "<empty>")) [bad=\(["key","sid","cwd"] | map(select((($r[.]) // "") | test($bad_re))) | join(","))]"
-' <<<"$json")
+  # Offenders first (stderr warnings precede painting, as before).
+  ((.rows // []) | map(select(clean and (.source == "warning")))) as $warn
+  | (((.rows // []) | map(select(clean and (.source != "warning") and (.suppressed == false))))) as $vis
+  | ([(.rows // [])[] | select(clean | not) | . as $r
+     | ["E", ("key=\($r.key // "<null>") sid=\($r.sid // "<null>") cwd=\($r.cwd // "<empty>") [bad=\(["key","sid","cwd"] | map(select(($r[.]) // "" | test($bad_re))) | join(","))]") | flat]])
+    +
+    (# Session headers: union of live-pane sessions and sessions of rows
+     # that actually paint (clean warning/visible only — a session whose
+     # rows were all rejected/suppressed gets NO header, as before).
+     ([$warn[].session] + [$vis[].session] + [(.live // [])[]?.session])
+     | map(select(type == "string" and length > 0 and (test($bad_re) | not)))
+     | unique | map({s: ., g: -1, k: -1, c: "-", id: ["", ""], r: ["H", (. | flat)]})
+     # Warning rows (duplicate instances).
+     + [$warn[] | {s: (.session // ""), g: 0, k: 0, c: .cwd,
+                   id: ["", ""], r: ["W", .cwd]}]
+     # Visible rows grouped per cwd; ≥2 visible v2 rows nest under a
+     # process header painted from the first row in .rows order.
+     + (($vis | group_by(.cwd)) | map(. as $grp
+         | ($grp[0]) as $first
+         | ($first.source == "v2" and ($grp | length) >= 2) as $nested
+         | (if $nested then
+              [{s: ($first.session // ""), g: 1, k: 1, c: $first.cwd,
+                id: [($first.key // ""), ""],
+                r: ["P", ("pid=" + (($first.pid // "") | tostring)),
+                    (($first.repo // "") | tostring | flat)]}]
+            else [] end)
+           + [$grp[] | {s: ($first.session // ""),
+                        g: (if $nested then 1 else 2 end),
+                        k: (if $nested then 3 else 2 end),
+                        c: .cwd,
+                        id: [(.key | @json), (.sid | @json)],
+                        r: ["R", (if $nested then "n" else "c" end),
+                            (.state | icon),
+                            (rowlabel($first.source == "v2") | flat),
+                            (statecol | flat),
+                            (.ts | tostring),
+                            (.key // ""), (.sid // ""), .cwd]}])
+        | add // [])
+     # id tiebreak mirrors the old whole-line GNU sort fallback (the
+     # key/sid cells preceded payload), keeping child order stable.
+     # Identities sorted @json-encoded (null/quoting byte-faithful to old); payload tail stays decoded (plan-listed divergence, identical for ASCII).
+     | sort_by([.s, .g, .c, .k, .id, (.r | join("\u001f"))])
+     | map(.r))
+  | .[] | join("\u001f")
+' "$CACHE")"
 
-# -- build emit_rows from cache JSON --
-# Each emit row has 14 cells:
-#   sess, kind_idx, group, cwd, kind, jkey, jsid, source,
-#   payload[0..5]
-# jkey/jsid are jq `@json`-encoded: literal `null` for absent, `"<v>"`
-# for present. The rest stay as literals. Payload cells meaning varies by
-# kind — see paint loop.
-emit_rows=()
-add_row() { emit_rows+=( "$1" ); }
-
-# Headers represent live opencode panes, not visible chat rows. This keeps an
-# idle or startup-seeded instance present without making its chats navigable.
-while IFS= read -r session_name; do
-  [ -n "$session_name" ] || continue
-  add_row "$(printf '%s\t-1\t-1\t-\tlive_header\tnull\tnull\tlive_header\t-\t-\t-\t-\t0\t-' "$session_name")"
-done < <(jq -r --arg bad_re "$_bad_re" '
-  [.live[]?.session
-   | select(type == "string" and length > 0 and (test($bad_re) | not))]
-  | unique[]
-' <<<"$json")
-
-# Warning rows: 14 cells with payload all null. (Painter hardcodes the
-# "duplicate opencode instance" text.)
-while IFS=$'\t' read -r sess cwd; do
-  [ -n "$sess" ] || continue
-  add_row "$(printf '%s\t0\t0\t%s\twarning\tnull\tnull\twarning\t-\t-\twarning\t-\t0\t!' "$sess" "$cwd")"
-done < <(jq -r --arg bad_re "$_bad_re" '
-  .rows[]
-  | select(.source == "warning")
-  | select(
-      ((((.key // "") | test($bad_re) | not)) and true)
-      and ((((.sid // "") | test($bad_re) | not)) and true)
-      and ((((.cwd // "") | test($bad_re) | not)) and true)
-    )
-  | [.session, .cwd]
-  | @tsv
-' <<<"$json")
-
-# Per-cwd visible rows.
-while IFS= read -r cwd; do
-  [ -n "$cwd" ] || continue
-  count="$(jq -r --arg cwd "$cwd" --arg bad_re "$_bad_re" '
-    .rows
-    | map(select(
-        (.cwd == $cwd)
-        and ((.suppressed == false))
-        and (.source != "warning")
-        and (((.key // "") | test($bad_re) | not))
-        and (((.sid // "") | test($bad_re) | not))
-      ))
-    | length
-  ' <<<"$json")"
-  [ "$count" -gt 0 ] || continue
-  first="$(jq -r --arg cwd "$cwd" --arg bad_re "$_bad_re" '
-    (.rows
-     | map(select(
-         (.cwd == $cwd)
-         and ((.suppressed == false))
-         and (.source != "warning")
-         and (((.key // "") | test($bad_re) | not))
-         and (((.sid // "") | test($bad_re) | not))
-       )))[0]
-    | [
-        .session,
-        .source,
-        (.pid // ""),
-        .repo,
-        (.key | if type == "null" then "null" else @json end)
-      ]
-    | @tsv
-  ' <<<"$json")"
-  IFS=$'\t' read -r first_session first_source first_pid first_repo first_key_enc <<<"$first"
-  if [ "$first_source" = "v2" ] && [ "$count" -ge 2 ]; then
-    # Process_header: kind_idx=1, group=1, kind="process_header".
-    #   cells 8..9: "pid=<val>"/repo (literal payload consumed by paint);
-    #   cells 10-13: null padding to match the per-cwd 14-col layout.
-    add_row "$(printf '%s\t1\t1\t%s\tprocess_header\t%s\tnull\tnull\tpid=%s\t%s\t-\t-\t0\t·' \
-      "$first_session" "$cwd" "$first_key_enc" "$first_pid" "$first_repo")"
-  fi
-  while IFS=$'\t' read -r jsid state jreason ts jtitle jlabel jkey key_padding; do
-    [ -n "$state" ] || continue
-    source="$first_source"
-    title="$(decode_json_cell "$jtitle")"
-    label_raw="$(decode_json_cell "$jlabel")"
-    sid="$(decode_json_cell "$jsid")"
-    reason="$(decode_json_cell "$jreason")"
-    label_for_render="$label_raw"
-    if [ "$source" = "v2" ]; then
-      label_for_render="$(session_label_for "$title" "$sid")"
-    fi
-    [ -z "$label_for_render" ] && label_for_render="$(basename "${cwd%/}")"
-    icon="$(icon_for "$state")"
-    if [ -z "$reason" ]; then reason="-"; fi
-    if [ "$source" = "v2" ] && [ "$count" -ge 2 ]; then
-      # child_row: payload [8..13] = label, state, reason, ts, icon, "".
-      add_row "$(printf '%s\t3\t1\t%s\tchild_row\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t-' \
-        "$first_session" "$cwd" "$jkey" "$jsid" "$source" \
-        "$label_for_render" "$state" "$jreason" "$ts" "$icon")"
-    else
-      # collapse_row: payload [8..13] = label, state, reason, ts, icon, "".
-      add_row "$(printf '%s\t2\t2\t%s\tcollapse_row\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t-' \
-        "$first_session" "$cwd" "$jkey" "$jsid" "$source" \
-        "$label_for_render" "$state" "$jreason" "$ts" "$icon")"
-    fi
-  done < <(jq -r --arg cwd "$cwd" --arg bad_re "$_bad_re" '
-    .rows[]
-    | select(
-        (.cwd == $cwd)
-        and ((.suppressed == false))
-        and (.source != "warning")
-        and (((.key // "") | test($bad_re) | not))
-        and (((.sid // "") | test($bad_re) | not))
-      )
-    | [
-        (.sid   | if type == "null" then "null" else @json end),
-        .state,
-        (.reason | if type == "null" then "null" else @json end),
-        .ts,
-        (.title | if type == "null" then "null" else @json end),
-        (.label | if type == "null" then "null" else @json end),
-        (.key   | if type == "null" then "null" else @json end),
-        ""
-      ]
-    | @tsv
-  ' <<<"$json")
-done < <(jq -r --arg bad_re "$_bad_re" '
-  ([.rows[]
-   | select(((.suppressed == false)) and (.source != "warning"))
-   | select(
-       (((.key // "") | test($bad_re) | not))
-       and (((.sid // "") | test($bad_re) | not))
-       and (((.cwd // "") | test($bad_re) | not))
-     )
-   | .cwd] | unique[])
-' <<<"$json")
-
-# -- paint when there is content; footer is emitted once below --
-if [ "${#emit_rows[@]}" -eq 0 ]; then
-  :
-else
-
-# -- paint --
-# line_no ticks ONLY on navigable rows. A single-use tmp gets atomic-renamed
-# into place on success; on any failure (set -e triggers mid-loop), the
-# pre-installed empty linemap remains as the board sees.
-_paint_tmp="$(mktemp "$LINEMAP.tmp.XXXXXX")"
+# -- zero-fork paint loop (builtins only) --
+_paint_tmp="$LINEMAP.tmp.paint.$$"
 : > "$_paint_tmp"
 
 line_no=0
-printf '%s\n' "${emit_rows[@]}" \
-  | sort -t $'\t' -k1,1 -k3,3n -k4,4 -k2,2n \
-  | {
-    current_session=""
-    while IFS=$'\t' read -ra fields; do
-      sess="${fields[0]:-}"
-      [ -n "$sess" ] || continue
-      kind="${fields[4]:-}"
-      cwd="${fields[3]:-}"
-      # Identity columns: jq @json — `null` for absent, `"<v>"` for present.
-      jkey="${fields[5]:-}"
-      jsid="${fields[6]:-}"
-      key="$(decode_json_cell "$jkey")"
-      sid="$(decode_json_cell "$jsid")"
-      if [ "$sess" != "$current_session" ]; then
-        [ -n "$current_session" ] && printf '\e[K\n'
-        printf '── %s ──────────────\e[K\n' "${sess^^}"
-        current_session="$sess"
-      fi
-      case "$kind" in
-        live_header)
-          :
-          ;;
-        warning)
-          line_no=$((line_no + 1))
-          printf '  ⚠️  %-32.32s duplicate opencode instance — pick one\e[K\n' "$cwd"
-          printf '%s\t%s\t%s\t%s\n' "$line_no" "$key" "$sid" "$cwd" >> "$_paint_tmp"
-          ;;
-        process_header)
-          # Payload cells 8 and 9 — literal "pid=<val>" and repo.
-          printf '  %s · %s\e[K\n' "${fields[8]:-}" "${fields[9]:-}"
-          ;;
-        collapse_row)
-          line_no=$((line_no + 1))
-          lab="${fields[8]:-}"
-          st="${fields[9]:-}"
-          reason_enc="${fields[10]:-}"
-          ts="${fields[11]:-}"
-          icon="${fields[12]:-}"
-          # Cache corruption defense: pass through Paint only if every byte of
-          # ts is a digit. Substituting a non-numeric here would silently
-          # corrupt the age column and would propagate through command
-          # substitution without triggering set -e in the assignment. We
-          # exit 1 explicitly so the pre-installed empty linemap survives
-          # for the partial-frame failure test.
-          case "$ts" in *[!0-9]*) echo "agent-fleet-render: non-numeric ts (collapse): $ts" >&2; exit 1 ;; esac
-          reason="$(decode_json_cell "$reason_enc")"
-          if [ "$reason" = "-" ]; then reason=""; fi
-          state_col="$st"
-          if [ -n "$reason" ] && [ "$reason" != "null" ]; then state_col="$st: $reason"; fi
-          painted="$(printf '  %s %-34.34s %-27.27s %s\e[K' "$icon" "$lab" "$state_col" "$(age_for "$ts")")"
-          if [ -n "$HIGHLIGHT_LINE" ] && [ "$line_no" = "$HIGHLIGHT_LINE" ]; then
-            printf '\e[7m%s\e[27m\e[K\n' "$painted"
-          else
-            printf '%s\e[K\n' "$painted"
-          fi
-          printf '%s\t%s\t%s\t%s\n' "$line_no" "$key" "$sid" "$cwd" >> "$_paint_tmp"
-          ;;
-        child_row)
-          line_no=$((line_no + 1))
-          lab="${fields[8]:-}"
-          st="${fields[9]:-}"
-          reason_enc="${fields[10]:-}"
-          ts="${fields[11]:-}"
-          icon="${fields[12]:-}"
-          case "$ts" in *[!0-9]*) echo "agent-fleet-render: non-numeric ts (child): $ts" >&2; exit 1 ;; esac
-          reason="$(decode_json_cell "$reason_enc")"
-          if [ "$reason" = "-" ]; then reason=""; fi
-          state_col="$st"
-          if [ -n "$reason" ] && [ "$reason" != "null" ]; then state_col="$st: $reason"; fi
-          painted="$(printf '    %s %-32.32s %-27.27s %s\e[K' "$icon" "$lab" "$state_col" "$(age_for "$ts")")"
-          if [ -n "$HIGHLIGHT_LINE" ] && [ "$line_no" = "$HIGHLIGHT_LINE" ]; then
-            printf '\e[7m%s\e[27m\e[K\n' "$painted"
-          else
-            printf '%s\e[K\n' "$painted"
-          fi
-          printf '%s\t%s\t%s\t%s\n' "$line_no" "$key" "$sid" "$cwd" >> "$_paint_tmp"
-          ;;
-      esac
-    done
-  }
+current_session=""
+painted=""
+while IFS="$US" read -ra f; do
+  case "${f[0]:-}" in
+    E) echo "agent-fleet-render: skipping row with control char in ${f[1]:-}" >&2 ;;
+    H) sess="${f[1]:-}"
+       if [ -n "$current_session" ]; then printf '\e[K\n'; fi
+       printf '── %s ──────────────\e[K\n' "${sess^^}"
+       current_session="$sess" ;;
+    P) printf '  %s · %s\e[K\n' "${f[1]:-}" "${f[2]:-}" ;;
+    W) line_no=$((line_no + 1))
+       printf '  ⚠️  %-32.32s duplicate opencode instance — pick one\e[K\n' "${f[1]:-}"
+       printf '%s\t%s\t%s\t%s\n' "$line_no" "" "" "${f[1]:-}" >> "$_paint_tmp" ;;
+    R) line_no=$((line_no + 1))
+       age_for "${f[5]:-}"   # returns 1 on non-numeric ts → set -e aborts
+       if [ "${f[1]}" = "n" ]; then
+         printf -v painted '    %s %-32.32s %-27.27s %s\e[K' "${f[2]}" "${f[3]}" "${f[4]}" "$AGE"
+       else
+         printf -v painted '  %s %-34.34s %-27.27s %s\e[K' "${f[2]}" "${f[3]}" "${f[4]}" "$AGE"
+       fi
+       if [ -n "$HIGHLIGHT_LINE" ] && [ "$line_no" = "$HIGHLIGHT_LINE" ]; then
+         printf '\e[7m%s\e[27m\e[K\n' "$painted"
+       else
+         printf '%s\e[K\n' "$painted"
+       fi
+       printf '%s\t%s\t%s\t%s\n' "$line_no" "${f[6]:-}" "${f[7]:-}" "${f[8]:-}" >> "$_paint_tmp" ;;
+  esac
+done <<<"$frame"
 
-# Atomic install: overwrite the (currently empty) linemap with the new map.
-# On failure above this line never runs — the empty linemap remains.
+# Atomic install: overwrite the (currently empty) linemap with the new
+# map. On any failure above, this never runs — the empty linemap remains.
 mv -f "$_paint_tmp" "$LINEMAP"
-fi
-# Clear separator line before advancing to footer; erase-below cannot remove
-# stale row text left there when a shorter frame follows a longer one.
+# Clear separator line before advancing to footer; erase-below cannot
+# remove stale row text left there when a shorter frame follows a longer.
 printf '\e[K\n  j/k or arrows: move | Enter: open | d: dismiss | q: quit\e[K\n'
