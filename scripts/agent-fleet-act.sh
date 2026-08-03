@@ -3,7 +3,7 @@
 # Shared helper layer for agent-fleet scripts (jump, traverse, board).
 # Sourced — never executed on its own. Public shell functions only.
 #
-# Writer contract (per design):
+# Writer contract (per docs/agent-fleet-jump-spec.md):
 #   - Every side-effecting helper self-guards against AGENT_FLEET_DECIDE_ONLY.
 #   - atomic_write_select / act_land begin with the same DECIDE_ONLY check as
 #     stack_write so jump.sh's removal of goto_act's external guard doesn't
@@ -121,13 +121,14 @@ stack_derive_p() {
 }
 
 # === stack_reconcile: pure jq transform. Inputs: stack JSON (stdin), P (--argjson), now_ms ($(($now_ms))). ===
-# Semantics per design `Traverse stack semantics` (§Reconcile on every press):
+# Semantics per docs/agent-fleet-jump-spec.md (§Invariants, I5 reconcile):
 #   - P undeterminable (null)                       → no change
 #   - current.sid == P.sid                          → no change
 #   - current == null AND P != null                 → adopt (current := P, ts := now_ms; NO push)
 #   - P.ts < current.ts AND (now_ms - current.ts) < 2000  → no change (stale-P within window)
 #   - otherwise                                     → flip: remove P from both stacks; push old current
-#                                                      MRU onto back; clear forward; current = {P, now_ms}
+#                                                      MRU onto back; merge reverse(forward) into back (no live
+#                                                      session dropped); forward empties; current = {P, now_ms}
 stack_reconcile() {
   local p_json="$1" now_ms="$2"
   jq --argjson now_ms "$now_ms" --argjson p "$p_json" '
@@ -150,9 +151,10 @@ stack_reconcile() {
       else
         ($s
          | .back |= ((map(select((. != $p.sid) and (. != $s.current.sid))) +
-                     (if ($s.current != null) and ($s.current.sid != $p.sid)
-                        then [$s.current.sid]
-                        else [] end)))
+                      (if ($s.current != null) and ($s.current.sid != $p.sid)
+                         then [$s.current.sid]
+                         else [] end) +
+                      ($s.forward | reverse | map(select((. != $p.sid) and (. != $s.current.sid))))))
          | .forward |= []
          | .current = {sid: $p.sid, ts: $now_ms})
       end

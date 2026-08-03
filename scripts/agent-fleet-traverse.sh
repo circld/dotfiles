@@ -5,8 +5,8 @@
 # Reconciles the model cursor on every press, then pops MRU back[] / LIFO
 # forward[] in the requested direction, with skip-retain semantics for
 # unlandable (ambiguous-cwd) entries and dead-prune for entries absent from
-# every live instance. Empty direction falls back to the design's
-# documented position-based scan of timeline.viewed[] / timeline.pending[].
+# every live instance. Empty direction falls back to the position-based scan of
+# timeline.viewed[] / timeline.pending[] (docs/agent-fleet-jump-spec.md §Action semantics).
 #
 # Test seams (act layer):
 #   AGENT_FLEET_DECIDE_ONLY=1   emit decision only; no mailbox, no stack write
@@ -211,7 +211,7 @@ action_json="$(
               )
             }
         else
-          ($s | .forward = []) as $s_pruned
+          ($s | .forward = ($walk.retained_unlandable | reverse)) as $s_pruned
           | (
               [ $model.timeline.pending[]
                 | select(.sid != null)
@@ -229,7 +229,8 @@ new_state: (
                   | .back |= (
                       (map(select((. != $hit.sid) and (. != $cur.sid))) +
                        (if ($cur != null) and ($cur.sid != $hit.sid)
-                          then [$cur.sid] else [] end))
+                          then [$cur.sid] else [] end) +
+                       ($walk.retained_unlandable | map(select(. != $hit.sid))))
                     )
                   )
                 }

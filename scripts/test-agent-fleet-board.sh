@@ -967,10 +967,22 @@ test_enter_sid_decide_act_matches_navigation_mutation() {
   if jq -e --arg sid sid-target --arg old sid-current --arg p sid-p '
       .current.sid == $sid and (.forward | length == 0) and
       (.back | index($sid) == null) and (.back | index($old) != null) and
-      (.back | index($p) != null)' "$sandbox/traverse-stack.json" >/dev/null 2>&1 &&
+       (.back | index($p) == null)' "$sandbox/traverse-stack.json" >/dev/null 2>&1 &&
       [ "$(jq -r '.sessionID' "$sandbox/${key}.select" 2>/dev/null)" = sid-target ]; then
     pass "case19: Enter mutation matches navigation and writes mailbox"
   else fail_msg "case19: Enter mutation matches navigation and writes mailbox"; fi
+}
+
+test_enter_sid_skips_stale_cursor_reconciliation() {
+  local sandbox="$ROOT/case19_enter_stale_cursor" key; mkdir -p "$sandbox"; key=$(key_for "/enter-stale")
+  local row; row=$(mk_row v2 "$key" sid-487 /enter-stale sess done "" $NOW_MS)
+  write_model_with_instances "$sandbox/.fake-model.json" "$row" '[{"selectedSid":"sid-489","selectedTs":1}]'
+  printf '%s\n' '{"v":1,"current":{"sid":"sid-dotfiles","ts":'"$((NOW_MS - 3000))"'},"back":["sid-489"],"forward":[]}' > "$sandbox/traverse-stack.json"
+  CASE_DECIDE_ACT=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO"; wait_log_count "$sandbox/log-render" '^render complete' 1 3; printf '\n' > "$BOARD_FIFO"; wait_log_count "$sandbox/stdout" 'DECISION:kind=select' 1 3; stop_feeder; wait_board 6; CASE_DECIDE_ACT=0
+  if jq -e '.current.sid == "sid-487" and (.back == ["sid-489", "sid-dotfiles"]) and ((.forward | length) == 0)' "$sandbox/traverse-stack.json" >/dev/null 2>&1 &&
+      grep -q '"sessionID": "sid-487"' "$sandbox/${key}.select"; then
+    pass "case19b: Enter skips stale cursor reconciliation"
+  else fail_msg "case19b: Enter skips stale cursor reconciliation"; fi
 }
 
 test_enter_sidless_focus_only() {
@@ -1058,12 +1070,13 @@ test_enter_sidless_synthetic_focus_only() {
 test_enter_vanished_row_noops_without_replacement_landing() {
   local sandbox="$ROOT/case22_enter_vanished" key_a key_b; mkdir -p "$sandbox"; key_a=$(key_for "/vanish-a"); key_b=$(key_for "/vanish-b")
   local row_a row_b; row_a=$(mk_row v2 "$key_a" sid-a /vanish-a sess done "" $NOW_MS); row_b=$(mk_row v2 "$key_b" sid-b /vanish-b sess done "" $NOW_MS)
-  write_model_with_instances "$sandbox/.fake-model.json" "$row_a,$row_b"
-  CASE_DECIDE_ONLY=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO" j
+  write_model_with_instances "$sandbox/.fake-model.json" "$row_a,$row_b" '[{"selectedSid":"sid-p","selectedTs":999}]'
+  printf '%s\n' '{"v":1,"current":{"sid":"sid-old","ts":1},"back":[],"forward":[]}' > "$sandbox/traverse-stack.json"
+  CASE_DECIDE_ACT=1; launch_board_async "$sandbox" "$FAKES/model.sh" "$FAKES/renderer.sh"; feed_forever "$BOARD_FIFO" j
   if ! wait_log_count "$sandbox/log-render" 'render hl=\[2\]' 1 3; then stop_feeder; wait_board 3; fail_msg "case22: highlight moved to vanished row"; CASE_DECIDE_ONLY=0; return; fi
-  write_model_with_instances "$sandbox/.fake-model.json" "$row_a"
-  printf '\n' > "$BOARD_FIFO"; wait_log_count "$sandbox/stdout" 'DECISION:kind=noop' 1 3; stop_feeder; wait_board 6; CASE_DECIDE_ONLY=0
-  if grep -qF 'DECISION:kind=noop' "$sandbox/stdout" && ! grep -qF 'sid=sid-a' "$sandbox/stdout" && ! compgen -G "$sandbox/*.select" >/dev/null; then pass "case22: vanished Enter noops without replacement landing"; else fail_msg "case22: vanished Enter noops without replacement landing" "$(cat "$sandbox/stdout")"; fi
+  write_model_with_instances "$sandbox/.fake-model.json" "$row_a" '[{"selectedSid":"sid-p","selectedTs":999}]'
+  printf '\n' > "$BOARD_FIFO"; wait_log_count "$sandbox/stdout" 'DECISION:kind=noop' 1 3; stop_feeder; wait_board 6; CASE_DECIDE_ACT=0
+  if grep -qF 'DECISION:kind=noop' "$sandbox/stdout" && jq -e '.current.sid == "sid-p" and (.back | index("sid-old") != null)' "$sandbox/traverse-stack.json" >/dev/null 2>&1 && ! compgen -G "$sandbox/*.select" >/dev/null; then pass "case22: vanished Enter persists reconciliation without landing"; else fail_msg "case22: vanished Enter persists reconciliation without landing" "$(cat "$sandbox/traverse-stack.json" 2>/dev/null)"; fi
 }
 
 test_enter_refinds_reordered_identity() {
@@ -1392,6 +1405,7 @@ test_dismiss_repaints_row_away_immediately
 test_dismiss_absent_row_expires_after_five_refreshes
 test_dismiss_duplicate_done_is_noop
 test_enter_sid_decide_act_matches_navigation_mutation
+test_enter_sid_skips_stale_cursor_reconciliation
 test_enter_sidless_idle_focus_only
 test_enter_sidless_synthetic_focus_only
 test_enter_vanished_row_noops_without_replacement_landing

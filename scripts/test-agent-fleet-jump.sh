@@ -981,10 +981,9 @@ EOF
     "$sandbox/traverse-stack.json"
 }
 
-# --- 30. Select landing reconciles model cursor, MRU-pushes old current,
-#         removes target from both stacks, clears forward, writes stack,
-#         then writes target mailbox. Pre-existing forward gets cleared by
-#         the reconcile flip AND by the new-navigation mutation. ---
+# --- 30. Select landing reconciles model cursor and merges forward into back
+#         during both reconcile flip and new navigation. ses_f survives between
+#         ses_b and ses_past; target is removed from both stacks. ---
 test_30_select_writes_reconciled_stack() {
   local sandbox="$ROOT/case30"
   mkdir -p "$sandbox"
@@ -1014,8 +1013,8 @@ EOF
   assert_file_exists "case30 .select written" "$sandbox/${key}-${pid}.select"
   local sel_sid; sel_sid=$(jq -r .sessionID "$sandbox/${key}-${pid}.select")
   assert_eq "case30 .select sessionID is the actionable target" "ses_target" "$sel_sid"
-  assert_stack_eq "case30 stack: current=target, back MRU=old-current → reconcile-P, forward cleared, ses_target removed from stacks" \
-    "{\"v\":1,\"current\":{\"sid\":\"ses_target\",\"ts\":${now_ms}},\"back\":[\"ses_b\",\"ses_past\"],\"forward\":[]}" \
+  assert_stack_eq "case30 stack: current=target, forward merged into back, ses_target removed from stacks" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_target\",\"ts\":${now_ms}},\"back\":[\"ses_b\",\"ses_f\",\"ses_past\"],\"forward\":[]}" \
     "$sandbox/traverse-stack.json"
 }
 
@@ -1044,7 +1043,7 @@ EOF
   assert_file_exists "case31 .select written" "$sandbox/${key}-${pid}.select"
   # Adopt (current null → P=ses_past) does NOT push null to back.
   # Then new-nav mutation push_mru(previous-current ses_past) → back=[ses_past].
-  # Target (ses_target) was never on back/forward, so stays cleared.
+  # Target (ses_target) was never on back/forward, so stays absent.
   assert_stack_eq "case31 fresh stack adopts P; null NOT pushed to back; target lands as current" \
     "{\"v\":1,\"current\":{\"sid\":\"ses_target\",\"ts\":${now_ms}},\"back\":[\"ses_past\"],\"forward\":[]}" \
     "$sandbox/traverse-stack.json"
@@ -1079,13 +1078,13 @@ EOF
     "$sandbox/traverse-stack.json"
 }
 
-# --- 33. Reconcile clears forward on passive departure. ---
+# --- 33. Reconcile merges forward on passive departure. ---
 #         Setup: cwd /pd has TWO panes (ambiguous via pane-table arm)
 #         + ONE v2 file with ONLY a working session (no actionable) +
 #         selectedSid=ses_z (newer than current) ⇒ noop branch (ambiguous
 #         panes exclude fallback; no actionable top in pool). Pre-existing
-#         stack has forward=[F, F2] ⇒ flip clears it. ---
-test_33_passive_departure_clears_forward() {
+#         stack has forward=[F, F2] ⇒ flip merges it after old current. ---
+test_33_passive_departure_merges_forward() {
   local sandbox="$ROOT/case33"
   mkdir -p "$sandbox"
   local pid=33001
@@ -1099,17 +1098,17 @@ test_33_passive_departure_clears_forward() {
  "sessions":{"w":{"state":"working","reason":null,"ts":50,"task":null,"title":"w"}}}
 EOF
   # Pre: current=ses_a (older ts than P), back=[], forward=[ses_f, ses_f2].
-  # P.ts > current.ts ⇒ not stale-P ⇒ straightforward flip.
+  # P.ts > current.ts ⇒ straightforward flip; forward merges reversed.
   write_stack "$sandbox/traverse-stack.json" \
     '{"v":1,"current":{"sid":"ses_a","ts":1700000000000},"back":[],"forward":["ses_f","ses_f2"]}'
   local now_ms=1800000000010
   run_jump_with_pinned_now "select-side-effect" "$sandbox" "$pso" \
     $'/pd\tsx_a\tterminal_5\t0\n/pd\tsx_b\tterminal_6\t0' "" "$now_ms"
-  assert_eq "case33 passive departure cleared: cwd-ambiguous ⇒ noop decision" \
+  assert_eq "case33 passive departure merged: cwd-ambiguous ⇒ noop decision" \
     "DECISION:kind=noop" \
     "$JUMP_STDOUT"
-  assert_stack_eq "case33 passive departure clears forward (no nav mutation on top)" \
-    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_a"],"forward":[]}' \
+  assert_stack_eq "case33 passive departure merges forward (no nav mutation on top)" \
+    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_a","ses_f2","ses_f"],"forward":[]}' \
     "$sandbox/traverse-stack.json"
   assert_file_absent "case33 noop: NO .select written (no actionable)" \
     "$sandbox/${key}-${pid}.select"
@@ -1149,11 +1148,9 @@ EOF
   assert_eq "case34 dedup: select decision preserved" \
     "DECISION:kind=select cwd=/dp session=sx pane=terminal_0 tab_id=0 key=${key}-${pid} sid=ses_target" \
     "$JUMP_STDOUT"
-  # Post flip + nav: back = [ses_old_marker×2, ses_pre×1, ses_past×1] (the two
-  # new MRUs are dedup-collapsed; pre-existing ses_old_marker duplicates
-  # untouched). current=ses_target, forward=[].
-  assert_stack_eq "case34 dedup exact back sequence (MRU drops old-current's incumbency from both reconcile flip and nav)" \
-    '{"v":1,"current":{"sid":"ses_target","ts":1800000000010},"back":["ses_old_marker","ses_old_marker","ses_pre","ses_past"],"forward":[]}' \
+  # Post flip + nav: forward ses_f merges before reconcile-P. current=target.
+  assert_stack_eq "case34 dedup exact back sequence with merged forward" \
+    '{"v":1,"current":{"sid":"ses_target","ts":1800000000010},"back":["ses_old_marker","ses_old_marker","ses_pre","ses_f","ses_past"],"forward":[]}' \
     "$sandbox/traverse-stack.json"
   # Cross-check via counts: ses_old_marker survives the pre-existing 2;
   # ses_pre (pushed by both reconcile AND select nav) lands exactly once;
@@ -1197,7 +1194,7 @@ EOF
     "$JUMP_STDOUT"
   # Pre-existing back=[ses_x] PLUS reconcile's push of OLD current (ses_a).
   # If nav mutation had ALSO run, we'd see more than 2 back entries or target
-  # in back. Forward is [] (no flip-induced clear needed since empty already).
+  # in back. Forward is [] (no flip-induced merge needed since empty already).
   assert_stack_eq "case40a noop: reconcile persisted; back grew by exactly one (old-current MRU), no further nav mutation" \
     '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a"],"forward":[]}' \
     "$sandbox/traverse-stack.json"
@@ -1233,11 +1230,11 @@ EOF
   assert_file_absent "case40b warn: NO .select written" "$sandbox/${key}-${pidA}.select"
   assert_file_absent "case40b warn: NO .select on sibling pid either" \
     "$sandbox/${key}-${pidB}.select"
-  # Flip happened (forward cleared, old current pushed to back). NO
-  # further nav mutation ⇒ back=[ses_x, ses_a] with ses_z NOT present
+  # Flip happened (forward merged, old current pushed to back). NO
+  # further nav mutation ⇒ back=[ses_x, ses_a, F_pre] with ses_z NOT present
   # (ses_z is current, never on back).
-  assert_stack_eq "case40b warn persists reconcile: forward cleared by flip; back grew by exactly ses_a" \
-    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a"],"forward":[]}' \
+  assert_stack_eq "case40b warn persists reconcile: forward merged by flip; back grew by ses_a" \
+    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a","F_pre"],"forward":[]}' \
     "$sandbox/traverse-stack.json"
 }
 
@@ -1266,8 +1263,8 @@ EOF
     "$JUMP_STDOUT"
   assert_file_absent "case40c focus-only: NO .select written (no sid in actionable)" \
     "$sandbox/${key}-${pid}.select"
-  assert_stack_eq "case40c focus-only persists reconcile: forward cleared, back grew by ses_a only" \
-    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a"],"forward":[]}' \
+  assert_stack_eq "case40c focus-only persists reconcile: forward merged, back grew by ses_a" \
+    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a","F_pre"],"forward":[]}' \
     "$sandbox/traverse-stack.json"
 }
 
@@ -1295,8 +1292,8 @@ EOF
     "$JUMP_STDOUT"
   assert_file_absent "case40d fallback-pane: NO .select written (no sid)" \
     "$sandbox/${key}-${pid}.select"
-  assert_stack_eq "case40d fallback-pane persists reconcile: forward cleared, back grew by ses_a only" \
-    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a"],"forward":[]}' \
+  assert_stack_eq "case40d fallback-pane persists reconcile: forward merged, back grew by ses_a" \
+    '{"v":1,"current":{"sid":"ses_z","ts":1800000000010},"back":["ses_x","ses_a","F_pre"],"forward":[]}' \
     "$sandbox/traverse-stack.json"
 }
 
@@ -1358,10 +1355,10 @@ EOF
   assert_eq "case51 outside-window still noop (cwd ambiguous)" \
     "DECISION:kind=noop" \
     "$JUMP_STDOUT"
-  # current flipped to ses_z with ts=now_ms; old current pushed MRU onto back;
-  # forward cleared. (Pre-existing back=[ses_x] preserved; ses_a added.)
-  assert_stack_eq "case51 stale P outside window FLIPS: current=ses_z @ now_ms, back grew by ses_a, forward cleared" \
-    "{\"v\":1,\"current\":{\"sid\":\"ses_z\",\"ts\":${now_ms}},\"back\":[\"ses_x\",\"ses_a\"],\"forward\":[]}" \
+  # current flipped to ses_z with ts=now_ms; old current pushed and forward
+  # merged into back. (Pre-existing back=[ses_x] preserved.)
+  assert_stack_eq "case51 stale P outside window FLIPS: current=ses_z @ now_ms, forward merged" \
+    "{\"v\":1,\"current\":{\"sid\":\"ses_z\",\"ts\":${now_ms}},\"back\":[\"ses_x\",\"ses_a\",\"F_pre\"],\"forward\":[]}" \
     "$sandbox/traverse-stack.json"
 }
 
@@ -1744,7 +1741,7 @@ run_test test_18_decide_only_no_side_effects
 run_test test_30_select_writes_reconciled_stack
 run_test test_31_fresh_stack_adopts_no_push
 run_test test_32_corrupt_stack_treated_as_fresh
-run_test test_33_passive_departure_clears_forward
+run_test test_33_passive_departure_merges_forward
 run_test test_34_mru_dedup_no_double_insert
 run_test test_40a_noop_persists_reconcile
 run_test test_40b_warn_persists_reconcile

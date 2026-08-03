@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# scripts/agent-fleet-jump.sh — Alt-y jump-to-alert. Behavior: docs/agent-fleet-jump-spec.md
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -60,7 +61,8 @@ stack="$(stack_reconcile "$P_json" "$now_ms" <<<"$stack")"
 
 # === Apply the new-navigation mutation for a select kind landing. ===
 # Removes target from both stacks, MRU-pushes old current (no-op when null),
-# clears forward, and stamps current with now_ms (post-reconcile). Caller is
+# merges reverse(forward) into back so no live session is dropped (forward
+# empties), and stamps current with now_ms (post-reconcile). Caller is
 # responsible for stack_write after this returns.
 _apply_select_nav() {
   stack="$(jq --arg target "$1" --argjson now_ms "$now_ms" '
@@ -68,7 +70,8 @@ _apply_select_nav() {
     | .back |= ((map(select((. != $target) and (. != $s.current.sid))) +
                 (if ($s.current != null) and ($s.current.sid != $target)
                    then [$s.current.sid]
-                   else [] end)))
+                   else [] end) +
+                ($s.forward | reverse | map(select((. != $target) and (. != $s.current.sid))))))
     | .forward |= []
     | .current = {sid: $target, ts: $now_ms}
   ' <<<"$stack")"

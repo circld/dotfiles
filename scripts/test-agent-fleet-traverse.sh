@@ -318,7 +318,7 @@ test_scenario_2_acceptance_prev_next_next() {
   assert_eq "scenario2 next#3: pending[0]=A wins (A0 viewed ⇒ pending-wins excludes A0)" \
     "DECISION:kind=select cwd=/scn2 session=sxS pane=terminal_3 tab_id=1 key=${key}-${pid} sid=A" \
     "$TRAV_STDOUT"
-  assert_stack_eq "scenario2 next#3: new-nav forward cleared, A0 (back_push_mru) appended" \
+  assert_stack_eq "scenario2 next#3: pending fallback leaves forward empty, A0 (back_push_mru) appended" \
     "{\"v\":1,\"current\":{\"sid\":\"A\",\"ts\":${now_ms}},\"back\":[\"old_marker\",\"C\",\"Z\",\"A0\"],\"forward\":[]}" \
     "$sandbox/traverse-stack.json"
 }
@@ -587,6 +587,40 @@ test_ambiguous_entries_skipped_but_retained() {
     "$sandbox/traverse-stack.json"
 }
 
+test_next_pending_fallback_merges_ambiguous_forward() {
+  local sandbox="$ROOT/amb-next-pending"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/amb")
+  local pidS=19101 pidX=19102 pidY=19103
+  local pso="$ROOT/ps_amb_next_pending.tsv"
+  printf 'OPENCODE\t%s\nOPENCODE\t%s\nOPENCODE\t%s\n' "$pidS" "$pidX" "$pidY" > "$pso"
+  write_v2 "$sandbox" "$key" "$pidX" "/amb" "sxX" "null" "null" "X" "needs-attention" 100 null
+  write_v2 "$sandbox" "$key" "$pidY" "/amb" "sxY" "null" "null" "Y" "needs-attention" 200 null
+  write_v2 "$sandbox" "$key" "$pidS" "/solo" "sxS" "S" 2000000000000 "S" "done" 100 null "T" "needs-attention" 500 null
+  local now_ms=2000000000500
+  local pre_stack='{"v":1,"current":{"sid":"S","ts":1990000000000},"back":[],"forward":["X","dead9"]}'
+  run_trav "decide-act" "$sandbox" "$pso" $'/solo\tsxS\tterminal_0\t0\n/amb\tsxX\tterminal_1\t1\n/amb\tsxY\tterminal_2\t1' "next" "$now_ms" "$pre_stack"
+  assert_eq "amb-next-pending: pending fallback lands T" "DECISION:kind=select cwd=/solo session=sxS pane=terminal_0 tab_id=0 key=${key}-${pidS} sid=T" "$TRAV_STDOUT"
+  assert_stack_eq "amb-next-pending: ambiguous X merged, dead9 pruned" '{"v":1,"current":{"sid":"T","ts":2000000000500},"back":["S","X"],"forward":[]}' "$sandbox/traverse-stack.json"
+}
+
+test_next_at_end_keeps_ambiguous_forward() {
+  local sandbox="$ROOT/amb-next-end"
+  mkdir -p "$sandbox"
+  local key; key=$(key_for "/amb")
+  local pidS=19201 pidX=19202 pidY=19203
+  local pso="$ROOT/ps_amb_next_end.tsv"
+  printf 'OPENCODE\t%s\nOPENCODE\t%s\nOPENCODE\t%s\n' "$pidS" "$pidX" "$pidY" > "$pso"
+  write_v2 "$sandbox" "$key" "$pidX" "/amb" "sxX" "null" "null" "X" "needs-attention" 100 null
+  write_v2 "$sandbox" "$key" "$pidY" "/amb" "sxY" "null" "null" "Y" "needs-attention" 200 null
+  write_v2 "$sandbox" "$key" "$pidS" "/solo" "sxS" "S" 2000000000000 "S" "working" 100 null
+  local now_ms=2000000000500
+  local pre_stack='{"v":1,"current":{"sid":"S","ts":1990000000000},"back":[],"forward":["X"]}'
+  run_trav "decide-act" "$sandbox" "$pso" $'/solo\tsxS\tterminal_0\t0\n/amb\tsxX\tterminal_1\t1\n/amb\tsxY\tterminal_2\t1' "next" "$now_ms" "$pre_stack"
+  assert_eq "amb-next-end: ambiguous forward reaches at-end" "DECISION:kind=at-end" "$TRAV_STDOUT"
+  assert_stack_eq "amb-next-end: ambiguous forward retained" "$pre_stack" "$sandbox/traverse-stack.json"
+}
+
 # === Corrupt or v != 1 stack resets to empty and adopts P ===
 test_corrupt_stack_resets_to_empty() {
   local sandbox="$ROOT/corrupt"
@@ -794,7 +828,8 @@ test_forward_all_dead_falls_to_pending() {
   assert_eq "forward-all-dead next: lands pending[0]=A (forward dry, dead pruned, fall to pending)" \
     "DECISION:kind=select cwd=/fw_dead session=sxS pane=terminal_0 tab_id=0 key=${key}-${pid} sid=A" \
     "$TRAV_STDOUT"
-  # Forward cleared (new-nav), Z (old current) pushed MRU onto back.
+  # Forward dead entries merge then end empty (new-nav); Z (old current) is
+  # pushed MRU onto back.
   assert_stack_eq "forward-all-dead: stack matches forward-empty + new-nav shape" \
     "{\"v\":1,\"current\":{\"sid\":\"A\",\"ts\":${now_ms}},\"back\":[\"Z\"],\"forward\":[]}" \
     "$sandbox/traverse-stack.json"
@@ -928,7 +963,8 @@ test_escaped_sid_traversal_round_trip() {
   assert_eq "escaped-sid: v2 sid round-trips through JSON" "$sid_lit" "$decoded_sid"
   local now_ms=2000000000500
   # pre_stack: current=T (reconcile no-op). After alt-, pending[0]=escaped-sid
-  # (because T is current and filtered out). New nav: clear forward, push T MRU.
+   # (because T is current and filtered out). New nav: merge forward then leave
+   # it empty, push T MRU.
   local pre_stack
   pre_stack='{"v":1,"current":{"sid":"T","ts":1990000000000},"back":[],"forward":[]}'
   run_trav "decide-act" "$sandbox" "$pso" \
@@ -1086,6 +1122,8 @@ run_test test_back_exhaustion_absent_current_starts_head
 run_test test_pending_guard_skips_equal_to_current
 run_test test_dead_entries_pruned_AND_at_end_persists
 run_test test_ambiguous_entries_skipped_but_retained
+run_test test_next_pending_fallback_merges_ambiguous_forward
+run_test test_next_at_end_keeps_ambiguous_forward
 run_test test_corrupt_stack_resets_to_empty
 run_test test_forward_all_dead_falls_to_pending
 run_test test_model_failure_propagates

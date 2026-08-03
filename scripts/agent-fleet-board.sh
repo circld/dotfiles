@@ -153,7 +153,8 @@ apply_select_nav() {
     . as $s
     | .back |= ((map(select((. != $target) and (. != $s.current.sid))) +
                 (if ($s.current != null) and ($s.current.sid != $target)
-                 then [$s.current.sid] else [] end)))
+                 then [$s.current.sid] else [] end) +
+                ($s.forward | reverse | map(select((. != $target) and (. != $s.current.sid))))))
     | .forward |= []
     | .current = {sid: $target, ts: $now_ms}
   ' <<<"$stack"
@@ -175,24 +176,23 @@ enter() {
 }
 
 enter_press() {
-  local row key sid cwd sess pane tab title p stack now_ms
+  local row key sid cwd sess pane tab title p stack now_ms reconciled_stack
   if ! refresh_model enter; then
     emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE" enter; return
   fi
   now_ms="${AGENT_FLEET_NOW_MS:-$(($(date +%s) * 1000))}"
   af_trace model.json <"$CACHE"
-  p="$(stack_derive_p "${ZELLIJ_SESSION_NAME:-}" < "$CACHE")"
   stack="$(stack_read)"
   af_trace stack-pre.json <<<"$stack"
-  stack="$(stack_reconcile "$p" "$now_ms" <<<"$stack")"
-  stack_write "$stack"
   if [ -n "$HL_SID" ]; then
     row="$(jq -c --arg key "$HL_KEY" --arg sid "$HL_SID" '.rows[]? | select(.key == $key and .sid == $sid)' "$CACHE" | head -n 1 || true)"
   else
     row="$(jq -c --arg cwd "$HL_CWD" '.rows[]? | select(.sid == null and .cwd == $cwd)' "$CACHE" | head -n 1 || true)"
   fi
-  if [ -z "$row" ]; then emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE" enter; return; fi
-  if [ "$(jq -r '(.state == "duplicate") or (.source == "warning") or (.duplicate == true) or (.ambiguous == true)' <<<"$row")" = true ]; then
+  if [ -z "$row" ] || [ "$(jq -r '(.state == "duplicate") or (.source == "warning") or (.duplicate == true) or (.ambiguous == true)' <<<"${row:-null}")" = true ]; then
+    p="$(stack_derive_p "${ZELLIJ_SESSION_NAME:-}" < "$CACHE")"
+    reconciled_stack="$(stack_reconcile "$p" "$now_ms" <<<"$stack")"
+    stack_write "$reconciled_stack"
     emit_decision 'DECISION:kind=noop'; repaint "$HL_LINE" enter; return
   fi
   key="$(jq -r '.key // empty' <<<"$row")"; sid="$(jq -r '.sid // empty' <<<"$row")"
@@ -200,6 +200,9 @@ enter_press() {
   pane="$(jq -r '.pane // empty' <<<"$row")"; tab="$(jq -r '.tabId // empty' <<<"$row")"
   title="$(jq -r '.title // empty' <<<"$row")"
   if [ -z "$sid" ]; then
+    p="$(stack_derive_p "${ZELLIJ_SESSION_NAME:-}" < "$CACHE")"
+    reconciled_stack="$(stack_reconcile "$p" "$now_ms" <<<"$stack")"
+    stack_write "$reconciled_stack"
     emit_decision "DECISION:kind=focus-only cwd=${cwd} session=${sess} pane=${pane} tab_id=${tab}"
     act_land "" "" "$sess" "$pane" "$tab" "$title"; repaint "$HL_LINE" enter; return
   fi
