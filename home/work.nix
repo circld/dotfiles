@@ -54,6 +54,7 @@ in
     SONARQUBE_TOKEN = workConfig.octaneSonarCloudToken;
     OPENCODE_CONFIG = "${config.home.homeDirectory}/dotfiles/external/opencode/work-overrides.json";
     AGENT_FLEET_SOUND_BLOCKING = "Glass";
+    AGENT_FLEET_REFRESH_SECS = 3;
   };
 
   home.packages = common.home.packages ++ [
