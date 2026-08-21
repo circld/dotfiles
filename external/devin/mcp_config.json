@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "confluence": {
+      "url": "${env:OCTANE_MCP_BASE_URL}/mcp/confluence",
+      "transport": "http",
+      "headers": {
+        "OCTANE_API_KEY": "${env:OCTANE_API_KEY}"
+      }
+    },
+    "jira": {
+      "url": "${env:OCTANE_MCP_BASE_URL}/mcp/jira",
+      "transport": "http",
+      "headers": {
+        "OCTANE_API_KEY": "${env:OCTANE_API_KEY}"
+      }
+    },
+    "librarian": {
+      "url": "https://tools.ai-dev.octane.co/mcp/librarian",
+      "transport": "http",
+      "headers": {
+        "OCTANE_API_KEY": "${env:OCTANE_API_KEY}"
+      }
+    }
+  }
+}

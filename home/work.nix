@@ -64,6 +64,14 @@ in
 
   ];
 
+  # Devin CLI. Devin owns ~/.config/devin/config.json at runtime, so it stays
+  # unmanaged. Skills and commands already reach Devin via its Claude import
+  # (~/.claude/skills, ~/.claude/CLAUDE.md); only global subagents need wiring,
+  # since that import covers project .claude/agents but not the global dir.
+  xdg.configFile."devin/AGENTS.md".source = ln "external/devin/AGENTS.md";
+  xdg.configFile."devin/mcp_config.json".source = ln "external/devin/mcp_config.json";
+  xdg.configFile."devin/agents".source = ln "external/claude/agents";
+
   programs.fish.shellAbbrs.ecr = workConfig.ecrCommand;
 
   # Global git config for SSL (applies everywhere, including pre-commit cache)
