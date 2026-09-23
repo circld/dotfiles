@@ -39,6 +39,19 @@
             "context": 1000000,
             "output": 131072
           }
+        },
+        "grok-4-6": {
+          "name": "Grok 4.6",
+          "reasoning": true,
+          "cost": {
+            "input": 2.2,
+            "output": 6.6000000000000005,
+            "cache_read": 0.55
+          },
+          "limit": {
+            "context": 500000,
+            "output": 32768
+          }
         }
       }
     },
@@ -103,7 +116,7 @@
       }
     },
     "code-reviewer": {
-      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "model": "octane_llm_proxy_openai/grok-4-6",
       "mode": "subagent"
     },
     "task-implementer": {
@@ -112,7 +125,7 @@
       "variant": "low"
     },
     "spec-reviewer": {
-      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "model": "octane_llm_proxy_openai/grok-4-6",
       "mode": "subagent"
     },
     "doc-critic": {
