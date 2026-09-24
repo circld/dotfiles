@@ -1,4 +1,9 @@
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 let
   utils = import ./utils.nix { inherit config pkgs; };
   ln = utils.ln;
@@ -7,15 +12,20 @@ let
   # Discover OpenCode skills for individual symlinking to Claude
   skillsDir = ../external/opencode/skills;
   skillNames = builtins.attrNames (builtins.readDir skillsDir);
-  claudeSkillEntries = builtins.listToAttrs (map (name: {
-    name = ".claude/skills/${name}";
-    value = { source = ln "external/opencode/skills/${name}"; };
-  }) skillNames);
+  claudeSkillEntries = builtins.listToAttrs (
+    map (name: {
+      name = ".claude/skills/${name}";
+      value = {
+        source = ln "external/opencode/skills/${name}";
+      };
+    }) skillNames
+  );
 
   # Discover and transform OpenCode commands into Claude cmd-prefixed skills
   commandsDir = ../external/opencode/commands;
-  commandFiles = builtins.filter (f: builtins.match ".*\\.md$" f != null)
-    (builtins.attrNames (builtins.readDir commandsDir));
+  commandFiles = builtins.filter (f: builtins.match ".*\\.md$" f != null) (
+    builtins.attrNames (builtins.readDir commandsDir)
+  );
   commandNames = map (f: builtins.replaceStrings [ ".md" ] [ "" ] f) commandFiles;
 
   claudeCommandSkills = pkgs.runCommand "claude-command-skills" { } ''
@@ -28,10 +38,14 @@ let
     done
   '';
 
-  claudeCommandEntries = builtins.listToAttrs (map (name: {
-    name = ".claude/skills/cmd-${name}";
-    value = { source = "${claudeCommandSkills}/cmd-${name}"; };
-  }) commandNames);
+  claudeCommandEntries = builtins.listToAttrs (
+    map (name: {
+      name = ".claude/skills/cmd-${name}";
+      value = {
+        source = "${claudeCommandSkills}/cmd-${name}";
+      };
+    }) commandNames
+  );
 
   # caveman (https://github.com/JuliusBrussee/caveman) is referenced by absolute
   # path from opencode/opencode.json but isn't fetched by Nix (no fixed-output
@@ -64,6 +78,7 @@ in
     pkgs.jq
     pkgs.gnumake
     pkgs.luaformatter
+    pkgs.marktext
     pkgs.nerd-fonts.hasklug
     pkgs.nil
     pkgs.nixfmt
@@ -85,7 +100,9 @@ in
     ".lua-format".source = ln "external/lua/.lua-format";
     ".yamlfmt".source = ln "external/yaml/.yamlfmt";
     ".zprofile".source = ln "external/zsh/.zprofile";
-  } // claudeSkillEntries // claudeCommandEntries;
+  }
+  // claudeSkillEntries
+  // claudeCommandEntries;
 
   # Environment variables
   home.sessionVariables = {

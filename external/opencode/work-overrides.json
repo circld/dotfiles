@@ -66,31 +66,31 @@
         "chunkTimeout": 180000
       },
       "models": {
-        "gpt-5.6-luna": {
-          "name": "GPT-5.6 Luna",
+        "gpt-6-luna": {
+          "name": "GPT-6 Luna",
           "reasoning": true,
           "cost": {
-            "input": 1,
-            "output": 6,
-            "cache_read": 0.09999999999999999,
-            "cache_write": 1.25
+            "input": 0.09999999999999999,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
           },
           "limit": {
-            "context": 1178000,
+            "context": 1050000,
             "output": 128000
           }
         },
-        "gpt-5.6-sol": {
-          "name": "GPT-5.6 Sol",
+        "gpt-6-sol": {
+          "name": "GPT-6 Sol",
           "reasoning": true,
           "cost": {
-            "input": 5,
-            "output": 30,
-            "cache_read": 0.5,
-            "cache_write": 6.25
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.19999999999999998,
+            "cache_write": 2.5
           },
           "limit": {
-            "context": 1178000,
+            "context": 1050000,
             "output": 128000
           }
         }
@@ -102,30 +102,30 @@
   },
   "agent": {
     "explore": {
-      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "model": "octane_llm_proxy_openai/gpt-6-luna",
       "variant": "low"
     },
     "general": {
-      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "model": "octane_llm_proxy_openai/gpt-6-luna",
       "variant": "low"
     },
     "researcher": {
-      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "model": "octane_llm_proxy_openai/gpt-6-luna",
       "tools": {
         "websearch_*": true
       }
     },
     "code-reviewer": {
-      "model": "octane_llm_proxy_openai/grok-4-6",
+      "model": "octane_llm_proxy/grok-4-6",
       "mode": "subagent"
     },
     "task-implementer": {
-      "model": "octane_llm_proxy_openai/gpt-5.6-luna",
+      "model": "octane_llm_proxy_openai/gpt-6-luna",
       "mode": "subagent",
       "variant": "low"
     },
     "spec-reviewer": {
-      "model": "octane_llm_proxy_openai/grok-4-6",
+      "model": "octane_llm_proxy/grok-4-6",
       "mode": "subagent"
     },
     "doc-critic": {
