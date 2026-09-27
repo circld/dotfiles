@@ -78,7 +78,6 @@ in
     pkgs.jq
     pkgs.gnumake
     pkgs.luaformatter
-    pkgs.marktext
     pkgs.nerd-fonts.hasklug
     pkgs.nil
     pkgs.nixfmt
