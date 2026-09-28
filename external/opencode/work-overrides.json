@@ -25,33 +25,6 @@
             "context": 1000000,
             "output": 128000
           }
-        },
-        "kimi-k3": {
-          "name": "Kimi K3",
-          "reasoning": true,
-          "cost": {
-            "input": 3,
-            "output": 15,
-            "cache_read": 0.3,
-            "cache_write": 3
-          },
-          "limit": {
-            "context": 1000000,
-            "output": 131072
-          }
-        },
-        "grok-4-6": {
-          "name": "Grok 4.6",
-          "reasoning": true,
-          "cost": {
-            "input": 2.2,
-            "output": 6.6000000000000005,
-            "cache_read": 0.55
-          },
-          "limit": {
-            "context": 500000,
-            "output": 32768
-          }
         }
       }
     },
@@ -116,7 +89,7 @@
       }
     },
     "code-reviewer": {
-      "model": "octane_llm_proxy/grok-4-6",
+      "model": "octane_llm_proxy_openai/gpt-6-sol",
       "mode": "subagent"
     },
     "task-implementer": {
@@ -125,7 +98,7 @@
       "variant": "low"
     },
     "spec-reviewer": {
-      "model": "octane_llm_proxy/grok-4-6",
+      "model": "octane_llm_proxy_openai/gpt-6-sol",
       "mode": "subagent"
     },
     "doc-critic": {
@@ -133,7 +106,7 @@
       "mode": "subagent"
     },
     "doc-updater": {
-      "model": "octane_llm_proxy/kimi-k3",
+      "model": "octane_llm_proxy_openai/gpt-6-sol",
       "mode": "subagent"
     }
   },
