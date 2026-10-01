@@ -25,6 +25,20 @@
             "context": 1000000,
             "output": 128000
           }
+        },
+        "claude-sonnet-5-5": {
+          "name": "Claude Sonnet 5.5",
+          "reasoning": true,
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.19999999999999998,
+            "cache_write": 2.5
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
         }
       }
     },
@@ -93,7 +107,7 @@
       "mode": "subagent"
     },
     "task-implementer": {
-      "model": "octane_llm_proxy_openai/gpt-6-luna",
+      "model": "octane_llm_proxy/claude-sonnet-5-5",
       "mode": "subagent",
       "variant": "low"
     },
