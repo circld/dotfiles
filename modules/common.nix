@@ -85,7 +85,7 @@ in
     unstablePkgs.repomix
     pkgs.shellcheck
     pkgs.shfmt
-    pkgs.tldr
+    (pkgs.tldr.override { python3Packages = pkgs.python312Packages; })
     pkgs.tree
     pkgs.yamlfmt
     pkgs.nodejs_22

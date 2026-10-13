@@ -26,7 +26,7 @@ Dialogue-only workflow. Output: a validated design, not code or file changes. Ne
 **Understanding the idea:**
 - Review available project context to understand the current state
 - Ask questions one at a time to refine the idea
-- Prefer multiple choice questions when possible
+- Prefer multiple choice questions with trade-offs when possible
 - Only one question per message -- break complex topics into multiple questions
 - Focus on understanding: purpose, constraints, success criteria
 
