@@ -153,6 +153,14 @@ in
     fi
   '';
 
+  # Vendored from QingYunA/answer-me-with-html at af0239c9f1d1f061870d6c592f09f87acec920d1.
+  # Pinned: update_check off stops the background GitHub fetch and update prompts.
+  home.activation.configureAnswerMeWithHtml = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    am=${../external/opencode/skills/answer-me-with-html/scripts/am.mjs}
+    $DRY_RUN_CMD ${pkgs.nodejs_22}/bin/node "$am" config set open off
+    $DRY_RUN_CMD ${pkgs.nodejs_22}/bin/node "$am" config set update_check off
+  '';
+
   # Install caveman + ponytail plugins into Claude Code. Both are distributed
   # via marketplace repos whose `.claude-plugin/marketplace.json` names the
   # plugin after the repo, yielding the `<name>@<name>` plugin id Claude Code
