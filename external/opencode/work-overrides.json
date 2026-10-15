@@ -15,6 +15,10 @@
         "claude-opus-5.5": {
           "name": "Claude Opus 5.5",
           "reasoning": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          },
           "cost": {
             "input": 4,
             "output": 20,
@@ -29,6 +33,10 @@
         "claude-sonnet-5-5": {
           "name": "Claude Sonnet 5.5",
           "reasoning": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          },
           "cost": {
             "input": 2,
             "output": 10,
@@ -56,6 +64,10 @@
         "gpt-6-luna": {
           "name": "GPT-6 Luna",
           "reasoning": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          },
           "cost": {
             "input": 0.09999999999999999,
             "output": 0.5,
@@ -70,6 +82,10 @@
         "gpt-6.1-sol": {
           "name": "GPT-6.1 Sol",
           "reasoning": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          },
           "cost": {
             "input": 2,
             "output": 10,
