@@ -52,7 +52,7 @@ https://gist.github.com/Arty2/e6e61801531ec5ee1f9f
      background's rounded corners to match.
      https://github.com/MrOtherGuy/firefox-csshacks/blob/master/chrome/navbar_below_content.css */
   .urlbar:not([breakout])[open] {
-    --urlbarView-margin-block: 0px;
+    --urlbarview-margin-block: 0px;
     > .urlbarView:popover-open {
       position-area: block-start center !important;
       > .urlbarView-background {
@@ -60,11 +60,11 @@ https://gist.github.com/Arty2/e6e61801531ec5ee1f9f
         border-start-start-radius: var(--urlbar-background-border-top-radius-open) !important;
         border-end-end-radius: 0 !important;
         border-end-start-radius: 0 !important;
-        inset-block: calc(-1 * var(--urlbar-joint-background-overlap)) calc(1 * var(--urlbarView-joint-background-outset-block)) !important;
+        inset-block: calc(-1 * var(--urlbar-joint-background-overlap)) calc(1 * var(--urlbarview-joint-background-outset-block)) !important;
         clip-path: none !important;
       }
       :where(.urlbar:not([noresults])) > & {
-        padding-block: 0 var(--urlbarView-padding) !important;
+        padding-block: 0 var(--urlbarview-padding) !important;
       }
     }
   }
