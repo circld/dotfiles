@@ -511,6 +511,7 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
     });
     writeStateRecord(statePath, nextRecord);
     reapLegacyV1(directory);          // idempotent — see reapLegacyV1's header
+    /* macOS alerting disabled; restore block to re-enable.
     if (plan.notify) {
       const message = notificationMessage({
         repo,
@@ -523,6 +524,7 @@ export const AgentFleetSensorPlugin = async ({ directory, $, client }) => {
       // stall the permission.ask hook (which opencode awaits). See notify().
       notify($, repo, message, notificationSoundForState(state, process.env));
     }
+    */
     return { ts: plan.ts };
   }
 

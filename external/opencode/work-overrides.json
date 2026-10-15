@@ -67,13 +67,13 @@
             "output": 128000
           }
         },
-        "gpt-6-sol": {
-          "name": "GPT-6 Sol",
+        "gpt-6.1-sol": {
+          "name": "GPT-6.1 Sol",
           "reasoning": true,
           "cost": {
             "input": 2,
             "output": 10,
-            "cache_read": 0.19999999999999998,
+            "cache_read": 0.2,
             "cache_write": 2.5
           },
           "limit": {
@@ -103,7 +103,7 @@
       }
     },
     "code-reviewer": {
-      "model": "octane_llm_proxy_openai/gpt-6-sol",
+      "model": "octane_llm_proxy_openai/gpt-6.1-sol",
       "mode": "subagent"
     },
     "task-implementer": {
@@ -112,7 +112,7 @@
       "variant": "low"
     },
     "spec-reviewer": {
-      "model": "octane_llm_proxy_openai/gpt-6-sol",
+      "model": "octane_llm_proxy_openai/gpt-6.1-sol",
       "mode": "subagent"
     },
     "doc-critic": {
@@ -120,7 +120,7 @@
       "mode": "subagent"
     },
     "doc-updater": {
-      "model": "octane_llm_proxy_openai/gpt-6-sol",
+      "model": "octane_llm_proxy_openai/gpt-6.1-sol",
       "mode": "subagent"
     }
   },
