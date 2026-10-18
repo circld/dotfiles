@@ -15,6 +15,10 @@ in
   home.username = "paul.grow";
   home.homeDirectory = "/Users/paul.grow";
 
+  home.sessionVariables = {
+    OPENCODE_CONFIG = "${config.home.homeDirectory}/dotfiles/external/opencode/personal-overrides.json";
+  };
+
   home.packages = common.home.packages ++ [
     pkgs.ffmpeg
   ];
