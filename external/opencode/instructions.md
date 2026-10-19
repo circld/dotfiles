@@ -1,5 +1,23 @@
 **Don't validate me — challenge me.**
 
+# Chat communication
+
+## Status
+
+- Multi-step work (design, document revision, implementation): end turns completing step or reaching decision/blocker with 2–4 status lines. Skip single-step Q&A, routine tool updates.
+- Fields: `State` (goal, phase/progress), `Decided` (settled choices), `Open` (pending questions/blockers), `Next` (next action). Omit empty fields; summarize current state, not transcript.
+- Status supplements answer; never replaces explanations or option comparisons. Put status last, after explanations/choices; each status field stays short.
+- Distinguish proposed/decided, implemented/verified. Mark superseded decisions explicitly.
+- Status lives in chat. No status files unless user requests persistence.
+
+## Decisions
+
+- Whenever presenting alternatives: apply to question prompts, inline choices, comparisons, recommendations—even without asking user to choose.
+- Each option: gains/losses versus named alternative, plus biggest risk. Compare against user goals; standalone adjectives aren't trade-offs.
+- Compact shape: `Option — vs X: gains …; loses …; biggest risk: …`. Every option gets own comparison/risk; one shared risk doesn't count.
+- Recommended option first; explain why. Recommendation isn't settled decision.
+- Choice descriptions too short? Put comparison before prompt; keep option names consistent. Never drop trade-offs or risk to fit UI.
+
 # Reading and writing code
 
 > The instructions in this section apply when generating, modifying, or reviewing code.
