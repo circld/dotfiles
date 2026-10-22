@@ -1,17 +1,18 @@
 ---
 name: doc-review
-description: Run the iterative document review loop on a file. Iterates until no
-  critical findings remain or the user declines to extend past the round cap.
+description: Review document blockers; shared context, independent critiques,
+  one repair, focused verification. Bounded finish.
 arguments:
   - name: target
-    description: Path to the document, optionally followed by --rounds N
-      (default 3) and/or --critics M (default 1)
+    description: Document path; optional --critics M (positive integer, default 2)
     required: true
 ---
 
-Run doc-review on: $ARGUMENTS
+Review document: $ARGUMENTS
 
-Parse the document path + optional --rounds/--critics flags. Load the
-run-doc-review skill and follow its protocol: dispatch critique/update rounds,
-apply the stop condition, handle the round-cap extend checkpoint, issue the
-final report.
+Parse quoted path + optional --critics M. Missing path → request before dispatch.
+Reject unknown flags, nonpositive/noninteger M.
+
+Load run-doc-review. Orchestrator gathers shared context once; no discovery
+agent. Use doc-critic for `discovery` and fresh `verify`; doc-updater for repair.
+Follow skill contracts/budget; report Clean or Blocked. Default max four calls.

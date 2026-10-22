@@ -15,19 +15,21 @@ Load the brainstorming skill. Explore the idea with the user. Produce a validate
 
 Ask: "Should I write this up as a design doc, or is the conversation sufficient?"
 
-If yes, produce the design doc draft. Do NOT save yet.
+If yes, prepare design draft. Don't save final document yet.
 
 ### Quality Gate (design doc)
 
-If the run-doc-review skill is available, load it and run the doc-review
-loop on the draft artifact before saving. Follow the skill's protocol for
-dispatching critique/update rounds and handling the round-cap checkpoint.
+If run-doc-review available, stage draft in temporary on-disk file; load skill.
+Use doc-critic for independent discovery/fresh verification, doc-updater for
+repair. Follow bounded protocol. Blocked → report
+remaining issues; halt final save/commit and feature progression pending user
+resolution. Clean → use reviewed draft below.
 
 If the run-doc-review skill is not available, present the draft to the user
 for review and explicit approval before saving. If not approved, revise the
 draft based on feedback and repeat until explicit approval.
 
-When clean (or approved), save the design doc to
+When Clean (or explicitly approved), save design doc to
 `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit.
 
 ## Phase 2 — Assess complexity.

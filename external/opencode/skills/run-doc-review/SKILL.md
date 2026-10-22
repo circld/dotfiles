@@ -1,102 +1,76 @@
 ---
 name: run-doc-review
-description: Use when orchestrating an iterative critique/update review
-  loop — dispatching critique and update rounds against an on-disk
-  document, checking the stop condition, handling the round-cap extend
-  prompt, and issuing the final report. Not for acting as the critic or
-  updater yourself.
+description: Use when coordinating on-disk document review for blocking
+  correctness gaps. Not standalone critique, editing, or prose polish.
 ---
 
 # Run Doc Review
 
-## Overview
+Use for design/plan correctness review. Requires readable document/sources,
+writable target, delegated critique/repair. Not general copyediting.
+Orchestrator gathers context, joins results, reports; delegates judgment/edits.
 
-An iterative quality loop for an on-disk document (design, plan, etc.). Each
-round dispatches one or more read-only critique passes against the document,
-then a single read-write update pass that triages and fixes what it judges
-valid and worthwhile. The loop stops when a round comes back with no
-outstanding critical findings, or when the user declines to extend past the
-round cap.
+## Contract
 
-**This skill does not evaluate or edit the document itself** — it dispatches
-subagents that do, and makes the stop/continue decision based on their
-structured output.
+- Inputs: on-disk path; critic count M, positive integer, default 2.
+- Budget: M discovery reviews + at most one repair + one verification.
+  Default maximum 4 delegated calls. No retry, restart, extension prompt, or
+  second repair. Further work requires new user request.
+- Blocker = evidenced defect preventing stated task or causing materially
+  wrong implementation/result. Require location, concrete failure, cited
+  evidence, smallest correction. No style, optional features, speculative risks.
+- Failed/incomplete stage, material evidence gap, unexpected document change,
+  or unresolved requirement conflict → Blocked. Never infer Clean from silence.
 
-## Inputs
+## Shared Context
 
-- **Document path.** Required. The file on disk to review.
-- **Round cap (N).** Optional, default 3.
-- **Critic count (M).** Optional, default 1. M > 1 dispatches M identical
-  fresh-context critique passes per round for statistical sampling of a
-  nondeterministic evaluator — not differentiated personas.
+Gather once, in orchestrator; reuse existing research. No discovery agent.
+Packet: purpose/non-goals, cited facts/source map, unknowns, settled decisions
+with reasons. No proposed findings or approval verdict. Record reviewed version.
+Keep packet and issue ledger in review context; don't pad document with review
+history. Pass both forward; reopen settled point only with new blocking evidence.
 
-## The Loop
+Reviewers reuse facts, independently read full document, inspect sources for
+uncertainty/contradictions and blocker evidence. No repeated broad exploration;
+packet omissions cannot restrict findings. Missing facts remain unknown.
 
-Repeat starting at round 1:
+## Document Text
 
-1. **Dispatch critique.** Dispatch M subagent instance(s) capable of
-   read-only document critique against the document path. Each instance is
-   independent and fresh-context — do not share state between them. The
-   dispatch prompt must be identical every round: document path and role
-   instructions only. Never include the round number, prior findings, fix
-   summaries, or loop progress — a primed critic confirms clean instead of
-   verifying, degrading the stop condition to a rubber stamp.
-2. **Union findings.** Combine all findings from all M instances into one
-   list, unmodified. Do not deduplicate, merge, or filter — pass every
-   finding through as-is, even if multiple instances raised the same point
-   in different words.
-3. **Dispatch update.** Dispatch a single subagent instance capable of
-   read-write document updates, given the document path and the full union
-   of findings. It triages each finding for validity and criticality, fixes
-   what it judges valid and worthwhile directly in the file, and returns a
-   structured per-finding verdict (verdict, final criticality, action taken,
-   rationale) — one entry per finding it received.
-4. **Check stop condition.** Inspect the returned verdict list for any entry
-   with final criticality = critical.
-   - **None found:** Status is Clean. Stop the loop, go to Final Report.
-   - **At least one found, and round < cap:** Start the next round (step 1).
-   - **At least one found, and round == cap:** Go to Cap Checkpoint.
+Use concise plain language. Maximize clarity; minimize characters while
+preserving required technical meaning. Keep essential technical facts only.
+In repaired passages omit filler, repetition, history, narrative, edit rationale,
+and review-generated IDs/lookup keys/temporary refs. Preserve real technical
+identifiers and required citations. Diagrams don't count toward text length.
+No unrelated copyediting or cryptic shorthand.
 
-## Cap Checkpoint
+## Phases
 
-When the round cap is reached with critical findings still outstanding, ask
-the user: extend by 3 rounds and continue, or stop here.
+1. **Review.** Dispatch M fresh read-only reviewers, mode `discovery`, identical
+   target/version, packet, prior ledger, blocker gate. Parallel preferred;
+   serial allowed. Share no current peer findings. No edits before all finish.
+2. **Join.** Require M complete results. Deduplicate same failure/root cause;
+   preserve distinct blockers. Assign stable IDs I1, I2…; retain evidence and
+   prior IDs. Duplicate votes aren't proof. No findings + no material coverage
+   gaps → Clean; skip repair/verification.
+3. **Repair.** Dispatch one writer with target, packet, canonical ledger.
+   Independently adjudicate every ID; minimally fix valid blockers only.
+   Reject invalid/nonblocking findings with evidence/reason, no document edit.
+   Unjustified choice/conflict → unresolved. Return per-ID status
+   `fixed|rejected|unresolved`, essential evidence/decision reason, delta,
+   affected instructions. No narrative or repeated edit rationale.
+   Require every input ID accounted for; incomplete output → Blocked.
+4. **Verify.** Dispatch fresh read-only reviewer, mode `verify`, latest document,
+   original version/change delta, packet, full ledger, repair summary. Even
+   all-rejected/no-edit repairs need verification. Check every disposition
+   against evidence, including rejections; inspect changed text and affected
+   instructions for introduced/exposed blockers. No unrelated discovery sweep.
+   Return per-ID `closed|rejected|unresolved` with evidence; new regressions get
+   stable IDs linked to causing repair. Require complete issue/change coverage.
+   Any unresolved/new blocker or material gap → Blocked; otherwise Clean. Stop.
 
-- If the user chooses to extend: raise the cap by 3 and continue the loop
-  from the next round.
-- If the user declines: Status is User-stopped. Stop the loop, go to Final
-  Report.
+## Report
 
-This checkpoint repeats every time a (possibly extended) cap is reached —
-there is no limit on how many times the user may extend.
-
-## Accumulating Minor Findings
-
-Across every round, collect any verdict-list entries with final criticality
-= minor. Do not deduplicate across rounds — accumulate the raw list for the
-final report.
-
-## Final Report
-
-Report to the user:
-- **Status:** Clean or User-stopped
-- **Rounds completed:** the final round count reached
-- **Minor findings:** the accumulated list from all rounds (may be empty)
-- **Document:** the path, for the user's own final review
-
-There is no certification banner and no gating on whether the document may
-be saved further — the document has already been edited in place by the
-update pass across the rounds; this report is a summary for the human, not a
-gate.
-
-## What This Skill Does Not Do
-
-- It does not deduplicate findings within a round or across rounds. The
-  document's own accumulated notes (written by the update pass) are what
-  prevent relitigating settled points — not orchestrator-side comparison.
-- It does not detect cyclical/stuck loops via any comparison across rounds.
-  The round cap (with its extend checkpoint) is the sole backstop for a
-  loop that never reaches zero critical findings.
-- It does not pause mid-round for human approval of individual fixes. The
-  update pass operates autonomously; the only human checkpoint is the cap
-  extend/stop decision.
+Return `Clean|Blocked` + path. Blocked: remaining failure/coverage gap, essential
+source evidence, smallest next action. Omit history, edit rationale, rejected
+findings, review-generated IDs/refs, budget narration. Keep ledger internal for
+follow-up. Clean covers checked scope; never claim exhaustive certification.
