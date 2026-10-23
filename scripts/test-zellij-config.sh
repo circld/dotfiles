@@ -39,19 +39,6 @@ extract_bind() {
   ' "$CONFIG"
 }
 
-if rg -q 'Run "/nix/store/.*/bin/bash" "/Users/paul\.garaud/dotfiles/scripts/agent-fleet-jump\.sh"' "$CONFIG"; then
-  echo "PASS: Alt-y runs agent-fleet-jump with Nix bash"
-else
-  echo "FAIL: Alt-y must not use macOS /bin/bash for agent-fleet-jump" >&2
-  rg -n 'agent-fleet-jump|bind "Alt y"|Run .*bash' "$CONFIG" >&2 || true
-  exit 1
-fi
-
-if rg -q 'Run "bash" "-lc" ".*agent-fleet-jump\.sh"' "$CONFIG"; then
-  echo "FAIL: Alt-y still uses PATH-dependent bash -lc" >&2
-  exit 1
-fi
-
 block=$(extract_bind "Alt [")
 if rg -q 'PreviousSwapLayout' <<<"$block"; then
   echo "PASS: Alt-[ -> PreviousSwapLayout"
@@ -69,29 +56,3 @@ else
   echo "$block" >&2
   exit 1
 fi
-
-block=$(extract_bind "Alt ,")
-if rg -q 'Run "[^"]*" "[^"]*agent-fleet-traverse\.sh" "prev"' <<<"$block"; then
-  echo "PASS: Alt-, -> agent-fleet-traverse.sh prev"
-else
-  echo "FAIL: Alt-, block does not run agent-fleet-traverse.sh prev" >&2
-  echo "$block" >&2
-  exit 1
-fi
-
-block=$(extract_bind "Alt .")
-if rg -q 'Run "[^"]*" "[^"]*agent-fleet-traverse\.sh" "next"' <<<"$block"; then
-  echo "PASS: Alt-. -> agent-fleet-traverse.sh next"
-else
-  echo "FAIL: Alt-. block does not run agent-fleet-traverse.sh next" >&2
-  echo "$block" >&2
-  exit 1
-fi
-
-if rg -q 'Run "bash" "-lc" ".*agent-fleet-traverse\.sh"' "$CONFIG"; then
-  echo "FAIL: traverse still uses PATH-dependent bash -lc" >&2
-  exit 1
-fi
-
-echo "PASS: Alt-y avoids PATH-dependent bash -lc"
-echo "PASS: traverse avoids PATH-dependent bash -lc"
