@@ -8,8 +8,8 @@
       "~/code/caveman/skills"
     ]
   },
-  "plugin": [
+  "plugins": [
     "@dietrichgebert/ponytail",
-    "~/code/caveman/src/plugins/opencode/plugin.js"
+    "~/code/caveman/src/plugins/opencode"
   ]
 }
