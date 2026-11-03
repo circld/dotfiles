@@ -18,6 +18,10 @@
 - Recommended option first; explain why. Recommendation isn't settled decision.
 - Choice descriptions too short? Put comparison before prompt; keep option names consistent. Never drop trade-offs or risk to fit UI.
 
+## Artifacts
+
+- If an artifact was generated for user's consumption, file path to artifact MUST be included in reply.
+
 # Reading and writing code
 
 > The instructions in this section apply when generating, modifying, or reviewing code.
