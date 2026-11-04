@@ -7,9 +7,9 @@ description: Use when drafting, editing, or shortening PR descriptions or pull r
 
 ## Overview
 
-**PR explains intent and guarantees; diff explains implementation; runbook explains operation.**
+**PR: intent + guarantees. Diff: implementation. Runbook: operation.**
 
-Target ~200 words; small changes shorter. Never pad.
+Target ~200 words; shorter small PRs. Never pad; useful review map may exceed target.
 
 ## When to Use
 
@@ -17,19 +17,35 @@ Use: PR bodies. Exclude: code reviews, commit messages, release notes, runbooks.
 
 ## Procedure
 
-1. Before drafting/editing, read purpose, diff, existing description, verification evidence, applicable PR template. Honor selected template; otherwise check `.github/PULL_REQUEST_TEMPLATE.md` and root/docs equivalents. No repository access: supplied facts only. Never invent context.
-2. Template controls structure: preserve headings/order, prompts, checklists, required markers. Map concerns below into template; never edit template file. No template: use default headings below. Normal professional prose; each fact once:
+1. Read purpose, diff, existing body, verification evidence, PR template. Honor selected template; else check `.github/PULL_REQUEST_TEMPLATE.md` + root/docs equivalents. No repository access: supplied facts only. Never invent context.
+2. Template wins: preserve headings/order, prompts, checklists, required markers. Map concerns below; never edit template file. No template: headings below. PR prose stays professional, not compressed; each fact once:
 
    | Section | Include |
    |---------|---------|
-   | **Why** | Problem, consequence, intended outcome. |
-   | **Guarantees** | Observable behavior, scope, compatibility, important limits. |
-   | **Verification** | Relevant checks, outcomes, meaningful gaps. |
+   | **Why** | Problem, consequence, goal. |
+   | **Guarantees** | Observable behavior, scope, compatibility, limits. |
+   | **Verification** | Checks, outcomes, gaps. |
 
-3. Critical behavior changes, limits, risk context inline. Runbooks linked; no deployment commands, monitoring recipes, rollback steps.
-4. Cut file/function inventories, diff narration, boilerplate. Keep template fields; concise N/A if inapplicable. Implementation detail only for guarantees/trade-offs. Never repeat compatibility warnings across headings.
-5. Evidence bounds claims. Intent ≠ proven outcome. Checks: passed, failed, pending, blocked, not run. Check checklist items only with evidence; unrun stays unchecked. Suggested commands ≠ completed checks; sample counts ≠ correctness/availability proof.
-6. Review intent, guarantees, evidence. Return PR body only.
+3. Keep critical behavior, limits, risk inline. Link runbooks; no deployment commands, monitoring recipes, rollback steps.
+4. Cut inventories, diff narration, boilerplate; review map excepted. Keep template fields; terse N/A when inapplicable. Implementation detail only for guarantees/trade-offs/review focus. Compatibility warnings once, never across headings.
+5. Claims need evidence. Intent ≠ proven outcome. Checks: passed, failed, pending, blocked, not run. Tick checklists only with evidence; unrun stays unchecked. Suggested commands ≠ completed checks; sample counts ≠ correctness/availability proof.
+6. Audit intent, guarantees, evidence. Return PR body only.
+
+## Review Map
+
+Large/mixed diffs: include compact table when composition guides review. Small, obvious changes: omit. No reliable counts: qualitative review focus; never invent counts/percentages.
+
+Template: appropriate existing section, e.g. What. No template: after Why, before Guarantees.
+
+| Category | Diff (+ / − LoC) | Nature of change | Review focus |
+|---|---:|---|---|
+| Group purpose | Measured additions / deletions | Substantive change | Failure mode / review question |
+
+- Categories present only: runtime/business logic, API contracts, tests, test support, config/build, docs, generated artifacts, verified mechanical changes. Terse cells; link one or two key files when useful, not inventories.
+- Measure PR-target merge-base diff at final head. Additions/deletions, never net. Refresh after changes; note base/head, method, exclusions.
+- Assign each changed line once; reconcile textual totals. List binaries separately. Generated/verified mechanical churn visible; exclude from other rows.
+- Mixed files: split hunks when practical; else disclose approximate dominant-purpose classification. File-level counts: inline fakes/concurrency harness stay under tests; only standalone helpers separate.
+- Verify generated/mechanical labels; filenames ≠ unchanged behavior. Category/LoC ≠ risk/correctness. Guide review, not defend oversized PRs or replace guarantees/evidence.
 
 ## Example
 
@@ -64,11 +80,11 @@ Lease recovery and operator procedures: [runbook](docs/worker-leases.md).
 
 ## Mistakes / Red Flags
 
-Rewrite: changelog/runbook prose, repeated warnings, quota padding, unsupported certainty.
+Rewrite: changelog/runbook prose, repeated warnings, padding, unsupported certainty.
 
 | Rationalization | Counter |
 |-----------------|---------|
-| "Rollout steps explain risk." | State limit; link recipe. No duplicate runbook. |
+| "Rollout steps explain risk." | State limit; link recipe. No runbook duplication. |
 | "Warning must stay inline." | Once under required Compatibility; never repeat in Summary. |
-| "No zero-downtime claim." | Equivalent wording still claims availability; audit Why too. |
-| "Kept approved headings." | Existing body can drift; recheck repository template before edits. |
+| "No zero-downtime claim." | Equivalent wording claims availability; audit Why too. |
+| "Kept approved headings." | Body drifts; recheck repository template before edits. |
