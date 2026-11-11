@@ -4,7 +4,7 @@ Best practices for authoring instructions, skills, commands, agents, and tools.
 
 This document defines rules for creating and composing agentic AI components that are effective, maintainable, correctly orchestrated, and operationally reliable. It is both a human reference and an AI-loadable specification: it can be used as a skill or instruction for AI agents that create or modify agentic components.
 
-The rules are best-practice guidelines derived from vendor documentation (OpenCode, Claude Code, GitHub Copilot, Cursor), system design analysis, and engineering judgment.
+The rules are best-practice guidelines derived from vendor documentation (OpenCode, GitHub Copilot, Cursor), system design analysis, and engineering judgment.
 
 ## Background
 
@@ -14,7 +14,7 @@ Agentic AI tools share a common set of component types despite differing termino
 
 Every agentic AI component is a configuration artifact that shapes how an AI agent behaves. The five component types form a layered system, ordered by how they enter the agent's context.
 
-**This taxonomy is a design lens, not a file-format specification.** Platform artifacts do not map 1:1 to these types. A single file may combine concerns from multiple types — for example, a Claude Code "skill" that references specific tools and routes to a named agent is functioning as a Command (or even an Agent definition) in this taxonomy, not a Skill. The value of the taxonomy is in making these mixed concerns visible so they can be evaluated and, where appropriate, separated.
+**This taxonomy is a design lens, not a file-format specification.** Platform artifacts do not map 1:1 to these types. A single file may combine concerns from multiple types — for example, a platform "skill" that references specific tools and routes to a named agent is functioning as a Command (or even an Agent definition) in this taxonomy, not a Skill. The value of the taxonomy is in making these mixed concerns visible so they can be evaluated and, where appropriate, separated.
 
 ### Component Types
 

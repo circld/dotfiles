@@ -66,7 +66,6 @@ function skill-install --description 'install skills from skills.sh repos into d
     $tmp/skills/.system \
     $tmp/.agent/skills \
     $tmp/.agents/skills \
-    $tmp/.claude/skills \
     $tmp/.cline/skills \
     $tmp/.codebuddy/skills \
     $tmp/.codex/skills \

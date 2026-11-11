@@ -81,7 +81,6 @@
       "**/id_dsa"
       "**/.ssh/id_*"
       "*.pyc"
-      ".claude"
     ];
   };
 

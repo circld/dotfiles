@@ -6,7 +6,6 @@ Nix + Home Manager dotfiles for macOS (no flake, no CI). Cloned at `~/dotfiles`.
 
 - `home-manager switch` — apply and activate (most common)
 - `home-manager build` — build without activating; output at `./result`
-- `bash scripts/test-transform-commands.sh` — only automated test (7 assertions)
 - Profile switch: `ln -sf ~/dotfiles/home/<profile>.nix ~/.config/home-manager/home.nix && home-manager switch`
 
 ## Directory structure (non-obvious parts)

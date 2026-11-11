@@ -54,7 +54,7 @@ Automatic pages are for replies to the user, not internal reports:
 
 ### Always-on mode
 
-If the context contains the `[answer-me-with-html always-on]` reminder (the user added the always-on rule to a rules file such as `CLAUDE.md` or `AGENTS.md`), the bar is lower:
+If the context contains the `[answer-me-with-html always-on]` reminder (the user added the always-on rule to a rules file such as `AGENTS.md`), the bar is lower:
 
 - Whenever this turn gives a conclusion, summary, plan, comparison, review or explanation, attach a page.
 - Do not skip it because "the answer is short". If there is a conclusion, produce a page.
