@@ -4,10 +4,11 @@
   "agent": {
     "task-implementer": {
       "model": "openrouter/deepseek/deepseek-v4.1-flash-1017",
+      "variant": "max",
       "mode": "subagent"
     },
     "spec-reviewer": {
-      "model": "openrouter/anthropic/claude-haiku-5.5",
+      "model": "openrouter/meta/muse-ember",
       "mode": "subagent"
     },
     "code-reviewer": {
