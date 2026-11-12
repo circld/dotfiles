@@ -13,6 +13,24 @@
         "chunkTimeout": 300000
       },
       "models": {
+        "claude-haiku-5-5": {
+          "name": "Claude Haiku 5.5",
+          "reasoning": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          },
+          "cost": {
+            "input": 0.11,
+            "output": 0.55,
+            "cache_read": 0.011,
+            "cache_write": 0.1375
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
+        },
         "claude-opus-5.5": {
           "name": "Claude Opus 5.5",
           "reasoning": true,
@@ -122,39 +140,43 @@
       "variant": "low"
     },
     "explore": {
-      "model": "octane_llm_proxy_openai/gpt-6-luna",
+      "model": "octane_llm_proxy/claude-haiku-5-5",
       "variant": "low"
     },
     "general": {
-      "model": "octane_llm_proxy_openai/gpt-6-luna",
+      "model": "octane_llm_proxy_openai/gpt-6.1-terra",
       "variant": "low"
     },
     "researcher": {
-      "model": "octane_llm_proxy_openai/gpt-6-luna",
+      "model": "octane_llm_proxy_openai/gpt-6.1-terra",
+      "variant": "medium",
       "tools": {
         "websearch_*": true
       }
     },
     "code-reviewer": {
       "model": "octane_llm_proxy_openai/gpt-6.1-sol",
-      "mode": "subagent"
+      "mode": "subagent",
+      "variant": "high"
     },
     "task-implementer": {
-      "model": "octane_llm_proxy/claude-sonnet-5-5",
+      "model": "octane_llm_proxy_openai/gpt-6.1-terra",
       "mode": "subagent",
-      "variant": "low"
+      "variant": "medium"
     },
     "spec-reviewer": {
       "model": "octane_llm_proxy_openai/gpt-6.1-sol",
-      "mode": "subagent"
+      "mode": "subagent",
+      "variant": "high"
     },
     "doc-critic": {
       "model": "octane_llm_proxy/claude-opus-5.5",
       "mode": "subagent"
     },
     "doc-updater": {
-      "model": "octane_llm_proxy_openai/gpt-6.1-sol",
-      "mode": "subagent"
+      "model": "octane_llm_proxy_openai/gpt-6.1-terra",
+      "mode": "subagent",
+      "variant": "high"
     }
   },
   "mcp": {
