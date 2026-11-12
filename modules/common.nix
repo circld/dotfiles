@@ -43,7 +43,18 @@ in
     pkgs.nerd-fonts.hasklug
     pkgs.nil
     pkgs.nixfmt
-    unstablePkgs.opencode
+    (unstablePkgs.opencode.overrideAttrs (old: {
+      node_modules = old.node_modules.overrideAttrs (deps: {
+        # Nix builders do not inherit the shell's certificate configuration.
+        env = (deps.env or { }) // {
+          NODE_EXTRA_CA_CERTS = builtins.path {
+            path =
+              config.home.sessionVariables.NIX_SSL_CERT_FILE or "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+            name = "opencode-ca-bundle.crt";
+          };
+        };
+      });
+    }))
     unstablePkgs.repomix
     pkgs.shellcheck
     pkgs.shfmt
