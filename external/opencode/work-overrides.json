@@ -80,6 +80,27 @@
         "chunkTimeout": 180000
       },
       "models": {
+        "gpt-6-astra": {
+          "name": "GPT-6 Astra",
+          "reasoning": true,
+          "settings": {
+            "reasoningEffort": "medium"
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          },
+          "cost": {
+            "input": 10,
+            "output": 50,
+            "cache_read": 1,
+            "cache_write": 12.5
+          },
+          "limit": {
+            "context": 922000,
+            "output": 128000
+          }
+        },
         "gpt-6-luna": {
           "name": "GPT-6 Luna",
           "reasoning": true,
@@ -170,7 +191,7 @@
       "variant": "high"
     },
     "doc-critic": {
-      "model": "octane_llm_proxy/claude-opus-5.5",
+      "model": "octane_llm_proxy_openai/gpt-6-astra",
       "mode": "subagent"
     },
     "doc-updater": {
