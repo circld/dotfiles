@@ -33,7 +33,15 @@ Use: PR bodies. Exclude: code reviews, commit messages, release notes, runbooks.
 
 ## Review Map
 
-Large/mixed diffs: include compact table when composition guides review. Small, obvious changes: omit. No reliable counts: qualitative review focus; never invent counts/percentages.
+Review map required when either:
+- PR-target merge-base diff ≥200 changed lines (additions + deletions, never net).
+- Smaller diff mixes concerns whose composition guides review.
+
+Measure before omitting. Copied/generated/mechanical lines count.
+Simple-looking diff earns no exemption.
+
+Below 200: omit unless mixed-concern rule applies.
+Counts unavailable: disclose gap; never assume small. Use qualitative review focus; never invent counts/percentages.
 
 Template: appropriate existing section, e.g. What. No template: after Why, before Guarantees.
 
